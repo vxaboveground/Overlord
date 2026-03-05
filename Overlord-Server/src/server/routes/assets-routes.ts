@@ -11,6 +11,14 @@ export async function handleAssetsRoutes(
   url: URL,
   deps: AssetsRouteDeps,
 ): Promise<Response | null> {
+  if (req.method === "GET" && url.pathname === "/favicon.ico") {
+    const file = Bun.file(path.join(deps.PUBLIC_ROOT, "assets", "favicon.ico"));
+    if (await file.exists()) {
+      return new Response(file, { headers: deps.secureHeaders("image/x-icon") });
+    }
+    return new Response("Not found", { status: 404 });
+  }
+
   if (!(req.method === "GET" && url.pathname.startsWith("/assets/"))) {
     return null;
   }
