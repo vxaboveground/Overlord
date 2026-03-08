@@ -118,6 +118,24 @@ const UUID_TOKEN_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{
 const uploadIntents = new Map<string, UploadIntent>();
 const uploadPulls = new Map<string, UploadPull>();
 
+function parsePositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.floor(parsed);
+}
+
+// WAN uploads can be significantly slower than LAN transfers.
+const FILE_UPLOAD_INTENT_TTL_MS = parsePositiveIntEnv(
+  "OVERLORD_FILE_UPLOAD_INTENT_TTL_MS",
+  30 * 60_000,
+);
+const FILE_UPLOAD_PULL_TTL_MS = parsePositiveIntEnv(
+  "OVERLORD_FILE_UPLOAD_PULL_TTL_MS",
+  30 * 60_000,
+);
+
 function isSafeRemotePath(value: string): boolean {
   if (!value || value.length > 4096) return false;
   return !/[\x00-\x1F\x7F]/.test(value);
@@ -323,10 +341,10 @@ export async function handleFileDownloadRoutes(
     }
 
     const uploadId = uuidv4();
-    const expiresAt = Date.now() + 2 * 60_000;
+    const expiresAt = Date.now() + FILE_UPLOAD_INTENT_TTL_MS;
     const timeout = setTimeout(() => {
       uploadIntents.delete(uploadId);
-    }, 2 * 60_000);
+    }, FILE_UPLOAD_INTENT_TTL_MS);
 
     uploadIntents.set(uploadId, {
       id: uploadId,
@@ -423,14 +441,14 @@ export async function handleFileDownloadRoutes(
     clearTimeout(intent.timeout);
 
     const pullId = uuidv4();
-    const pullExpiresAt = Date.now() + 10 * 60_000;
+    const pullExpiresAt = Date.now() + FILE_UPLOAD_PULL_TTL_MS;
     const pullTimeout = setTimeout(() => {
       const pull = uploadPulls.get(pullId);
       uploadPulls.delete(pullId);
       if (pull) {
         void fs.unlink(pull.tmpPath).catch(() => {});
       }
-    }, 10 * 60_000);
+    }, FILE_UPLOAD_PULL_TTL_MS);
 
     uploadPulls.set(pullId, {
       id: pullId,

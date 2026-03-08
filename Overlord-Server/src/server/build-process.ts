@@ -4,6 +4,7 @@ import fs from "fs";
 import { saveBuild } from "../db";
 import { logger } from "../logger";
 import { getConfig } from "../config";
+import { ensureDataDir } from "../paths";
 import * as buildManager from "../build/buildManager";
 import type { BuildStream } from "../build/types";
 import { ALLOWED_PLATFORMS } from "./validation-constants";
@@ -31,6 +32,16 @@ function resolveClientModuleDir(rootDir: string): string | null {
   }
 
   return null;
+}
+
+function resolveClientBuildCacheRoot(): string {
+  const explicit = process.env.OVERLORD_CLIENT_BUILD_CACHE_DIR?.trim();
+  if (explicit) {
+    return path.resolve(explicit);
+  }
+
+  // Keep UI build caches under persistent app data by default.
+  return path.resolve(ensureDataDir(), "client-build-cache");
 }
 
 type BuildProcessConfig = {
@@ -133,10 +144,16 @@ export async function startBuildProcess(
       );
     }
     const outDir = path.join(rootDir, "dist-clients");
+    const cacheRoot = resolveClientBuildCacheRoot();
+    const goBuildCacheDir = path.join(cacheRoot, "go-build");
+    const goModCacheDir = path.join(cacheRoot, "go-mod");
 
     await Bun.$`mkdir -p ${outDir}`.quiet();
+    fs.mkdirSync(goBuildCacheDir, { recursive: true });
+    fs.mkdirSync(goModCacheDir, { recursive: true });
     sendToStream({ type: "output", text: `Build directory: ${outDir}\n`, level: "info" });
     sendToStream({ type: "output", text: `Client source: ${clientDir}\n`, level: "info" });
+    sendToStream({ type: "output", text: `Client build cache: ${cacheRoot}\n`, level: "info" });
 
     const platformsToBuild = (config.platforms || []).filter((p) => ALLOWED_PLATFORMS.has(p));
     if (platformsToBuild.length !== (config.platforms || []).length) {
@@ -168,6 +185,8 @@ export async function startBuildProcess(
         GOARCH: actualArch,
         CGO_ENABLED: config.disableCgo === true ? "0" : "1",
         GOWORK: "off",
+        GOCACHE: goBuildCacheDir,
+        GOMODCACHE: goModCacheDir,
         ...(goarm ? { GOARM: goarm } : {}),
       };
 

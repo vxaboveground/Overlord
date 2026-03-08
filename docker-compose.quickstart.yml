@@ -1,6 +1,13 @@
 services:
   overlord-server:
     image: ghcr.io/vxaboveground/overlord:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      cache_from:
+        - type=local,src=.docker-cache/buildx
+      cache_to:
+        - type=local,dest=.docker-cache/buildx,mode=max
     container_name: overlord-server
     ports:
       - "5173:5173"
@@ -28,9 +35,13 @@ services:
       - OVERLORD_TLS_CERTBOT_CERT_FILE=fullchain.pem
       - OVERLORD_TLS_CERTBOT_KEY_FILE=privkey.pem
       - OVERLORD_TLS_CERTBOT_CA_FILE=chain.pem
+      - OVERLORD_CLIENT_BUILD_CACHE_DIR=/app/client-build-cache
+      - OVERLORD_FILE_UPLOAD_INTENT_TTL_MS=1800000
+      - OVERLORD_FILE_UPLOAD_PULL_TTL_MS=1800000
     volumes:
       - overlord-data:/app/data
       - overlord-certs:/app/certs
+      - overlord-client-build-cache:/app/client-build-cache
       # Uncomment to mount host certbot certs read-only
       # - /etc/letsencrypt:/etc/letsencrypt:ro
       # Uncomment to use a static config file instead of env vars
@@ -52,3 +63,4 @@ networks:
 volumes:
   overlord-data:
   overlord-certs:
+  overlord-client-build-cache:

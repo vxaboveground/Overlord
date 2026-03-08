@@ -15,6 +15,7 @@ config.json
 
 # Docker
 .env
+.docker-cache/
 
 # Go
 bin/

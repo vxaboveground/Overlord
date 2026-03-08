@@ -48,6 +48,34 @@ to update run
 docker compose pull
 ```
 
+### Faster local rebuilds (BuildKit cache)
+
+`docker-compose.yml` now includes local BuildKit cache settings under `build.cache_from` / `build.cache_to`.
+Use these commands when changing source code and rebuilding locally:
+
+```sh
+docker compose build
+docker compose up -d
+```
+
+or in one step:
+
+```sh
+docker compose up --build -d
+```
+
+Build cache is stored in `.docker-cache/buildx` and reused across builds.
+
+### UI client build cache (runtime)
+
+Client builds triggered from the Overlord UI now use a dedicated persistent cache volume:
+
+- volume: `overlord-client-build-cache`
+- mount path: `/app/client-build-cache`
+- env var: `OVERLORD_CLIENT_BUILD_CACHE_DIR` (default `/app/client-build-cache`)
+
+This cache is used only for runtime client builds (`go build` / `garble build` from the Build page) and stays warm across container restarts and updates.
+
 ## Docker TLS with certbot
 
 If you want to avoid self-signed certificates in Docker/production, enable certbot TLS settings:

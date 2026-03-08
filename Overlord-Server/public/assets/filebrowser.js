@@ -1630,21 +1630,24 @@ async function uploadFileViaHttpPull(file, path, transfer) {
 
   console.debug("[filebrowser] upload stage url", { uploadUrl });
 
+  const uploadRequestOptions = {
+    headers: { "Content-Type": "application/octet-stream" },
+    credentials: "include",
+    body: file,
+    signal: transfer.abortController?.signal,
+  };
+
   let uploadRes;
   try {
     uploadRes = await fetch(uploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": "application/octet-stream" },
-      credentials: "include",
-      body: file,
+      method: "POST",
+      ...uploadRequestOptions,
     });
   } catch (err) {
-    console.warn("[filebrowser] upload stage PUT failed, retrying as POST", err);
+    console.warn("[filebrowser] upload stage POST failed, retrying as PUT", err);
     uploadRes = await fetch(uploadUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
-      credentials: "include",
-      body: file,
+      method: "PUT",
+      ...uploadRequestOptions,
     });
   }
 
@@ -1721,6 +1724,7 @@ async function uploadFile(file) {
     ackedOffsets: new Set(),
     transferId,
     completed: false,
+    abortController: new AbortController(),
   };
 
   fileUploads.set(path, transfer);

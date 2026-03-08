@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 # Overlord Server Dockerfile
 FROM oven/bun:1 AS base
 WORKDIR /app
@@ -30,9 +31,13 @@ RUN case "${TARGETARCH}" in \
 ENV PATH="/usr/local/go/bin:${PATH}"
 ENV GOPATH="/go"
 ENV PATH="${GOPATH}/bin:${PATH}"
+ENV GOCACHE=/root/.cache/go-build
+ENV GOMODCACHE=/go/pkg/mod
 
 # Install garble for obfuscated agent builds (requires Go 1.25+)
-RUN go install mvdan.cc/garble@latest
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    go install mvdan.cc/garble@latest
 
 # Copy package files and lockfile
 COPY Overlord-Server/package.json Overlord-Server/bun.lock* ./
