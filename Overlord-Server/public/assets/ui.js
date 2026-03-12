@@ -259,16 +259,20 @@ function hideSubmenu() {
   ctxMain.querySelectorAll(".ctx-row").forEach(r => r.classList.remove("ctx-active"));
 }
 
-// Desktop: hover to open group
+function isMobileMenu() {
+  return window.matchMedia("(max-width: 600px)").matches;
+}
+
 ctxMain.querySelectorAll(".ctx-row").forEach(rowEl => {
   rowEl.addEventListener("mouseenter", () => {
+    if (isMobileMenu()) return;
     const groupId = rowEl.dataset.groupToggle;
     if (groupId) showSubmenu(groupId, rowEl);
   });
 });
 
 // Debounced hide — prevents the 5px gap between panels from closing the submenu
-function scheduleHide() { _hideTimer = setTimeout(hideSubmenu, 150); }
+function scheduleHide() { if (!isMobileMenu()) _hideTimer = setTimeout(hideSubmenu, 150); }
 function cancelHide()   { clearTimeout(_hideTimer); _hideTimer = null; }
 
 ctxMain.addEventListener("mouseleave", scheduleHide);

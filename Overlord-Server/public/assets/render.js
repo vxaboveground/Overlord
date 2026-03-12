@@ -131,7 +131,7 @@ export function createRenderer({
     card.dataset.id = client.id;
     card.dataset.hwid = client.hwid || "";
     let longPressTimer = null;
-    let longPressTriggered = false;
+    card._longPressTriggered = false;
     let pointerStartX = 0;
     let pointerStartY = 0;
 
@@ -158,12 +158,12 @@ export function createRenderer({
       const clientId = card.dataset.id;
       if (!clientId) return;
 
-      longPressTriggered = false;
+      card._longPressTriggered = false;
       pointerStartX = e.clientX;
       pointerStartY = e.clientY;
       clearLongPress();
       longPressTimer = setTimeout(() => {
-        longPressTriggered = true;
+        card._longPressTriggered = true;
         openMenu(clientId, e.clientX, e.clientY);
       }, TOUCH_LONG_PRESS_MS);
     });
@@ -317,8 +317,8 @@ export function createRenderer({
       ?.addEventListener("click", () => openModal(client.thumbnail));
 
     card.onclick = (e) => {
-      if (longPressTriggered) {
-        longPressTriggered = false;
+      if (card._longPressTriggered) {
+        card._longPressTriggered = false;
         e.preventDefault();
         e.stopPropagation();
         return;
