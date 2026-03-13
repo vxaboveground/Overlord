@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { writeFile, mkdir } from "fs/promises";
-import { resolve } from "path";
+import { dirname, resolve } from "path";
 import logger from "./logger";
 import { ensureDataDir } from "./paths";
 
@@ -148,31 +148,78 @@ function persistSaveSecrets(savePath: string, secrets: SaveSecrets): void {
 
 let configCache: Config | null = null;
 
+function getPersistentConfigPath(): string {
+  return resolve(ensureDataDir(), "config.json");
+}
+
+function getLegacyConfigPath(): string {
+  return resolve(process.cwd(), "config.json");
+}
+
+function tryReadConfigFile(path: string): any {
+  try {
+    const content = readFileSync(path, "utf-8");
+    const parsed = JSON.parse(content);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (error) {
+    logger.warn(`Failed to parse config file at ${path}, using defaults:`, error);
+    return {};
+  }
+}
+
+function readFileConfigForLoad(): Partial<Config> {
+  const persistentConfigPath = getPersistentConfigPath();
+  if (existsSync(persistentConfigPath)) {
+    logger.info(`Loaded configuration from ${persistentConfigPath}`);
+    return tryReadConfigFile(persistentConfigPath);
+  }
+
+  const legacyConfigPath = getLegacyConfigPath();
+  if (existsSync(legacyConfigPath)) {
+    logger.info(`Loaded configuration from ${legacyConfigPath}`);
+    return tryReadConfigFile(legacyConfigPath);
+  }
+
+  logger.info(
+    "No config.json found, using defaults and environment variables",
+  );
+  return {};
+}
+
+function readFileConfigForUpdate(): any {
+  const persistentConfigPath = getPersistentConfigPath();
+  if (existsSync(persistentConfigPath)) {
+    return tryReadConfigFile(persistentConfigPath);
+  }
+
+  const legacyConfigPath = getLegacyConfigPath();
+  if (existsSync(legacyConfigPath)) {
+    return tryReadConfigFile(legacyConfigPath);
+  }
+
+  return {};
+}
+
+async function writePersistentFileConfig(fileConfig: any): Promise<void> {
+  const configPath = getPersistentConfigPath();
+
+  try {
+    await mkdir(dirname(configPath), { recursive: true });
+  } catch {}
+
+  await writeFile(configPath, JSON.stringify(fileConfig, null, 2));
+}
+
 export function loadConfig(): Config {
   if (configCache) {
     return configCache;
   }
 
-  let fileConfig: Partial<Config> = {};
+  const fileConfig = readFileConfigForLoad();
   const dataDir = ensureDataDir();
   const savePath = resolve(dataDir, "save.json");
   const savedSecrets = loadSaveSecrets(savePath);
   let saveChanged = false;
-
-  const configPath = resolve(process.cwd(), "config.json");
-  if (existsSync(configPath)) {
-    try {
-      const content = readFileSync(configPath, "utf-8");
-      fileConfig = JSON.parse(content);
-      logger.info("Loaded configuration from config.json");
-    } catch (error) {
-      logger.warn("Failed to parse config.json, using defaults:", error);
-    }
-  } else {
-    logger.info(
-      "No config.json found, using defaults and environment variables",
-    );
-  }
 
   const jwtSecretFromEnv = process.env.JWT_SECRET;
   const jwtSecret =
@@ -414,24 +461,11 @@ export async function updateNotificationsConfig(
     notifications: next,
   };
 
-  const configPath = resolve(process.cwd(), "config.json");
-  let fileConfig: any = {};
-  if (existsSync(configPath)) {
-    try {
-      const content = readFileSync(configPath, "utf-8");
-      fileConfig = JSON.parse(content) || {};
-    } catch {
-      fileConfig = {};
-    }
-  }
+  const fileConfig = readFileConfigForUpdate();
 
   fileConfig.notifications = next;
 
-  try {
-    await mkdir(resolve(process.cwd()), { recursive: true });
-  } catch {}
-
-  await writeFile(configPath, JSON.stringify(fileConfig, null, 2));
+  await writePersistentFileConfig(fileConfig);
   return next;
 }
 
@@ -465,24 +499,11 @@ export async function updateSecurityConfig(
     security: next,
   };
 
-  const configPath = resolve(process.cwd(), "config.json");
-  let fileConfig: any = {};
-  if (existsSync(configPath)) {
-    try {
-      const content = readFileSync(configPath, "utf-8");
-      fileConfig = JSON.parse(content) || {};
-    } catch {
-      fileConfig = {};
-    }
-  }
+  const fileConfig = readFileConfigForUpdate();
 
   fileConfig.security = next;
 
-  try {
-    await mkdir(resolve(process.cwd()), { recursive: true });
-  } catch {}
-
-  await writeFile(configPath, JSON.stringify(fileConfig, null, 2));
+  await writePersistentFileConfig(fileConfig);
   return next;
 }
 
@@ -524,23 +545,10 @@ export async function updateTlsConfig(
     tls: next,
   };
 
-  const configPath = resolve(process.cwd(), "config.json");
-  let fileConfig: any = {};
-  if (existsSync(configPath)) {
-    try {
-      const content = readFileSync(configPath, "utf-8");
-      fileConfig = JSON.parse(content) || {};
-    } catch {
-      fileConfig = {};
-    }
-  }
+  const fileConfig = readFileConfigForUpdate();
 
   fileConfig.tls = next;
 
-  try {
-    await mkdir(resolve(process.cwd()), { recursive: true });
-  } catch {}
-
-  await writeFile(configPath, JSON.stringify(fileConfig, null, 2));
+  await writePersistentFileConfig(fileConfig);
   return next;
 }
