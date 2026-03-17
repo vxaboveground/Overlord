@@ -85,6 +85,7 @@ function streamFileAndDelete(tmpPath: string): ReadableStream<Uint8Array> {
   const cleanup = async () => {
     if (cleaned) return;
     cleaned = true;
+    try { await reader.cancel(); } catch {}
     await fs.unlink(tmpPath).catch(() => {});
   };
 
@@ -93,8 +94,8 @@ function streamFileAndDelete(tmpPath: string): ReadableStream<Uint8Array> {
       try {
         const { done, value } = await reader.read();
         if (done) {
-          controller.close();
           await cleanup();
+          controller.close();
           return;
         }
         if (value) {
