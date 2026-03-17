@@ -26,6 +26,7 @@ import {
   getUserClientAccessScope,
   listUserClientRuleIdsByAccess,
 } from "../../users";
+import { notifyDashboardViewers } from "../../sessions/sessionManager";
 
 type RequestIpProvider = {
   requestIP: (req: Request) => { address?: string } | null | undefined;
@@ -275,6 +276,7 @@ export async function handleClientRoutes(
     }
 
     deleteClientRow(targetId);
+    notifyDashboardViewers();
 
     const ip = server.requestIP(req)?.address || "unknown";
     logAudit({
@@ -331,6 +333,7 @@ export async function handleClientRoutes(
     if (!updated) {
       return Response.json({ error: "Client not found" }, { status: 404 });
     }
+    notifyDashboardViewers();
 
     const ip = server.requestIP(req)?.address || "unknown";
     logAudit({
@@ -389,6 +392,7 @@ export async function handleClientRoutes(
     if (!updated) {
       return Response.json({ error: "Client not found" }, { status: 404 });
     }
+    notifyDashboardViewers();
 
     const ip = server.requestIP(req)?.address || "unknown";
     logAudit({

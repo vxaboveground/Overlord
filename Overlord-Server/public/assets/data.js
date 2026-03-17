@@ -2,9 +2,13 @@ import { state } from "./state.js";
 import { digestData } from "./utils.js";
 
 const POLL_INTERVAL_MS = 5000;
+const FALLBACK_POLL_MS = 30000;
 const PREF_REFRESH_KEY = "overlord_refresh_interval_seconds";
 let pollTimer = null;
 let render = () => {};
+let dashboardWs = null;
+let dashboardWsConnected = false;
+let wsReconnectTimer = null;
 
 export function registerRenderer(fn) {
   render = fn;
@@ -100,8 +104,68 @@ function getConfiguredPollIntervalMs(defaultMs) {
   return boundedSeconds * 1000;
 }
 
+function connectDashboardWs() {
+  if (dashboardWs) return;
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const wsUrl = `${protocol}//${window.location.host}/api/dashboard/ws`;
+  try {
+    dashboardWs = new WebSocket(wsUrl);
+  } catch {
+    scheduleDashboardReconnect();
+    return;
+  }
+
+  dashboardWs.onopen = () => {
+    console.log("[dashboard] ws connected");
+    dashboardWsConnected = true;
+    adjustPollingForWs();
+  };
+
+  dashboardWs.onmessage = (event) => {
+    try {
+      const msg = typeof event.data === "string" ? JSON.parse(event.data) : null;
+      if (msg && msg.type === "clients_changed") {
+        loadWithOptions({ force: false });
+      }
+    } catch {}
+  };
+
+  dashboardWs.onclose = () => {
+    console.warn("[dashboard] ws closed");
+    dashboardWs = null;
+    dashboardWsConnected = false;
+    adjustPollingForWs();
+    scheduleDashboardReconnect();
+  };
+
+  dashboardWs.onerror = () => {
+    console.warn("[dashboard] ws error");
+  };
+}
+
+function scheduleDashboardReconnect() {
+  if (wsReconnectTimer) return;
+  wsReconnectTimer = setTimeout(() => {
+    wsReconnectTimer = null;
+    connectDashboardWs();
+  }, 3000);
+}
+
+function adjustPollingForWs() {
+  clearInterval(pollTimer);
+  const interval = dashboardWsConnected
+    ? FALLBACK_POLL_MS
+    : getConfiguredPollIntervalMs(POLL_INTERVAL_MS);
+  pollTimer = setInterval(() => {
+    loadWithOptions({ force: false });
+  }, interval);
+}
+
 export function startAutoRefresh(intervalMs = POLL_INTERVAL_MS) {
-  const effectiveInterval = getConfiguredPollIntervalMs(intervalMs);
+  connectDashboardWs();
+  const effectiveInterval = dashboardWsConnected
+    ? FALLBACK_POLL_MS
+    : getConfiguredPollIntervalMs(intervalMs);
   clearInterval(pollTimer);
   pollTimer = setInterval(() => {
     loadWithOptions({ force: false });

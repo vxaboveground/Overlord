@@ -50,3 +50,7 @@ func HVNCInputKeyUp(vk uint16) error {
 func HVNCInputMouseWheel(delta int32) error {
 	return errors.New("HVNC not supported on this platform")
 }
+
+func HVNCAutoStartExplorer() error {
+	return errors.New("HVNC not supported on this platform")
+}

@@ -10,6 +10,14 @@ import type {
   SocketData,
 } from "./types";
 
+export type DashboardViewer = {
+  id: string;
+  viewer: ServerWebSocket<SocketData>;
+  createdAt: number;
+  userId?: number;
+  userRole?: string;
+};
+
 const consoleSessions = new Map<string, ConsoleSession>();
 const rdSessions = new Map<string, RemoteDesktopViewer>();
 const webcamSessions = new Map<string, RemoteDesktopViewer>();
@@ -22,6 +30,7 @@ const processSessions = new Map<string, ProcessViewer>();
 const notificationSessions = new Map<string, NotificationsViewer>();
 const keyloggerSessions = new Map<string, KeyloggerViewer>();
 const voiceSessions = new Map<string, VoiceViewer>();
+const dashboardSessions = new Map<string, DashboardViewer>();
 
 function addSessionToClientIndex(
   index: Map<string, Set<string>>,
@@ -370,4 +379,38 @@ export function getVoiceSessionsByClient(clientId: string): VoiceViewer[] {
 
 export function getAllVoiceSessions(): Map<string, VoiceViewer> {
   return voiceSessions;
+}
+
+export function addDashboardSession(session: DashboardViewer): void {
+  dashboardSessions.set(session.id, session);
+}
+
+export function deleteDashboardSession(sessionId: string): boolean {
+  return dashboardSessions.delete(sessionId);
+}
+
+export function getAllDashboardSessions(): Map<string, DashboardViewer> {
+  return dashboardSessions;
+}
+
+export function getDashboardSessionCount(): number {
+  return dashboardSessions.size;
+}
+
+let dashboardBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
+const DASHBOARD_DEBOUNCE_MS = 150;
+
+export function notifyDashboardViewers(): void {
+  if (dashboardBroadcastTimer) return;
+  dashboardBroadcastTimer = setTimeout(() => {
+    dashboardBroadcastTimer = null;
+    const msg = JSON.stringify({ type: "clients_changed" });
+    for (const [id, session] of dashboardSessions) {
+      try {
+        session.viewer.send(msg);
+      } catch {
+        dashboardSessions.delete(id);
+      }
+    }
+  }, DASHBOARD_DEBOUNCE_MS);
 }

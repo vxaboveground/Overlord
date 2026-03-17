@@ -416,6 +416,17 @@ async function startServer() {
     handleProcessViewerOpen,
     handleKeyloggerViewerOpen,
     handleVoiceViewerOpen,
+    handleDashboardViewerOpen: (ws: import("bun").ServerWebSocket<SocketData>) => {
+      const id = crypto.randomUUID();
+      ws.data.sessionId = id;
+      sessionManager.addDashboardSession({
+        id,
+        viewer: ws,
+        createdAt: Date.now(),
+        userId: ws.data.userId,
+        userRole: ws.data.userRole,
+      });
+    },
     handleNotificationViewerOpen: notificationPluginHandlers.handleNotificationViewerOpen,
     handleConsoleViewerMessage,
     handleRemoteDesktopViewerMessage,
@@ -456,6 +467,7 @@ async function startServer() {
     clearPendingNotificationScreenshots: notificationPluginHandlers.clearPendingNotificationScreenshots,
     notifyRemoteDesktopStatus,
     handleBuildTagConnection,
+    notifyDashboard: sessionManager.notifyDashboardViewers,
   };
 
   const server = Bun.serve<SocketData>({

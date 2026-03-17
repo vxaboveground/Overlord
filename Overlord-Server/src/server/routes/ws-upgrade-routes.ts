@@ -193,5 +193,17 @@ export async function handleWsUpgradeRoutes(
     return new Response("Upgrade failed", { status: 500 });
   }
 
+  if (req.method === "GET" && url.pathname === "/api/dashboard/ws") {
+    const user = await authenticateRequest(req);
+    if (!user) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    const ip = server.requestIP(req)?.address || "";
+    if (server.upgrade(req, { data: { role: "dashboard_viewer", clientId: "", ip, userRole: user.role, userId: user.userId } })) {
+      return new Response();
+    }
+    return new Response("Upgrade failed", { status: 500 });
+  }
+
   return null;
 }

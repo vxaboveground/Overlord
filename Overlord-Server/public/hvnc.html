@@ -114,6 +114,9 @@
             <span id="viewerFps" class="pill pill-ghost font-mono text-sky-200"
               >--</span
             >
+            <span class="text-slate-600">|</span>
+            <span class="uppercase tracking-wide text-xs text-slate-500">lat</span>
+            <span id="latencyDisplay" class="pill pill-ghost font-mono text-amber-200">--</span>
           </div>
           <div
             class="flex items-center gap-4 bg-slate-900/70 border border-slate-800 rounded-lg px-3 py-2"
@@ -210,6 +213,13 @@
             data-action="start-edge"
           >
             <i class="fa-brands fa-edge mr-2 text-sky-300"></i>Start Edge
+          </button>
+          <button
+            type="button"
+            class="w-full text-left px-3 py-2 hover:bg-slate-800/70"
+            data-action="start-firefox"
+          >
+            <i class="fa-brands fa-firefox mr-2 text-orange-300"></i>Start Firefox
           </button>
           <div class="px-3 pt-2 pb-1 text-xs uppercase tracking-wide text-slate-500">Custom</div>
           <button

