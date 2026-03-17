@@ -24,6 +24,9 @@ var (
 )
 
 func HandleScreenshot(ctx context.Context, env *rt.Env, cmdID string, allDisplays bool) error {
+	restore := capture.BypassResolutionCap()
+	defer restore()
+
 	if allDisplays {
 		log.Printf("screenshot: capturing all displays")
 	} else {
@@ -202,13 +205,41 @@ func captureScreenshotImageWindows(allDisplays bool) (*image.RGBA, int, image.Re
 		}
 	}
 
-	virtualBounds := image.Rect(minX, minY, maxX, maxY)
-	canvas := image.NewRGBA(image.Rect(0, 0, virtualBounds.Dx(), virtualBounds.Dy()))
-	for _, part := range parts {
-		offX := part.bounds.Min.X - minX
-		offY := part.bounds.Min.Y - minY
-		dst := image.Rect(offX, offY, offX+part.img.Rect.Dx(), offY+part.img.Rect.Dy())
-		draw.Draw(canvas, dst, part.img, part.img.Rect.Min, draw.Src)
+	type scaledPart struct {
+		img  *image.RGBA
+		offX int
+		offY int
+	}
+	sp := make([]scaledPart, len(parts))
+	for i, part := range parts {
+		sx, sy := 1.0, 1.0
+		if bw := part.bounds.Dx(); bw > 0 {
+			sx = float64(part.img.Rect.Dx()) / float64(bw)
+		}
+		if bh := part.bounds.Dy(); bh > 0 {
+			sy = float64(part.img.Rect.Dy()) / float64(bh)
+		}
+		sp[i] = scaledPart{
+			img:  part.img,
+			offX: int(float64(part.bounds.Min.X-minX) * sx),
+			offY: int(float64(part.bounds.Min.Y-minY) * sy),
+		}
+	}
+
+	cW, cH := 0, 0
+	for _, s := range sp {
+		if rx := s.offX + s.img.Rect.Dx(); rx > cW {
+			cW = rx
+		}
+		if ry := s.offY + s.img.Rect.Dy(); ry > cH {
+			cH = ry
+		}
+	}
+
+	canvas := image.NewRGBA(image.Rect(0, 0, cW, cH))
+	for _, s := range sp {
+		dst := image.Rect(s.offX, s.offY, s.offX+s.img.Rect.Dx(), s.offY+s.img.Rect.Dy())
+		draw.Draw(canvas, dst, s.img, s.img.Rect.Min, draw.Src)
 	}
 
 	return canvas, 0, canvas.Rect, nil

@@ -220,7 +220,7 @@ export function createRenderer({
           wrapper.className = "flex-shrink-0";
           const img = document.createElement("img");
           img.className =
-            "w-40 h-24 rounded-lg border border-slate-800 object-cover cursor-pointer thumb-img";
+            "w-40 h-24 rounded-lg object-contain cursor-pointer thumb-img";
           img.alt = "preview";
           img.src = client.thumbnail;
           wrapper.appendChild(img);

@@ -35,6 +35,8 @@ func Loop(ctx context.Context, env *rt.Env) {
 		done := make(chan struct{})
 		goSafe("capture initial frame", env.Cancel, func() {
 			defer close(done)
+			restore := BypassResolutionCap()
+			defer restore()
 			var err error
 			if goruntime.GOOS == "windows" && activeDisplays() > 1 {
 				err = captureAllDisplaysAndSend(ctx, env)
@@ -197,12 +199,53 @@ func captureAllDisplaysAndSend(ctx context.Context, env *rt.Env) error {
 		}
 	}
 
-	canvas := image.NewRGBA(image.Rect(0, 0, maxX-minX, maxY-minY))
-	for _, part := range parts {
-		offX := part.bounds.Min.X - minX
-		offY := part.bounds.Min.Y - minY
-		dst := image.Rect(offX, offY, offX+part.img.Rect.Dx(), offY+part.img.Rect.Dy())
-		draw.Draw(canvas, dst, part.img, part.img.Rect.Min, draw.Src)
+	// Compute per-monitor scale factors to handle resolution-cap or DPI
+	// mismatches between displayBounds (virtual coords) and captured pixels.
+	type scaledPart struct {
+		img    *image.RGBA
+		scaleX float64
+		scaleY float64
+		offX   int
+		offY   int
+	}
+	scaled := make([]scaledPart, len(parts))
+	for i, part := range parts {
+		sx, sy := 1.0, 1.0
+		bw := part.bounds.Dx()
+		bh := part.bounds.Dy()
+		iw := part.img.Rect.Dx()
+		ih := part.img.Rect.Dy()
+		if bw > 0 && iw > 0 {
+			sx = float64(iw) / float64(bw)
+		}
+		if bh > 0 && ih > 0 {
+			sy = float64(ih) / float64(bh)
+		}
+		scaled[i] = scaledPart{
+			img:    part.img,
+			scaleX: sx,
+			scaleY: sy,
+			offX:   int(float64(part.bounds.Min.X-minX) * sx),
+			offY:   int(float64(part.bounds.Min.Y-minY) * sy),
+		}
+	}
+
+	// Canvas sized from scaled image placements.
+	cW, cH := 0, 0
+	for _, sp := range scaled {
+		rx := sp.offX + sp.img.Rect.Dx()
+		ry := sp.offY + sp.img.Rect.Dy()
+		if rx > cW {
+			cW = rx
+		}
+		if ry > cH {
+			cH = ry
+		}
+	}
+	canvas := image.NewRGBA(image.Rect(0, 0, cW, cH))
+	for _, sp := range scaled {
+		dst := image.Rect(sp.offX, sp.offY, sp.offX+sp.img.Rect.Dx(), sp.offY+sp.img.Rect.Dy())
+		draw.Draw(canvas, dst, sp.img, sp.img.Rect.Min, draw.Src)
 	}
 
 	quality := jpegQuality()

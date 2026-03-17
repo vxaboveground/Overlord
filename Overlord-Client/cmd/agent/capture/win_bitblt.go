@@ -227,7 +227,7 @@ func captureDisplayBitBlt(display int) (*image.RGBA, error) {
 		dstH = srcH
 	}
 
-	useStretch := dstW > 0 && dstH > 0 && (dstW < srcW || dstH < srcH) && !cursorCaptureEnabled.Load()
+	useStretch := dstW > 0 && dstH > 0 && (dstW < srcW || dstH < srcH)
 	capW := srcW
 	capH := srcH
 	if useStretch {
@@ -290,7 +290,11 @@ func captureDisplayBitBlt(display int) (*image.RGBA, error) {
 		}
 		bitDur := time.Since(bitStart)
 		cursorDrawn := false
-		if !useStretch {
+		if useStretch {
+			sx := float64(capW) / float64(srcW)
+			sy := float64(capH) / float64(srcH)
+			cursorDrawn = DrawCursorOnDCScaled(hdcMem, bounds, sx, sy)
+		} else {
 			cursorDrawn = DrawCursorOnDC(hdcMem, bounds)
 		}
 
@@ -542,6 +546,11 @@ func storeLastScale(s float64) {
 func SetMaxResolution(maxH int) {
 	maxResHeight.Store(int64(maxH))
 	log.Printf("capture: max resolution set to %d", maxH)
+}
+
+func BypassResolutionCap() (restore func()) {
+	old := maxResHeight.Swap(-1)
+	return func() { maxResHeight.Store(old) }
 }
 
 func EffectiveScaleForInput() float64 {

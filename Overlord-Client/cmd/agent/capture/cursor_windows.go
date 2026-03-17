@@ -196,6 +196,10 @@ func drawCursor(img *image.RGBA, cursorX, cursorY int32, bounds image.Rectangle)
 }
 
 func DrawCursorOnDC(hdc uintptr, captureBounds image.Rectangle) bool {
+	return DrawCursorOnDCScaled(hdc, captureBounds, 1.0, 1.0)
+}
+
+func DrawCursorOnDCScaled(hdc uintptr, captureBounds image.Rectangle, scaleX, scaleY float64) bool {
 	if !cursorCaptureEnabled.Load() || hdc == 0 {
 		return false
 	}
@@ -217,8 +221,9 @@ func DrawCursorOnDC(hdc uintptr, captureBounds image.Rectangle) bool {
 		defer deleteObject(icon.hbmColor)
 	}
 
-	x := int32(ci.ptScreenPos.x) - int32(captureBounds.Min.X) - int32(icon.xHotspot)
-	y := int32(ci.ptScreenPos.y) - int32(captureBounds.Min.Y) - int32(icon.yHotspot)
+	// Map from screen space into the (possibly scaled) DC space.
+	x := int32(float64(ci.ptScreenPos.x-int32(captureBounds.Min.X))*scaleX) - int32(icon.xHotspot)
+	y := int32(float64(ci.ptScreenPos.y-int32(captureBounds.Min.Y))*scaleY) - int32(icon.yHotspot)
 	ret, _, _ = procDrawIconEx.Call(
 		hdc,
 		uintptr(x),
