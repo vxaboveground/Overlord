@@ -32,12 +32,121 @@ export function createRenderer({
   const TOUCH_LONG_PRESS_MS = 520;
   const TOUCH_MOVE_CANCEL_PX = 10;
   let renderToken = 0;
+  let viewMode = localStorage.getItem("overlord_view_mode") || "cards";
+  let lastData = null;
 
   function renderMerge(data) {
+    lastData = data;
+    if (viewMode === "table") {
+      renderTable(data);
+      return;
+    }
+    renderCards(data);
+  }
+
+  function renderTable(data) {
     totalPill.textContent = `${data.online ?? data.total} online / ${data.total} total`;
     const totalPages = Math.max(1, Math.ceil(data.total / data.pageSize));
     pageLabel.textContent = `Page ${data.page} of ${totalPages}`;
     prevBtnState(data.page, totalPages);
+
+    const items = data.items || [];
+    grid.innerHTML = "";
+    grid.className = "flex flex-col gap-0";
+
+    const table = document.createElement("div");
+    table.className = "w-full rounded-xl border border-slate-800 bg-slate-900/70 overflow-hidden";
+
+    const header = document.createElement("div");
+    header.className = "grid grid-cols-[2.5rem_2rem_1fr_8rem_5rem_5rem_6rem_5rem_7rem] gap-2 px-3 py-2 bg-slate-800/80 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700";
+    header.innerHTML = `<span></span><span></span><span>Client</span><span>User</span><span>OS</span><span>Arch</span><span>Ping</span><span>Seen</span><span class="text-right">Actions</span>`;
+    table.appendChild(header);
+
+    const onlineItems = items.filter(c => c.online);
+    const offlineItems = items.filter(c => !c.online);
+    const sorted = [...onlineItems, ...offlineItems];
+
+    sorted.forEach((client) => {
+      const os = osBadge(client.os || "unknown");
+      const arch = archBadge(client.arch || "");
+      const deviceId = shortId(client.id);
+      const nickname = String(client.nickname || "").trim();
+      const displayName = nickname || client.host || deviceId;
+      const isSelected = typeof window.isClientSelected === "function" ? window.isClientSelected(client.id) : false;
+
+      const row = document.createElement("div");
+      row.dataset.id = client.id;
+      row.dataset.online = String(!!client.online);
+      row.dataset.os = String(client.os || "").toLowerCase();
+      row.dataset.nickname = String(client.nickname || "");
+      row.dataset.customTag = String(client.customTag || "");
+      row.className = `grid grid-cols-[2.5rem_2rem_1fr_8rem_5rem_5rem_6rem_5rem_7rem] gap-2 px-3 py-2 items-center border-b border-slate-800/60 text-sm hover:bg-slate-800/40 transition-colors ${client.online ? "" : "opacity-50"}`;
+
+      row.innerHTML = `
+        <span class="flex items-center justify-center"><input type="checkbox" class="client-checkbox w-4 h-4 rounded border-slate-600 bg-slate-800 checked:bg-blue-600" data-id="${escapeHtml(client.id)}" ${client.online ? "" : "disabled"} ${isSelected && client.online ? "checked" : ""}></span>
+        <span class="flex items-center justify-center"><i class="fa-solid fa-circle text-[8px] ${client.online ? "text-emerald-400" : "text-slate-600"}"></i></span>
+        <span class="flex items-center gap-2 min-w-0 truncate"><span>${countryToFlag(client.country)}</span><span class="font-medium text-slate-100 truncate">${escapeHtml(displayName)}</span>${client.customTag ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-300 border border-amber-800/60">${escapeHtml(client.customTag)}</span>` : ""}</span>
+        <span class="text-slate-300 truncate">${escapeHtml(client.user || "—")}</span>
+        <span class="pill text-xs ${os.tone} !px-1.5 !py-0.5">${os.label}</span>
+        <span class="text-slate-400 text-xs">${escapeHtml(arch.label)}</span>
+        <span class="text-emerald-300 font-mono text-xs">${formatPing(client.pingMs)}</span>
+        <span class="text-slate-500 text-xs">${formatAgo(client.lastSeen)}</span>
+        <span class="flex items-center justify-end gap-1">${isViewer ? "" : `<button class="command-btn px-2 py-1 rounded border border-slate-700 bg-slate-800/70 hover:bg-slate-700 text-xs text-slate-200" data-id="${escapeHtml(client.id)}"><i class="fa-solid fa-bars"></i></button><button class="ban-btn px-2 py-1 rounded border border-red-800/60 bg-red-900/40 hover:bg-red-800 text-xs text-red-200" data-id="${escapeHtml(client.id)}"><i class="fa-solid fa-ban"></i></button>`}</span>
+      `;
+
+      row.querySelector(".client-checkbox")?.addEventListener("change", (e) => {
+        e.stopPropagation();
+        if (window.toggleClientSelection) window.toggleClientSelection(client.id);
+      });
+
+      if (!isViewer) {
+        row.querySelector(".command-btn")?.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const rect = e.currentTarget.getBoundingClientRect();
+          openMenu(client.id, rect.left, rect.bottom);
+        });
+        row.querySelector(".ban-btn")?.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (window.banClient) window.banClient(client.id);
+        });
+      }
+
+      row.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        if (isViewer) return;
+        openMenu(client.id, e.clientX, e.clientY);
+      });
+
+      row.addEventListener("click", (e) => {
+        if (e.target.closest("button") || e.target.closest(".client-checkbox")) return;
+        if (e.ctrlKey || e.metaKey || e.shiftKey) {
+          const cb = row.querySelector(".client-checkbox");
+          if (cb && !cb.disabled) {
+            cb.checked = !cb.checked;
+            if (window.toggleClientSelection) window.toggleClientSelection(client.id);
+          }
+          return;
+        }
+        if (!client.online) return;
+        if (pingClient) pingClient(client.id);
+      });
+
+      table.appendChild(row);
+    });
+
+    grid.appendChild(table);
+  }
+
+  function renderCards(data) {
+    totalPill.textContent = `${data.online ?? data.total} online / ${data.total} total`;
+    const totalPages = Math.max(1, Math.ceil(data.total / data.pageSize));
+    pageLabel.textContent = `Page ${data.page} of ${totalPages}`;
+    prevBtnState(data.page, totalPages);
+
+    if (grid.className !== "flex flex-col gap-3") {
+      grid.className = "flex flex-col gap-3";
+      grid.innerHTML = "";
+    }
 
     const items = data.items || [];
     const seen = new Set();
@@ -367,5 +476,15 @@ export function createRenderer({
     };
   }
 
-  return { renderMerge };
+  function setViewMode(mode) {
+    viewMode = mode;
+    localStorage.setItem("overlord_view_mode", mode);
+    if (lastData) renderMerge(lastData);
+  }
+
+  function getViewMode() {
+    return viewMode;
+  }
+
+  return { renderMerge, setViewMode, getViewMode };
 }

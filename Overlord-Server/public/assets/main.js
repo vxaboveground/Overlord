@@ -86,7 +86,7 @@ function detectClientPlatform(clientId) {
     typeof CSS !== "undefined" && typeof CSS.escape === "function"
       ? CSS.escape(clientId)
       : clientId;
-  const card = document.querySelector(`article[data-id="${selectorId}"]`);
+  const card = document.querySelector(`[data-id="${selectorId}"]`);
   const os = String(card?.dataset?.os || "").toLowerCase();
   if (os.includes("windows")) return "windows";
   if (os.includes("darwin") || os.includes("mac")) return "mac";
@@ -100,7 +100,7 @@ function getClientCard(clientId) {
     typeof CSS !== "undefined" && typeof CSS.escape === "function"
       ? CSS.escape(clientId)
       : clientId;
-  return document.querySelector(`article[data-id="${selectorId}"]`);
+  return document.querySelector(`[data-id="${selectorId}"]`);
 }
 
 function openTagNoteEditor(clientId, currentTag, currentNote) {
@@ -332,8 +332,25 @@ async function loadPluginsForClient(clientId) {
   }
 }
 
+function updateViewToggleIcon(mode) {
+  const btn = document.getElementById("view-toggle");
+  if (!btn) return;
+  const icon = btn.querySelector("i");
+  if (!icon) return;
+  if (mode === "table") {
+    icon.className = "fa-solid fa-grip";
+    btn.title = "Switch to card view";
+  } else {
+    icon.className = "fa-solid fa-table-list";
+    btn.title = "Switch to table view";
+  }
+}
+
+let _setViewMode = null;
+let _getViewMode = null;
+
 function initializeRenderer() {
-  const { renderMerge } = createRenderer({
+  const { renderMerge, setViewMode, getViewMode } = createRenderer({
     grid,
     totalPill,
     pageLabel,
@@ -348,6 +365,9 @@ function initializeRenderer() {
     pingClient: (id) => sendCommand(id, "ping"),
     userRole: currentUser?.role,
   });
+  _setViewMode = setViewMode;
+  _getViewMode = getViewMode;
+  updateViewToggleIcon(getViewMode());
   registerRenderer(renderMerge);
   loadWithOptions();
   startAutoRefresh();
@@ -406,6 +426,13 @@ if (logoutBtn && !logoutBtn.dataset.boundLogout) {
 }
 
 wireModalClose();
+
+document.getElementById("view-toggle")?.addEventListener("click", () => {
+  if (!_setViewMode || !_getViewMode) return;
+  const next = _getViewMode() === "cards" ? "table" : "cards";
+  _setViewMode(next);
+  updateViewToggleIcon(next);
+});
 
 const debouncedSearch = debounce(() => {
   state.page = 1;
