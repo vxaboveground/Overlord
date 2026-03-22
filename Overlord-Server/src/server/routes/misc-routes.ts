@@ -20,6 +20,8 @@ type MiscRouteDeps = {
   getRdSessionCount: () => number;
   getFileBrowserSessionCount: () => number;
   getProcessSessionCount: () => number;
+  tlsCertPath?: string;
+  tlsSource?: "certbot" | "configured" | "self-signed";
 };
 
 export async function handleMiscRoutes(
@@ -386,6 +388,29 @@ export async function handleMiscRoutes(
       status: result.ok ? 200 : 400,
       headers: deps.CORS_HEADERS,
     });
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/cert/info") {
+    return Response.json(
+      { source: deps.tlsSource || "unknown" },
+      { headers: { "Content-Type": "application/json", ...deps.CORS_HEADERS } },
+    );
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/cert/download" && deps.tlsCertPath) {
+    try {
+      const file = Bun.file(deps.tlsCertPath);
+      if (await file.exists()) {
+        return new Response(file, {
+          headers: {
+            "Content-Type": "application/x-pem-file",
+            "Content-Disposition": 'attachment; filename="overlord-ca.crt"',
+            ...deps.CORS_HEADERS,
+          },
+        });
+      }
+    } catch { }
+    return new Response("Certificate not available", { status: 404 });
   }
 
   return null;

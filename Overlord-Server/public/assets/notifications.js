@@ -1,9 +1,12 @@
 import {
   startNotificationClient,
   subscribeNotifications,
+  subscribeClientEvents,
   subscribeReady,
   subscribeStatus,
   markAllNotificationsRead,
+  getClientEventNotificationEnabled,
+  setClientEventNotificationEnabled,
 } from "./notify-client.js";
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
@@ -41,6 +44,11 @@ const telegramChatidToggle = document.getElementById("telegram-chatid-toggle");
 const resetTelegramTemplateBtn = document.getElementById("reset-telegram-template");
 const previewTelegramTemplateBtn = document.getElementById("preview-telegram-template");
 const telegramTemplatePreview = document.getElementById("telegram-template-preview");
+
+const eventNotifOnlineInput = document.getElementById("event-notif-online");
+const eventNotifOfflineInput = document.getElementById("event-notif-offline");
+const eventNotifPurgatoryInput = document.getElementById("event-notif-purgatory");
+const saveEventNotifsBtn = document.getElementById("save-event-notifs");
 
 // Preview modal
 const panel = document.getElementById("notification-panel");
@@ -541,6 +549,35 @@ function connect() {
   });
 
   subscribeNotifications((item) => renderRow(item, true));
+  subscribeClientEvents((item) => renderClientEventRow(item));
+}
+
+const CLIENT_EVENT_BADGE = {
+  client_online: `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-emerald-900/60 text-emerald-300 border border-emerald-700/50"><i class="fa-solid fa-circle text-xs"></i> online</span>`,
+  client_offline: `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-rose-900/60 text-rose-300 border border-rose-700/50"><i class="fa-solid fa-circle text-xs"></i> offline</span>`,
+  client_purgatory: `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-amber-900/60 text-amber-300 border border-amber-700/50"><i class="fa-solid fa-hourglass-half text-xs"></i> purgatory</span>`,
+};
+
+function renderClientEventRow(item) {
+  if (!listEl) return;
+  const badge = CLIENT_EVENT_BADGE[item.event] ||
+    `<span class="text-xs text-slate-400">${escapeHtml(item.event)}</span>`;
+  const row = document.createElement("tr");
+  row.className = "border-t border-slate-800/60";
+  row.innerHTML = `
+    <td class="py-2 pr-4 whitespace-nowrap text-slate-400">${formatTime(item.ts)}</td>
+    <td class="py-2 pr-4 whitespace-nowrap">${escapeHtml(item.clientId || "-")}</td>
+    <td class="py-2 pr-4 whitespace-nowrap">${escapeHtml(item.user || "-")}</td>
+    <td class="py-2 pr-4 max-w-xl truncate italic text-slate-400">client event</td>
+    <td class="py-2 pr-4 whitespace-nowrap">${escapeHtml(item.os || "-")}</td>
+    <td class="py-2 pr-4 whitespace-nowrap">-</td>
+    <td class="py-2 pr-4 whitespace-nowrap">${badge}</td>
+    <td class="py-2 pr-4"></td>
+  `;
+  listEl.prepend(row);
+  const rows = listEl.querySelectorAll("tr");
+  if (rows.length > MAX_ROWS) rows[rows.length - 1].remove();
+  if (emptyState) emptyState.classList.add("hidden");
 }
 
 // ── Preview modal ─────────────────────────────────────────────────────────────
@@ -564,11 +601,30 @@ document.addEventListener("visibilitychange", clearIfActive);
 window.addEventListener("focus", clearIfActive);
 clearIfActive();
 
+// ── Event notification toggles ───────────────────────────────────────────────
+function loadEventNotifPrefs() {
+  if (eventNotifOnlineInput)   eventNotifOnlineInput.checked   = getClientEventNotificationEnabled("client_online");
+  if (eventNotifOfflineInput)  eventNotifOfflineInput.checked  = getClientEventNotificationEnabled("client_offline");
+  if (eventNotifPurgatoryInput) eventNotifPurgatoryInput.checked = getClientEventNotificationEnabled("client_purgatory");
+}
+
+function wireEventNotifSave() {
+  if (!saveEventNotifsBtn) return;
+  saveEventNotifsBtn.addEventListener("click", () => {
+    if (eventNotifOnlineInput)   setClientEventNotificationEnabled("client_online",   eventNotifOnlineInput.checked);
+    if (eventNotifOfflineInput)  setClientEventNotificationEnabled("client_offline",  eventNotifOfflineInput.checked);
+    if (eventNotifPurgatoryInput) setClientEventNotificationEnabled("client_purgatory", eventNotifPurgatoryInput.checked);
+    window.showToast?.("Event notification preferences saved", "success", 3000);
+  });
+}
+
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 initWebhookTemplateEditor();
 wireKeywordSave();
 wireWebhookSave();
 wireTelegramSave();
 loadMySettings();
+loadEventNotifPrefs();
+wireEventNotifSave();
 initRoleUi();
 connect();

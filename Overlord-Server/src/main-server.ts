@@ -358,6 +358,8 @@ async function startServer() {
       getRdSessionCount: sessionManager.getRdSessionCount,
       getFileBrowserSessionCount: sessionManager.getFileBrowserSessionCount,
       getProcessSessionCount: sessionManager.getProcessSessionCount,
+      tlsCertPath: tls?.certPathUsed,
+      tlsSource: tls?.source,
     },
     assets: {
       PUBLIC_ROOT,
@@ -471,6 +473,7 @@ async function startServer() {
     notifyRemoteDesktopStatus,
     handleBuildTagConnection,
     notifyDashboard: sessionManager.notifyDashboardViewers,
+    broadcastClientEvent: notificationPluginHandlers.broadcastClientLifecycleEvent,
   };
 
   const server = Bun.serve<SocketData>({

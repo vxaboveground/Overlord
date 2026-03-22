@@ -8,10 +8,12 @@ import {
 import { mountNav } from "./nav/template.js";
 import { createAdaptiveNavController } from "./nav/layout.js";
 import { applyUserRoleUI } from "./nav/role-ui.js";
+import { showCertBannerIfNeeded } from "./cert-banner.js";
 
 const host = document.getElementById("top-nav");
 if (host) {
   const refs = mountNav(host);
+  showCertBannerIfNeeded(host);
   const { applyAdaptiveNavLayout } = createAdaptiveNavController(host, refs);
 
   const path = window.location.pathname;

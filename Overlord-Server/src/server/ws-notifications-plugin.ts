@@ -304,6 +304,27 @@ export function createNotificationPluginHandlers(deps: CreateDeps) {
       }
     },
 
+    broadcastClientLifecycleEvent(
+      event: "client_online" | "client_offline" | "client_purgatory",
+      info: { id: string; host?: string; user?: string; os?: string; ip?: string; country?: string },
+    ) {
+      const item = { type: "client_event", event, clientId: info.id, host: info.host, user: info.user, os: info.os, ip: info.ip, country: info.country, ts: Date.now() };
+      for (const session of sessionManager.getAllNotificationSessions().values()) {
+        const sRole = session.userRole ?? session.viewer.data.userRole ?? "";
+        const sUserId = session.userId ?? session.viewer.data.userId;
+        if (event === "client_purgatory") {
+          if (sRole !== "admin" && sRole !== "operator") continue;
+        } else {
+          if (sRole !== "admin") {
+            if (sUserId === undefined || !deps.canUserAccessClient(sUserId, sRole, info.id)) {
+              continue;
+            }
+          }
+        }
+        safeSendViewer(session.viewer, item);
+      }
+    },
+
     markPluginLoaded,
 
     isPluginLoaded(clientId: string, pluginId: string): boolean {

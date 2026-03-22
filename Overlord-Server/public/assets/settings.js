@@ -1,6 +1,9 @@
 import {
   getNotificationsEnabled,
   setNotificationsEnabled,
+  getDesktopNotificationsEnabled,
+  setDesktopNotificationsEnabled,
+  requestDesktopNotificationPermission,
 } from "./notify-client.js";
 
 const PREF_REFRESH_KEY = "overlord_refresh_interval_seconds";
@@ -17,6 +20,8 @@ const passwordPolicyHint = document.getElementById("password-policy-hint");
 
 const prefsForm = document.getElementById("prefs-form");
 const prefNotificationsInput = document.getElementById("pref-notifications");
+const prefDesktopNotificationsInput = document.getElementById("pref-desktop-notifications");
+const prefDesktopNotificationsHint = document.getElementById("pref-desktop-notifications-hint");
 const prefRefreshSecondsInput = document.getElementById("pref-refresh-seconds");
 
 const myTelegramChatIdInput = document.getElementById("my-telegram-chat-id");
@@ -259,6 +264,9 @@ async function loadTlsSettings() {
 
 function loadPrefs() {
   prefNotificationsInput.checked = getNotificationsEnabled();
+  if (prefDesktopNotificationsInput) {
+    prefDesktopNotificationsInput.checked = getDesktopNotificationsEnabled();
+  }
   const refreshSeconds = Number(localStorage.getItem(PREF_REFRESH_KEY) || 8);
   prefRefreshSecondsInput.value = String(Math.min(120, Math.max(3, refreshSeconds)));
 }
@@ -325,7 +333,28 @@ function savePrefs(event) {
   localStorage.setItem(PREF_REFRESH_KEY, String(refreshSeconds));
   prefRefreshSecondsInput.value = String(refreshSeconds);
 
-  showMessage("Preferences saved.");
+  const wantsDesktop = prefDesktopNotificationsInput
+    ? prefDesktopNotificationsInput.checked
+    : false;
+
+  if (wantsDesktop) {
+    requestDesktopNotificationPermission().then((perm) => {
+      if (perm === "granted") {
+        setDesktopNotificationsEnabled(true);
+        if (prefDesktopNotificationsHint) prefDesktopNotificationsHint.classList.add("hidden");
+        showMessage("Preferences saved. Desktop notifications enabled.");
+      } else {
+        setDesktopNotificationsEnabled(false);
+        if (prefDesktopNotificationsInput) prefDesktopNotificationsInput.checked = false;
+        if (prefDesktopNotificationsHint) prefDesktopNotificationsHint.classList.remove("hidden");
+        showMessage("Desktop notifications require browser permission — not granted.", "error");
+      }
+    });
+  } else {
+    setDesktopNotificationsEnabled(false);
+    if (prefDesktopNotificationsHint) prefDesktopNotificationsHint.classList.add("hidden");
+    showMessage("Preferences saved.");
+  }
 }
 
 async function saveSecurityPolicy(event) {

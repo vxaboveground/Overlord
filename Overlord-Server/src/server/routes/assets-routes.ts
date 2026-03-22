@@ -45,7 +45,11 @@ export async function handleAssetsRoutes(
 
   const file = Bun.file(resolvedPath);
   if (await file.exists()) {
-    return new Response(file, { headers: deps.secureHeaders(deps.mimeType(url.pathname)) });
+    const headers: Record<string, string> = { ...deps.secureHeaders(deps.mimeType(url.pathname)) };
+    if (relativePath === "notification-sw.js") {
+      headers["Service-Worker-Allowed"] = "/";
+    }
+    return new Response(file, { headers });
   }
   return new Response("Not found", { status: 404 });
 }

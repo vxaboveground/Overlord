@@ -1,5 +1,6 @@
 import { certificatesExist, generateSelfSignedCert, getLocalIPs, isOpenSSLAvailable } from "../certGenerator";
 import { logger } from "../logger";
+import { X509Certificate } from "crypto";
 import path from "path";
 
 type TlsBootstrapParams = {
@@ -117,6 +118,15 @@ export async function prepareTlsOptions(params: TlsBootstrapParams): Promise<Tls
         tlsOptions.ca = await caFile.text();
         logger.info("[TLS] Client certificate verification enabled");
       }
+    }
+
+    if (source === "configured" && tlsOptions.cert) {
+      try {
+        const x509 = new X509Certificate(tlsOptions.cert);
+        if (x509.issuer === x509.subject) {
+          source = "self-signed";
+        }
+      } catch { }
     }
 
     return {

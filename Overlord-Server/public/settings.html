@@ -86,6 +86,14 @@
               <input id="pref-notifications" type="checkbox" class="h-4 w-4" />
               <span>Enable notification badge updates</span>
             </label>
+            <label class="flex items-center gap-2">
+              <input id="pref-desktop-notifications" type="checkbox" class="h-4 w-4 accent-emerald-500" />
+              <span>Enable desktop (OS) notifications</span>
+            </label>
+            <p id="pref-desktop-notifications-hint" class="hidden text-xs text-amber-400">
+              <i class="fa-solid fa-triangle-exclamation mr-1"></i>
+              Browser permission was denied. Reset notification permissions for this site in your browser settings, then try again.
+            </p>
             <label class="block">
               <span class="text-sm text-slate-300">Client refresh interval (seconds)</span>
               <input

@@ -251,6 +251,48 @@
           </div>
         </div>
 
+        <!-- Desktop Event Notifications -->
+        <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+          <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+            <div>
+              <h2 class="text-lg font-semibold">Desktop Event Notifications</h2>
+              <p class="text-sm text-slate-400">
+                Choose which client events trigger a desktop (OS) notification. Desktop notifications must be enabled in <a href="/settings" class="text-sky-400 hover:underline">Settings</a> first.
+              </p>
+            </div>
+            <button
+              id="save-event-notifs"
+              class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              <i class="fa-solid fa-save"></i>
+              <span>Save</span>
+            </button>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+            <label class="flex items-center gap-3 rounded-lg bg-slate-950 border border-slate-800 px-4 py-3 cursor-pointer hover:border-slate-600 transition-colors">
+              <input id="event-notif-online" type="checkbox" class="h-4 w-4 accent-emerald-500 shrink-0" />
+              <span class="flex flex-col gap-0.5">
+                <span class="text-slate-200 font-medium">&#x1F7E2; Client Online</span>
+                <span class="text-slate-500 text-xs">Fire when a client connects</span>
+              </span>
+            </label>
+            <label class="flex items-center gap-3 rounded-lg bg-slate-950 border border-slate-800 px-4 py-3 cursor-pointer hover:border-slate-600 transition-colors">
+              <input id="event-notif-offline" type="checkbox" class="h-4 w-4 accent-red-500 shrink-0" />
+              <span class="flex flex-col gap-0.5">
+                <span class="text-slate-200 font-medium">&#x1F534; Client Offline</span>
+                <span class="text-slate-500 text-xs">Fire when a client disconnects</span>
+              </span>
+            </label>
+            <label class="flex items-center gap-3 rounded-lg bg-slate-950 border border-slate-800 px-4 py-3 cursor-pointer hover:border-slate-600 transition-colors">
+              <input id="event-notif-purgatory" type="checkbox" class="h-4 w-4 accent-yellow-500 shrink-0" />
+              <span class="flex flex-col gap-0.5">
+                <span class="text-slate-200 font-medium">&#x1F7E1; Client in Purgatory</span>
+                <span class="text-slate-500 text-xs">Fire when a client awaits approval</span>
+              </span>
+            </label>
+          </div>
+        </div>
+
         <!-- Notification feed -->
         <div
           id="notification-panel"
