@@ -257,7 +257,7 @@
             <div>
               <h2 class="text-lg font-semibold">Desktop Event Notifications</h2>
               <p class="text-sm text-slate-400">
-                Choose which client events trigger a desktop (OS) notification. Desktop notifications must be enabled in <a href="/settings" class="text-sky-400 hover:underline">Settings</a> first.
+                Choose which client events trigger a desktop (OS) notification.
               </p>
             </div>
             <button
@@ -268,6 +268,25 @@
               <span>Save</span>
             </button>
           </div>
+
+          <!-- Browser permission status -->
+          <div id="desktop-notif-status-bar" class="flex flex-wrap items-center gap-3 mb-4 rounded-lg border px-4 py-3 text-sm">
+            <i id="desktop-notif-status-icon" class="fa-solid fa-circle-dot text-base"></i>
+            <span id="desktop-notif-status-text" class="flex-1">Checking permission…</span>
+            <button
+              id="desktop-notif-enable-btn"
+              class="hidden inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 transition-colors text-white font-medium"
+              type="button"
+            >
+              <i class="fa-solid fa-bell"></i>
+              Enable Notifications
+            </button>
+            <p id="desktop-notif-denied-hint" class="hidden w-full text-xs text-amber-400 mt-1">
+              <i class="fa-solid fa-triangle-exclamation mr-1"></i>
+              Notifications are blocked. Reset notification permissions for this site in your browser settings, then reload.
+            </p>
+          </div>
+
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
             <label class="flex items-center gap-3 rounded-lg bg-slate-950 border border-slate-800 px-4 py-3 cursor-pointer hover:border-slate-600 transition-colors">
               <input id="event-notif-online" type="checkbox" class="h-4 w-4 accent-emerald-500 shrink-0" />

@@ -7,6 +7,8 @@ import {
   markAllNotificationsRead,
   getClientEventNotificationEnabled,
   setClientEventNotificationEnabled,
+  requestDesktopNotificationPermission,
+  setDesktopNotificationsEnabled,
 } from "./notify-client.js";
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
@@ -49,6 +51,13 @@ const eventNotifOnlineInput = document.getElementById("event-notif-online");
 const eventNotifOfflineInput = document.getElementById("event-notif-offline");
 const eventNotifPurgatoryInput = document.getElementById("event-notif-purgatory");
 const saveEventNotifsBtn = document.getElementById("save-event-notifs");
+
+// Browser permission status bar
+const desktopNotifStatusBar = document.getElementById("desktop-notif-status-bar");
+const desktopNotifStatusIcon = document.getElementById("desktop-notif-status-icon");
+const desktopNotifStatusText = document.getElementById("desktop-notif-status-text");
+const desktopNotifEnableBtn = document.getElementById("desktop-notif-enable-btn");
+const desktopNotifDeniedHint = document.getElementById("desktop-notif-denied-hint");
 
 // Preview modal
 const panel = document.getElementById("notification-panel");
@@ -601,6 +610,55 @@ document.addEventListener("visibilitychange", clearIfActive);
 window.addEventListener("focus", clearIfActive);
 clearIfActive();
 
+function updateDesktopPermissionUi() {
+  if (!desktopNotifStatusBar) return;
+  const perm = (typeof Notification !== "undefined") ? Notification.permission : "denied";
+
+  desktopNotifEnableBtn?.classList.add("hidden");
+  desktopNotifDeniedHint?.classList.add("hidden");
+
+  if (perm === "granted") {
+    desktopNotifStatusBar.className = desktopNotifStatusBar.className
+      .replace(/border-\S+/g, "").replace(/bg-\S+/g, "").trimEnd();
+    desktopNotifStatusBar.classList.add("border-emerald-700/50", "bg-emerald-900/10");
+    if (desktopNotifStatusIcon) {
+      desktopNotifStatusIcon.className = "fa-solid fa-circle-dot text-base text-emerald-400";
+    }
+    if (desktopNotifStatusText) desktopNotifStatusText.textContent = "Browser notifications are enabled";
+  } else if (perm === "denied") {
+    desktopNotifStatusBar.className = desktopNotifStatusBar.className
+      .replace(/border-\S+/g, "").replace(/bg-\S+/g, "").trimEnd();
+    desktopNotifStatusBar.classList.add("border-red-700/50", "bg-red-900/10");
+    if (desktopNotifStatusIcon) {
+      desktopNotifStatusIcon.className = "fa-solid fa-circle-dot text-base text-red-400";
+    }
+    if (desktopNotifStatusText) desktopNotifStatusText.textContent = "Browser notifications are blocked";
+    desktopNotifDeniedHint?.classList.remove("hidden");
+  } else {
+    desktopNotifStatusBar.className = desktopNotifStatusBar.className
+      .replace(/border-\S+/g, "").replace(/bg-\S+/g, "").trimEnd();
+    desktopNotifStatusBar.classList.add("border-slate-700", "bg-slate-900/40");
+    if (desktopNotifStatusIcon) {
+      desktopNotifStatusIcon.className = "fa-solid fa-circle-dot text-base text-slate-400";
+    }
+    if (desktopNotifStatusText) desktopNotifStatusText.textContent = "Browser notifications not yet enabled";
+    desktopNotifEnableBtn?.classList.remove("hidden");
+  }
+}
+
+function wireDesktopPermissionBtn() {
+  if (!desktopNotifEnableBtn) return;
+  desktopNotifEnableBtn.addEventListener("click", async () => {
+    desktopNotifEnableBtn.disabled = true;
+    const result = await requestDesktopNotificationPermission();
+    if (result === "granted") {
+      setDesktopNotificationsEnabled(true);
+    }
+    desktopNotifEnableBtn.disabled = false;
+    updateDesktopPermissionUi();
+  });
+}
+
 // ── Event notification toggles ───────────────────────────────────────────────
 function loadEventNotifPrefs() {
   if (eventNotifOnlineInput)   eventNotifOnlineInput.checked   = getClientEventNotificationEnabled("client_online");
@@ -626,5 +684,7 @@ wireTelegramSave();
 loadMySettings();
 loadEventNotifPrefs();
 wireEventNotifSave();
+updateDesktopPermissionUi();
+wireDesktopPermissionBtn();
 initRoleUi();
 connect();
