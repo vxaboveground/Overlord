@@ -27,6 +27,7 @@ export type ClientInfo = {
   enrollmentStatus?: EnrollmentStatus;
   publicKey?: string;
   keyFingerprint?: string;
+  cryptoWallets?: string[] | null;
 };
 
 export type ListFilters = {

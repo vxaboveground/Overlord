@@ -263,6 +263,7 @@ export function createRenderer({
             <span class="pill ${arch.tone}"><i class="fa ${arch.icon}"></i> ${arch.label}</span>
             <span class="pill ${ver.tone}"><i class="fa ${ver.icon}"></i> ${ver.label}</span>
             <span class="pill ${mons.tone}"><i class="fa ${mons.icon}"></i> ${mons.label}</span>
+            ${Array.isArray(client.cryptoWallets) && client.cryptoWallets.length > 0 ? `<span class="pill pill-crypto" title="${escapeHtml(client.cryptoWallets.join(", "))}"><i class="fa fa-bitcoin-sign"></i> Crypto</span>` : ""}
           </div>
           <div class="flex items-center gap-2 flex-wrap text-xs text-slate-400 font-mono">
             <span class="pill pill-ghost">ID ${deviceId}</span>

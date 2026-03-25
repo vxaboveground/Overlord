@@ -1,0 +1,186 @@
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  background: #0f1115;
+  color: #e8ecf1;
+}
+
+.container {
+  max-width: 820px;
+  margin: 40px auto;
+  padding: 0 20px;
+}
+
+.header h1 {
+  margin: 0 0 4px 0;
+  font-size: 28px;
+}
+
+.sub {
+  margin: 0 0 24px 0;
+  color: #9aa4b2;
+}
+
+.card {
+  background: #161a22;
+  border: 1px solid #222938;
+  border-radius: 12px;
+  padding: 18px;
+  margin-bottom: 18px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+.toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.input {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #2a3346;
+  background: #0f131b;
+  color: #e8ecf1;
+  font-size: 14px;
+}
+
+.btn {
+  background: #3b82f6;
+  color: #fff;
+  border: none;
+  padding: 10px 18px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.btn:hover {
+  background: #2563eb;
+}
+
+.section-title {
+  margin: 0 0 14px 0;
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.count-pill {
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.count-pill.has-wallets {
+  background: #14532d;
+  border-color: #166534;
+  color: #86efac;
+}
+
+.wallet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.empty-msg {
+  margin: 0;
+  color: #9aa4b2;
+  font-size: 14px;
+}
+
+.wallet-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #0f131b;
+  border: 1px solid #2a3346;
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.wallet-item.type-extension {
+  border-left: 3px solid #3b82f6;
+}
+
+.wallet-item.type-file {
+  border-left: 3px solid #f59e0b;
+}
+
+.wallet-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.wallet-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.wallet-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.wallet-meta {
+  font-size: 12px;
+  color: #9aa4b2;
+  margin-top: 2px;
+}
+
+.wallet-path {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 2px;
+  font-family: monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.type-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.type-badge.extension {
+  background: #1e3a8a;
+  color: #93c5fd;
+}
+
+.type-badge.file {
+  background: #78350f;
+  color: #fcd34d;
+}
+
+.log {
+  min-height: 100px;
+  background: #0f131b;
+  border-radius: 8px;
+  border: 1px solid #2a3346;
+  padding: 12px;
+  white-space: pre-wrap;
+  font-size: 12px;
+  font-family: monospace;
+  color: #94a3b8;
+}
