@@ -536,24 +536,29 @@ func buildFrame(img *image.RGBA, display int, quality int) (wire.Frame, time.Dur
 	codec := blockCodec()
 
 	if codec == "h264" {
-		h264Bytes, err := encodeH264Frame(img)
-		if err == nil && len(h264Bytes) > 0 {
-			prevMu.Lock()
-			copyPrev(img)
-			prevMu.Unlock()
-			lastKeyframe.Store(now.UnixNano())
-			statFullFrames.Add(1)
-			return wire.Frame{Type: "frame", Header: wire.FrameHeader{Monitor: display, FPS: 0, Format: "h264"}, Data: h264Bytes}, time.Since(encStart), nil
-		}
-		h264WarnOnce.Do(func() {
-			detail := h264AvailabilityDetail()
-			if detail != "" {
-				log.Printf("capture: h264 encode unavailable, falling back to jpeg: %v (%s)", err, detail)
-				return
+		if width%2 != 0 || height%2 != 0 {
+			log.Printf("capture: h264 skipped for odd dimensions (%dx%d), falling back to jpeg", width, height)
+			codec = "jpeg"
+		} else {
+			h264Bytes, err := encodeH264Frame(img)
+			if err == nil && len(h264Bytes) > 0 {
+				prevMu.Lock()
+				copyPrev(img)
+				prevMu.Unlock()
+				lastKeyframe.Store(now.UnixNano())
+				statFullFrames.Add(1)
+				return wire.Frame{Type: "frame", Header: wire.FrameHeader{Monitor: display, FPS: 0, Format: "h264"}, Data: h264Bytes}, time.Since(encStart), nil
 			}
-			log.Printf("capture: h264 encode unavailable, falling back to jpeg: %v", err)
-		})
-		codec = "jpeg"
+			h264WarnOnce.Do(func() {
+				detail := h264AvailabilityDetail()
+				if detail != "" {
+					log.Printf("capture: h264 encode unavailable, falling back to jpeg: %v (%s)", err, detail)
+					return
+				}
+				log.Printf("capture: h264 encode unavailable, falling back to jpeg: %v", err)
+			})
+			codec = "jpeg"
+		}
 	}
 
 	if !enableBlocks {
@@ -636,25 +641,30 @@ func buildFrameHVNC(img *image.RGBA, display int, quality int) (wire.Frame, time
 
 	now := time.Now()
 	if codec == "h264" {
-		h264Bytes, err := encodeH264Frame(img)
-		if err == nil && len(h264Bytes) > 0 {
-			prevMu.Lock()
-			copyPrev(img)
-			prevMu.Unlock()
-			lastKeyframe.Store(now.UnixNano())
-			statFullFrames.Add(1)
-			frame := wire.Frame{Type: "frame", Header: wire.FrameHeader{Monitor: display, FPS: 0, Format: "h264", HVNC: true}, Data: h264Bytes}
-			return frame, time.Since(encStart), nil
-		}
-		h264WarnOnce.Do(func() {
-			detail := h264AvailabilityDetail()
-			if detail != "" {
-				log.Printf("hvnc capture: h264 encode unavailable, falling back to jpeg: %v (%s)", err, detail)
-				return
+		if width%2 != 0 || height%2 != 0 {
+			log.Printf("hvnc capture: h264 skipped for odd dimensions (%dx%d), falling back to jpeg", width, height)
+			codec = "jpeg"
+		} else {
+			h264Bytes, err := encodeH264Frame(img)
+			if err == nil && len(h264Bytes) > 0 {
+				prevMu.Lock()
+				copyPrev(img)
+				prevMu.Unlock()
+				lastKeyframe.Store(now.UnixNano())
+				statFullFrames.Add(1)
+				frame := wire.Frame{Type: "frame", Header: wire.FrameHeader{Monitor: display, FPS: 0, Format: "h264", HVNC: true}, Data: h264Bytes}
+				return frame, time.Since(encStart), nil
 			}
-			log.Printf("hvnc capture: h264 encode unavailable, falling back to jpeg: %v", err)
-		})
-		codec = "jpeg"
+			h264WarnOnce.Do(func() {
+				detail := h264AvailabilityDetail()
+				if detail != "" {
+					log.Printf("hvnc capture: h264 encode unavailable, falling back to jpeg: %v (%s)", err, detail)
+					return
+				}
+				log.Printf("hvnc capture: h264 encode unavailable, falling back to jpeg: %v", err)
+			})
+			codec = "jpeg"
+		}
 	}
 
 	prevMu.Lock()
