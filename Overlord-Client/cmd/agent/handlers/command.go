@@ -698,6 +698,59 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		capture.SetMaxResolution(maxH)
 		sendCommandResultSafe(env, cmdID, true, "")
 		return nil
+	case "clipboard_sync_start":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		source := "rd"
+		if payload != nil {
+			if v, ok := payload["source"].(string); ok && v != "" {
+				source = v
+			}
+		}
+		env.ClipboardSyncMu.Lock()
+		if env.ClipboardSyncCancel != nil {
+			env.ClipboardSyncCancel()
+			if env.ClipboardSyncDone != nil {
+				<-env.ClipboardSyncDone
+			}
+		}
+		syncCtx, syncCancel := context.WithCancel(ctx)
+		env.ClipboardSyncCancel = syncCancel
+		env.ClipboardSyncSource = source
+		done := make(chan struct{})
+		env.ClipboardSyncDone = done
+		goSafe("clipboard_sync", env.Cancel, func() {
+			ClipboardSyncStart(syncCtx, env, source)
+			close(done)
+		})
+		env.ClipboardSyncMu.Unlock()
+		log.Printf("clipboard_sync: start (%s)", source)
+		sendCommandResultSafe(env, cmdID, true, "")
+		return nil
+	case "clipboard_sync_stop":
+		env.ClipboardSyncMu.Lock()
+		if env.ClipboardSyncCancel != nil {
+			env.ClipboardSyncCancel()
+			if env.ClipboardSyncDone != nil {
+				<-env.ClipboardSyncDone
+			}
+			env.ClipboardSyncCancel = nil
+			env.ClipboardSyncDone = nil
+		}
+		env.ClipboardSyncMu.Unlock()
+		log.Printf("clipboard_sync: stop")
+		sendCommandResultSafe(env, cmdID, true, "")
+		return nil
+	case "clipboard_set":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		text := ""
+		if payload != nil {
+			if v, ok := payload["text"].(string); ok {
+				text = v
+			}
+		}
+		ClipboardSyncSet(text)
+		sendCommandResultSafe(env, cmdID, true, "")
+		return nil
 	case "desktop_mouse_move":
 		if !env.MouseControl {
 			sendCommandResultSafe(env, cmdID, true, "")

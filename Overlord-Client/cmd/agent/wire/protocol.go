@@ -228,6 +228,12 @@ type HVNCLookupResult struct {
 	Done bool   `msgpack:"done"`
 }
 
+type ClipboardContent struct {
+	Type   string `msgpack:"type"`
+	Text   string `msgpack:"text"`
+	Source string `msgpack:"source"`
+}
+
 type ProxyData struct {
 	Type         string `msgpack:"type"`
 	ConnectionID string `msgpack:"connectionId"`

