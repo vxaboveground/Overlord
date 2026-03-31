@@ -41,6 +41,9 @@ const serverVersionText = document.getElementById("server-version-text");
 const selectedClients = new Set();
 let lastNonOnlineStatus = "all";
 const PREF_FILTER_STATUS_KEY = "overlord_filter_status";
+const PREF_SORT_KEY = "overlord_sort";
+const PREF_FILTER_OS_KEY = "overlord_filter_os";
+const PREF_FILTER_COUNTRY_KEY = "overlord_filter_country";
 
 let currentUser = null;
 let contextCard = null;
@@ -443,6 +446,7 @@ searchInput?.addEventListener("input", (e) => {
 
 sortSelect?.addEventListener("change", (e) => {
   state.sort = e.target.value;
+  localStorage.setItem(PREF_SORT_KEY, state.sort);
   state.page = 1;
   state.lastDigest = "";
   loadWithOptions({ force: true, reorder: true });
@@ -464,6 +468,7 @@ filterStatusSelect?.addEventListener("change", (e) => {
 
 filterOsSelect?.addEventListener("change", (e) => {
   state.filterOs = e.target.value;
+  localStorage.setItem(PREF_FILTER_OS_KEY, state.filterOs);
   state.page = 1;
   state.lastDigest = "";
   loadWithOptions({ force: true, reorder: true });
@@ -471,19 +476,38 @@ filterOsSelect?.addEventListener("change", (e) => {
 
 initCountryPicker((code) => {
   state.filterCountry = code;
+  localStorage.setItem(PREF_FILTER_COUNTRY_KEY, code);
   state.page = 1;
   state.lastDigest = "";
   loadWithOptions({ force: true, reorder: true });
-});
+}, localStorage.getItem(PREF_FILTER_COUNTRY_KEY) || "all");
 
 (function restoreFilterStatus() {
-  const saved = localStorage.getItem(PREF_FILTER_STATUS_KEY);
-  const valid = ["all", "online", "offline"];
-  if (saved && valid.includes(saved)) {
-    state.filterStatus = saved;
-    if (filterStatusSelect) filterStatusSelect.value = saved;
-    if (showOfflineToggle) showOfflineToggle.checked = saved !== "online";
-    if (saved !== "online") lastNonOnlineStatus = saved;
+  const savedStatus = localStorage.getItem(PREF_FILTER_STATUS_KEY);
+  const validStatuses = ["all", "online", "offline"];
+  if (savedStatus && validStatuses.includes(savedStatus)) {
+    state.filterStatus = savedStatus;
+    if (filterStatusSelect) filterStatusSelect.value = savedStatus;
+    if (showOfflineToggle) showOfflineToggle.checked = savedStatus !== "online";
+    if (savedStatus !== "online") lastNonOnlineStatus = savedStatus;
+  }
+
+  const savedSort = localStorage.getItem(PREF_SORT_KEY);
+  const validSorts = ["stable", "last_seen_desc", "host_asc", "ping_asc", "ping_desc", "country_asc", "country_desc"];
+  if (savedSort && validSorts.includes(savedSort)) {
+    state.sort = savedSort;
+    if (sortSelect) sortSelect.value = savedSort;
+  }
+
+  const savedOs = localStorage.getItem(PREF_FILTER_OS_KEY);
+  if (savedOs) {
+    state.filterOs = savedOs;
+    if (filterOsSelect) filterOsSelect.value = savedOs;
+  }
+
+  const savedCountry = localStorage.getItem(PREF_FILTER_COUNTRY_KEY);
+  if (savedCountry) {
+    state.filterCountry = savedCountry;
   }
 })();
 

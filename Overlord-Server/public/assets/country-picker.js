@@ -213,11 +213,11 @@ function flagHtml(code) {
   return `<span class="fi fi-${cc}"></span>`;
 }
 
-export function initCountryPicker(onSelect) {
+export function initCountryPicker(onSelect, initialCode = "all") {
   const anchor = document.getElementById("country-picker-anchor");
   if (!anchor) return;
 
-  let currentCode = "all";
+  let currentCode = initialCode;
   let countryData = []; // [{ code, count }]
   let panelOpen = false;
 
@@ -226,7 +226,10 @@ export function initCountryPicker(onSelect) {
   btn.id = "country-picker-btn";
   btn.className =
     "inline-flex items-center gap-2 bg-slate-900/70 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 hover:border-slate-600 transition-colors";
-  btn.innerHTML = `<i class="fa-solid fa-earth-americas text-slate-400"></i><span id="country-picker-label">All Countries</span><i class="fa-solid fa-chevron-down text-slate-400 text-xs"></i>`;
+  const initialFlag = initialCode !== "all" ? flagHtml(initialCode) : "";
+  const initialName = initialCode !== "all" && COUNTRIES[initialCode] ? COUNTRIES[initialCode][0] : "All Countries";
+  const initialLabelHtml = initialCode !== "all" ? `${initialFlag}&nbsp;${initialName}` : "All Countries";
+  btn.innerHTML = `<i class="fa-solid fa-earth-americas text-slate-400"></i><span id="country-picker-label">${initialLabelHtml}</span><i class="fa-solid fa-chevron-down text-slate-400 text-xs"></i>`;
   anchor.appendChild(btn);
 
   const panel = document.createElement("div");
