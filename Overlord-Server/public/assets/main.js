@@ -40,6 +40,7 @@ const bulkClearBtn = document.getElementById("bulk-clear");
 const serverVersionText = document.getElementById("server-version-text");
 const selectedClients = new Set();
 let lastNonOnlineStatus = "all";
+const PREF_FILTER_STATUS_KEY = "overlord_filter_status";
 
 let currentUser = null;
 let contextCard = null;
@@ -449,6 +450,7 @@ sortSelect?.addEventListener("change", (e) => {
 
 filterStatusSelect?.addEventListener("change", (e) => {
   state.filterStatus = e.target.value;
+  localStorage.setItem(PREF_FILTER_STATUS_KEY, state.filterStatus);
   if (state.filterStatus === "online") {
     if (showOfflineToggle) showOfflineToggle.checked = false;
   } else {
@@ -474,6 +476,17 @@ initCountryPicker((code) => {
   loadWithOptions({ force: true, reorder: true });
 });
 
+(function restoreFilterStatus() {
+  const saved = localStorage.getItem(PREF_FILTER_STATUS_KEY);
+  const valid = ["all", "online", "offline"];
+  if (saved && valid.includes(saved)) {
+    state.filterStatus = saved;
+    if (filterStatusSelect) filterStatusSelect.value = saved;
+    if (showOfflineToggle) showOfflineToggle.checked = saved !== "online";
+    if (saved !== "online") lastNonOnlineStatus = saved;
+  }
+})();
+
 showOfflineToggle?.addEventListener("change", (e) => {
   if (e.target.checked) {
     state.filterStatus = lastNonOnlineStatus || "all";
@@ -483,6 +496,7 @@ showOfflineToggle?.addEventListener("change", (e) => {
     }
     state.filterStatus = "online";
   }
+  localStorage.setItem(PREF_FILTER_STATUS_KEY, state.filterStatus);
   if (filterStatusSelect) {
     filterStatusSelect.value = state.filterStatus;
   }
