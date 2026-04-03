@@ -1,0 +1,67 @@
+services:
+  overlord-server:
+    image: ${DOCKER_IMAGE:-ghcr.io/vxaboveground/overlord:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      cache_from:
+        - type=local,src=.docker-cache/buildx
+      cache_to:
+        - type=local,dest=.docker-cache/buildx,mode=max
+    container_name: overlord-server
+    ports:
+      - "${PORT:-5173}:5173"
+    environment:
+      PORT: 5173
+      HOST: 0.0.0.0
+      # Optional: set an explicit initial admin account. If OVERLORD_PASS is empty,
+      # the server generates one-time bootstrap secrets and stores them in /app/data/save.json.
+      OVERLORD_USER: ${OVERLORD_USER:-admin}
+      OVERLORD_PASS: ${OVERLORD_PASS:-}
+      # Optional overrides. If empty, generated and persisted to /app/data/save.json.
+      JWT_SECRET: ${JWT_SECRET:-}
+      OVERLORD_AGENT_TOKEN: ${OVERLORD_AGENT_TOKEN:-}
+      NODE_ENV: ${NODE_ENV:-production}
+      OVERLORD_TLS_CERT: ${OVERLORD_TLS_CERT:-/app/certs/server.crt}
+      OVERLORD_TLS_KEY: ${OVERLORD_TLS_KEY:-/app/certs/server.key}
+      OVERLORD_TLS_CA: ${OVERLORD_TLS_CA:-}
+      # Set true only behind a trusted reverse proxy that terminates TLS (for example Render).
+      # Default false keeps current behavior: Overlord terminates TLS in-process.
+      OVERLORD_TLS_OFFLOAD: ${OVERLORD_TLS_OFFLOAD:-false}
+      # Cookie security mode: auto (default), true, or false.
+      # auto: Secure cookie on HTTPS requests / X-Forwarded-Proto=https.
+      OVERLORD_AUTH_COOKIE_SECURE: ${OVERLORD_AUTH_COOKIE_SECURE:-auto}
+      # Optional certbot integration (used only when NODE_ENV=production)
+      OVERLORD_TLS_CERTBOT_ENABLED: ${OVERLORD_TLS_CERTBOT_ENABLED:-false}
+      OVERLORD_TLS_CERTBOT_LIVE_PATH: ${OVERLORD_TLS_CERTBOT_LIVE_PATH:-/etc/letsencrypt/live}
+      OVERLORD_TLS_CERTBOT_DOMAIN: ${OVERLORD_TLS_CERTBOT_DOMAIN:-}
+      OVERLORD_TLS_CERTBOT_CERT_FILE: ${OVERLORD_TLS_CERTBOT_CERT_FILE:-fullchain.pem}
+      OVERLORD_TLS_CERTBOT_KEY_FILE: ${OVERLORD_TLS_CERTBOT_KEY_FILE:-privkey.pem}
+      OVERLORD_TLS_CERTBOT_CA_FILE: ${OVERLORD_TLS_CERTBOT_CA_FILE:-chain.pem}
+      OVERLORD_CLIENT_BUILD_CACHE_DIR: ${OVERLORD_CLIENT_BUILD_CACHE_DIR:-/app/client-build-cache}
+      OVERLORD_FILE_UPLOAD_INTENT_TTL_MS: ${OVERLORD_FILE_UPLOAD_INTENT_TTL_MS:-1800000}
+      OVERLORD_FILE_UPLOAD_PULL_TTL_MS: ${OVERLORD_FILE_UPLOAD_PULL_TTL_MS:-1800000}
+    volumes:
+      - overlord-data:/app/data
+      - overlord-certs:/app/certs
+      - overlord-client-build-cache:/app/client-build-cache
+      # Uncomment to mount host certbot certs read-only
+      # - /etc/letsencrypt:/etc/letsencrypt:ro
+      # Uncomment to use a static config file instead of env vars
+      # - ./Overlord-Server/config.json:/app/config.json:ro
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # Use http:// when OVERLORD_TLS_OFFLOAD=true.
+      test: ["CMD-SHELL", "curl -f ${OVERLORD_HEALTHCHECK_URL:-https://localhost:5173/health} >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  overlord-data:
+  overlord-certs:
+  overlord-client-build-cache:
