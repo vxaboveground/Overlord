@@ -4,10 +4,18 @@ package capture
 
 import (
 	"image"
+
+	"github.com/kbinani/screenshot"
 )
 
-var activeDisplays = func() int { return 0 }
+var activeDisplays = func() int {
+	return screenshot.NumActiveDisplays()
+}
 
-var captureDisplayFn = func(int) (*image.RGBA, error) { return nil, nil }
+var captureDisplayFn = func(display int) (*image.RGBA, error) {
+	return screenshot.CaptureDisplay(display)
+}
 
-func displayCount() int { return 0 }
+func displayCount() int {
+	return screenshot.NumActiveDisplays()
+}
