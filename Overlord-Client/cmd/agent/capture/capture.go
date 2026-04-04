@@ -98,6 +98,14 @@ func CaptureAndSend(ctx context.Context, env *rt.Env) error {
 		log.Printf("capture: requested display %d out of range, defaulting to 0 (monitors=%d)", env.SelectedDisplay, displays)
 	}
 	t0 := time.Now()
+
+	fails := consecutiveCaptureFails.Load()
+	if fails >= 3 {
+		ResetDesktopCapture()
+		ResetMonitorCache()
+		time.Sleep(50 * time.Millisecond)
+	}
+
 	img, err := safeCaptureDisplay(display)
 	if err != nil {
 		img, err = safeCaptureDisplay(display)
@@ -108,13 +116,16 @@ func CaptureAndSend(ctx context.Context, env *rt.Env) error {
 		}
 	}
 	if err != nil {
-		log.Printf("capture: capture failed: %v (sending black frame)", err)
+		consecutiveCaptureFails.Add(1)
+		log.Printf("capture: capture failed: %v (sending black frame, consecutive=%d)", err, consecutiveCaptureFails.Load())
 		return sendBlackFrame(ctx, env)
 	}
 	if img == nil {
-		log.Printf("capture: capture returned nil image (sending black frame)")
+		consecutiveCaptureFails.Add(1)
+		log.Printf("capture: capture returned nil image (sending black frame, consecutive=%d)", consecutiveCaptureFails.Load())
 		return sendBlackFrame(ctx, env)
 	}
+	consecutiveCaptureFails.Store(0)
 	captureDur := time.Since(t0)
 
 	quality := jpegQuality()
@@ -322,6 +333,8 @@ func MonitorCount() int {
 }
 
 const frameLogInterval = 5 * time.Second
+
+var consecutiveCaptureFails atomic.Int64
 
 var (
 	fpsWindowStart atomic.Int64

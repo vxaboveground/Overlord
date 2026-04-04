@@ -1,6 +1,8 @@
-//go:build !windows && !linux
+//go:build linux
 
 package handlers
+
+// Linux input is not implemented — all input functions are no-ops.
 
 func setCursorPos(x, y int32)        {}
 func sendMouseDown(button int)       {}

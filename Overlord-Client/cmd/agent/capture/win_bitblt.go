@@ -166,6 +166,10 @@ var (
 	lastCapScale     atomic.Uint64
 	state            capState
 	captureMu        sync.Mutex
+
+	stateCreatedAt time.Time
+
+	stateRefreshInterval = 30 * time.Second
 )
 
 var captureDisplayFn = func(display int) (*image.RGBA, error) {
@@ -324,8 +328,13 @@ func captureDisplayBitBlt(display int) (*image.RGBA, error) {
 		return img, bitDur, dibDur, convDur, nil
 	}
 
+	if !stateCreatedAt.IsZero() && time.Since(stateCreatedAt) > stateRefreshInterval {
+		state.reset()
+	}
+
 	img, bitDur, dibDur, convDur, err := captureWithDC()
 	if err != nil && fromCreateDC {
+		state.reset()
 		closeDC()
 		hdcScreen = getDC(0)
 		fromCreateDC = false
@@ -335,6 +344,7 @@ func captureDisplayBitBlt(display int) (*image.RGBA, error) {
 		img, bitDur, dibDur, convDur, err = captureWithDC()
 	}
 	if err != nil {
+		state.reset()
 		return nil, err
 	}
 
@@ -456,6 +466,7 @@ func (s *capState) ensure(hdcScreen uintptr, w, h int) (uintptr, uintptr, []byte
 		if s.hdcMem == 0 {
 			return 0, 0, nil, 0, syscall.EINVAL
 		}
+		stateCreatedAt = time.Now()
 	}
 
 	if s.w != w || s.h != h || s.hbmp == 0 {
