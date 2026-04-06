@@ -130,11 +130,18 @@
         <p id="wipe-offline-message" class="hidden text-sm rounded-lg px-3 py-2 border"></p>
       </section>
 
+      <!-- Account + Banned IPs -->
       <section class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <!-- Account -->
         <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
-          <div>
-            <h2 class="text-lg font-semibold">Basic Settings</h2>
-            <p class="text-sm text-slate-400">Update account and local dashboard preferences.</p>
+          <div class="flex items-center gap-3">
+            <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-sky-500/10 border border-sky-500/30">
+              <i class="fa-solid fa-user text-sky-400"></i>
+            </div>
+            <div>
+              <h2 class="text-lg font-semibold">Account</h2>
+              <p class="text-sm text-slate-400">View your account info and update your password.</p>
+            </div>
           </div>
 
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
@@ -148,8 +155,8 @@
             </div>
           </div>
 
-          <form id="password-form" class="space-y-3 pt-1">
-            <h3 class="font-medium">Change Password</h3>
+          <form id="password-form" class="space-y-3">
+            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Change Password</p>
             <input
               id="current-password"
               type="password"
@@ -179,300 +186,33 @@
             <p id="password-policy-hint" class="text-xs text-slate-400"></p>
             <button
               type="submit"
-              class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 transition-colors text-white font-medium"
+              class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 transition-colors text-white text-sm font-medium"
             >
-              <i class="fa-solid fa-key mr-2"></i>Update Password
+              <i class="fa-solid fa-key"></i>Update Password
             </button>
           </form>
 
-          <form id="prefs-form" class="space-y-3 pt-1">
-            <h3 class="font-medium">Dashboard Preferences</h3>
-            <label class="flex items-center gap-2">
-              <input id="pref-notifications" type="checkbox" class="h-4 w-4" />
-              <span>Enable notification badge updates</span>
-            </label>
-            <label class="flex items-center gap-2">
-              <input id="pref-desktop-notifications" type="checkbox" class="h-4 w-4 accent-emerald-500" />
-              <span>Enable desktop (OS) notifications</span>
-            </label>
-            <p id="pref-desktop-notifications-hint" class="hidden text-xs text-amber-400">
-              <i class="fa-solid fa-triangle-exclamation mr-1"></i>
-              Browser permission was denied. Reset notification permissions for this site in your browser settings, then try again.
-            </p>
-            <label class="block">
-              <span class="text-sm text-slate-300">Client refresh interval (seconds)</span>
-              <input
-                id="pref-refresh-seconds"
-                type="number"
-                min="3"
-                max="120"
-                class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
-              />
-            </label>
-            <div>
-              <span class="text-sm text-slate-300">Navigation layout</span>
-              <div class="mt-2 flex gap-2">
-                <button type="button" id="pref-nav-sidebar"
-                  class="nav-layout-btn flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors">
-                  <i class="fa-solid fa-table-columns"></i> Sidebar
-                </button>
-                <button type="button" id="pref-nav-topbar"
-                  class="nav-layout-btn flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors">
-                  <i class="fa-solid fa-bars"></i> Top Bar
-                </button>
-              </div>
-              <p class="text-xs text-slate-500 mt-1">Changes apply immediately on save.</p>
-            </div>
-            <button
-              type="submit"
-              class="px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors text-white font-medium"
-            >
-              <i class="fa-solid fa-floppy-disk mr-2"></i>Save Preferences
-            </button>
-          </form>
-
-          <div id="telegram-settings" class="space-y-3 pt-1 border-t border-slate-800 pt-4">
-            <div>
-              <h3 class="font-medium">Notification Delivery</h3>
-              <p class="text-xs text-slate-400">
-                Webhook and Telegram Bot settings have moved to the
-                <a href="/notifications" class="text-sky-400 hover:underline font-medium">Notifications page</a>.
-                Configure your personal webhook and Telegram bot there.
-              </p>
-            </div>
-          </div>
-
-          <form id="security-form" class="space-y-3 pt-1 border-t border-slate-800 pt-4">
-            <div>
-              <h3 class="font-medium">Security Policy</h3>
-              <p class="text-xs text-slate-400">Admin-only global security controls.</p>
-            </div>
-
-            <div id="security-permission-note" class="hidden rounded-lg border border-amber-800 bg-amber-900/20 text-amber-200 px-3 py-2 text-sm">
-              Only admins can update security policy settings.
-            </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <label class="block">
-                <span class="text-sm text-slate-300">Session TTL (hours)</span>
-                <input
-                  id="security-session-ttl"
-                  type="number"
-                  min="1"
-                  max="720"
-                  class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
-                />
-              </label>
-              <label class="block">
-                <span class="text-sm text-slate-300">Max login attempts</span>
-                <input
-                  id="security-login-max-attempts"
-                  type="number"
-                  min="1"
-                  max="50"
-                  class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
-                />
-              </label>
-              <label class="block">
-                <span class="text-sm text-slate-300">Login window (minutes)</span>
-                <input
-                  id="security-login-window"
-                  type="number"
-                  min="1"
-                  max="1440"
-                  class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
-                />
-              </label>
-              <label class="block">
-                <span class="text-sm text-slate-300">Lockout duration (minutes)</span>
-                <input
-                  id="security-lockout"
-                  type="number"
-                  min="1"
-                  max="1440"
-                  class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
-                />
-              </label>
-              <label class="block sm:col-span-2">
-                <span class="text-sm text-slate-300">Minimum password length</span>
-                <input
-                  id="security-password-min"
-                  type="number"
-                  min="6"
-                  max="128"
-                  class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
-                />
-              </label>
-            </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-              <label class="flex items-center gap-2">
-                <input id="security-require-uppercase" type="checkbox" class="h-4 w-4" />
-                <span>Require uppercase letter</span>
-              </label>
-              <label class="flex items-center gap-2">
-                <input id="security-require-lowercase" type="checkbox" class="h-4 w-4" />
-                <span>Require lowercase letter</span>
-              </label>
-              <label class="flex items-center gap-2">
-                <input id="security-require-number" type="checkbox" class="h-4 w-4" />
-                <span>Require number</span>
-              </label>
-              <label class="flex items-center gap-2">
-                <input id="security-require-symbol" type="checkbox" class="h-4 w-4" />
-                <span>Require symbol</span>
-              </label>
-            </div>
-
-            <button
-              type="submit"
-              id="security-save-btn"
-              class="px-4 py-2 rounded-lg bg-indigo-700 hover:bg-indigo-600 transition-colors text-white font-medium"
-            >
-              <i class="fa-solid fa-shield-halved mr-2"></i>Save Security Policy
-            </button>
-          </form>
-
-          <form id="tls-form" class="space-y-3 pt-1 border-t border-slate-800 pt-4">
-            <div>
-              <h3 class="font-medium">TLS Certificates</h3>
-              <p class="text-xs text-slate-400">Admin-only TLS source configuration. Changes apply after server restart.</p>
-            </div>
-
-            <div id="tls-permission-note" class="hidden rounded-lg border border-amber-800 bg-amber-900/20 text-amber-200 px-3 py-2 text-sm">
-              Only admins can update TLS settings.
-            </div>
-
-            <label class="flex items-center gap-2 text-sm">
-              <input id="tls-certbot-enabled" type="checkbox" class="h-4 w-4" />
-              <span>Use certbot certificates in production runtime (NODE_ENV=production)</span>
-            </label>
-
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <label class="block">
-                <span class="text-sm text-slate-300">Let's Encrypt account email</span>
-                <input
-                  id="tls-certbot-email"
-                  type="email"
-                  placeholder="admin@example.com"
-                  class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
-                />
-              </label>
-              <label class="block sm:col-span-2">
-                <span class="text-sm text-slate-300">Certbot live base path</span>
-                <input
-                  id="tls-certbot-live-path"
-                  type="text"
-                  placeholder="/etc/letsencrypt/live"
-                  class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
-                />
-              </label>
-              <label class="block sm:col-span-2">
-                <span class="text-sm text-slate-300">Certbot domain folder</span>
-                <input
-                  id="tls-certbot-domain"
-                  type="text"
-                  placeholder="example.com"
-                  class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
-                />
-              </label>
-              <label class="block">
-                <span class="text-sm text-slate-300">Cert file name</span>
-                <input
-                  id="tls-certbot-cert-file"
-                  type="text"
-                  placeholder="fullchain.pem"
-                  class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
-                />
-              </label>
-              <label class="block">
-                <span class="text-sm text-slate-300">Key file name</span>
-                <input
-                  id="tls-certbot-key-file"
-                  type="text"
-                  placeholder="privkey.pem"
-                  class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
-                />
-              </label>
-              <label class="block sm:col-span-2">
-                <span class="text-sm text-slate-300">CA chain file name</span>
-                <input
-                  id="tls-certbot-ca-file"
-                  type="text"
-                  placeholder="chain.pem"
-                  class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
-                />
-              </label>
-            </div>
-
-            <div class="rounded-lg border border-slate-800 bg-slate-900/70 p-3 space-y-2">
-              <div class="text-xs text-slate-300">
-                One-click setup requirements: DNS for the domain must point to this server and inbound port 80 must be reachable.
-              </div>
-              <button
-                type="button"
-                id="tls-certbot-auto-btn"
-                class="px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 transition-colors text-white font-medium"
-              >
-                <i class="fa-solid fa-wand-magic-sparkles mr-2"></i>Auto Setup Free SSL (Let's Encrypt)
-              </button>
-            </div>
-
-            <button
-              type="submit"
-              id="tls-save-btn"
-              class="px-4 py-2 rounded-lg bg-cyan-700 hover:bg-cyan-600 transition-colors text-white font-medium"
-            >
-              <i class="fa-solid fa-certificate mr-2"></i>Save TLS Settings
-            </button>
-          </form>
-
-          <form id="appearance-form" class="space-y-3 pt-1 border-t border-slate-800 pt-4">
-            <div>
-              <h3 class="font-medium">Custom CSS</h3>
-              <p class="text-xs text-slate-400">Admin-only. Paste custom CSS to override the default theme across all pages.</p>
-            </div>
-
-            <div id="appearance-permission-note" class="hidden rounded-lg border border-amber-800 bg-amber-900/20 text-amber-200 px-3 py-2 text-sm">
-              Only admins can update custom CSS.
-            </div>
-
-            <label class="block">
-              <span class="text-sm text-slate-300">Custom CSS</span>
-              <textarea
-                id="appearance-custom-css"
-                rows="12"
-                spellcheck="false"
-                placeholder="/* Paste your custom CSS here */&#10;:root { --color-primary: #f59e0b; }"
-                class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono text-xs resize-y"
-              ></textarea>
-              <p class="text-xs text-slate-500 mt-1">Max 50 KB. Reload any open page after saving to see the new styles.</p>
-            </label>
-
-            <button
-              type="submit"
-              id="appearance-save-btn"
-              class="px-4 py-2 rounded-lg bg-violet-700 hover:bg-violet-600 transition-colors text-white font-medium"
-            >
-              <i class="fa-solid fa-paintbrush mr-2"></i>Save Custom CSS
-            </button>
-          </form>
-
-          <p id="settings-message" class="hidden text-sm rounded-lg px-3 py-2"></p>
+          <p id="settings-message" class="hidden text-sm rounded-lg px-3 py-2 border"></p>
         </div>
 
+        <!-- Banned IPs -->
         <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
           <div class="flex items-center justify-between gap-3">
-            <div>
-              <h2 class="text-lg font-semibold">Banned IPs</h2>
-              <p class="text-sm text-slate-400">Unban blocked agent source IPs.</p>
+            <div class="flex items-center gap-3">
+              <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-red-500/10 border border-red-500/30">
+                <i class="fa-solid fa-ban text-red-400"></i>
+              </div>
+              <div>
+                <h2 class="text-lg font-semibold">Banned IPs</h2>
+                <p class="text-sm text-slate-400">Unban blocked agent source IPs.</p>
+              </div>
             </div>
             <button
               id="refresh-bans-btn"
-              class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm"
+              class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm transition-colors"
               type="button"
             >
-              <i class="fa-solid fa-rotate mr-1"></i>Refresh
+              <i class="fa-solid fa-rotate"></i>Refresh
             </button>
           </div>
 
@@ -500,8 +240,336 @@
         </div>
       </section>
 
-    </main>
+      <!-- Dashboard Preferences -->
+      <section class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-violet-500/10 border border-violet-500/30">
+            <i class="fa-solid fa-sliders text-violet-400"></i>
+          </div>
+          <div>
+            <h2 class="text-lg font-semibold">Dashboard Preferences</h2>
+            <p class="text-sm text-slate-400">Configure notifications, client refresh rate, and navigation layout.</p>
+          </div>
+        </div>
 
+        <form id="prefs-form" class="space-y-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div class="space-y-2">
+              <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Notifications</p>
+              <label class="flex items-center gap-2 text-sm">
+                <input id="pref-notifications" type="checkbox" class="h-4 w-4" />
+                <span>Enable notification badge updates</span>
+              </label>
+              <label class="flex items-center gap-2 text-sm">
+                <input id="pref-desktop-notifications" type="checkbox" class="h-4 w-4 accent-emerald-500" />
+                <span>Enable desktop (OS) notifications</span>
+              </label>
+              <p id="pref-desktop-notifications-hint" class="hidden text-xs text-amber-400">
+                <i class="fa-solid fa-triangle-exclamation mr-1"></i>
+                Browser permission was denied. Reset notification permissions for this site in your browser settings, then try again.
+              </p>
+            </div>
+
+            <div class="space-y-2">
+              <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Refresh Interval</p>
+              <label class="block">
+                <span class="text-sm text-slate-300">Client refresh interval (seconds)</span>
+                <input
+                  id="pref-refresh-seconds"
+                  type="number"
+                  min="3"
+                  max="120"
+                  class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                />
+              </label>
+            </div>
+          </div>
+
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Navigation Layout</p>
+            <div class="flex gap-2">
+              <button type="button" id="pref-nav-sidebar"
+                class="nav-layout-btn flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors">
+                <i class="fa-solid fa-table-columns"></i> Sidebar
+              </button>
+              <button type="button" id="pref-nav-topbar"
+                class="nav-layout-btn flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors">
+                <i class="fa-solid fa-bars"></i> Top Bar
+              </button>
+            </div>
+            <p class="text-xs text-slate-500 mt-1">Changes apply immediately on save.</p>
+          </div>
+
+          <button
+            type="submit"
+            class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-700 hover:bg-violet-600 transition-colors text-white text-sm font-medium"
+          >
+            <i class="fa-solid fa-floppy-disk"></i>Save Preferences
+          </button>
+        </form>
+      </section>
+
+      <!-- Notification Delivery -->
+      <section id="telegram-settings" class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
+            <i class="fa-solid fa-bell text-emerald-400"></i>
+          </div>
+          <div>
+            <h2 class="text-lg font-semibold">Notification Delivery</h2>
+            <p class="text-sm text-slate-400">Configure where alerts and notifications are sent.</p>
+          </div>
+        </div>
+        <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-4">
+          <p class="text-sm text-slate-300">
+            Webhook and Telegram Bot settings have moved to the
+            <a href="/notifications" class="text-sky-400 hover:underline font-medium">Notifications page</a>.
+            Configure your personal webhook and Telegram bot there.
+          </p>
+        </div>
+      </section>
+
+      <!-- Security Policy -->
+      <section class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-500/10 border border-indigo-500/30">
+            <i class="fa-solid fa-shield-halved text-indigo-400"></i>
+          </div>
+          <div>
+            <h2 class="text-lg font-semibold">Security Policy</h2>
+            <p class="text-sm text-slate-400">Admin-only global security controls.</p>
+          </div>
+        </div>
+
+        <form id="security-form" class="space-y-4">
+          <div id="security-permission-note" class="hidden rounded-lg border border-amber-800 bg-amber-900/20 text-amber-200 px-3 py-2 text-sm">
+            Only admins can update security policy settings.
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <label class="block">
+              <span class="text-sm text-slate-300">Session TTL (hours)</span>
+              <input
+                id="security-session-ttl"
+                type="number"
+                min="1"
+                max="720"
+                class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+              />
+            </label>
+            <label class="block">
+              <span class="text-sm text-slate-300">Max login attempts</span>
+              <input
+                id="security-login-max-attempts"
+                type="number"
+                min="1"
+                max="50"
+                class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+              />
+            </label>
+            <label class="block">
+              <span class="text-sm text-slate-300">Login window (minutes)</span>
+              <input
+                id="security-login-window"
+                type="number"
+                min="1"
+                max="1440"
+                class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+              />
+            </label>
+            <label class="block">
+              <span class="text-sm text-slate-300">Lockout duration (minutes)</span>
+              <input
+                id="security-lockout"
+                type="number"
+                min="1"
+                max="1440"
+                class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+              />
+            </label>
+            <label class="block">
+              <span class="text-sm text-slate-300">Minimum password length</span>
+              <input
+                id="security-password-min"
+                type="number"
+                min="6"
+                max="128"
+                class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+              />
+            </label>
+          </div>
+
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Password Requirements</p>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
+              <label class="flex items-center gap-2">
+                <input id="security-require-uppercase" type="checkbox" class="h-4 w-4" />
+                <span>Uppercase</span>
+              </label>
+              <label class="flex items-center gap-2">
+                <input id="security-require-lowercase" type="checkbox" class="h-4 w-4" />
+                <span>Lowercase</span>
+              </label>
+              <label class="flex items-center gap-2">
+                <input id="security-require-number" type="checkbox" class="h-4 w-4" />
+                <span>Number</span>
+              </label>
+              <label class="flex items-center gap-2">
+                <input id="security-require-symbol" type="checkbox" class="h-4 w-4" />
+                <span>Symbol</span>
+              </label>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            id="security-save-btn"
+            class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-700 hover:bg-indigo-600 transition-colors text-white text-sm font-medium"
+          >
+            <i class="fa-solid fa-shield-halved"></i>Save Security Policy
+          </button>
+        </form>
+      </section>
+
+      <!-- TLS Certificates -->
+      <section class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-cyan-500/10 border border-cyan-500/30">
+            <i class="fa-solid fa-certificate text-cyan-400"></i>
+          </div>
+          <div>
+            <h2 class="text-lg font-semibold">TLS Certificates</h2>
+            <p class="text-sm text-slate-400">Admin-only TLS source configuration. Changes apply after server restart.</p>
+          </div>
+        </div>
+
+        <form id="tls-form" class="space-y-4">
+          <div id="tls-permission-note" class="hidden rounded-lg border border-amber-800 bg-amber-900/20 text-amber-200 px-3 py-2 text-sm">
+            Only admins can update TLS settings.
+          </div>
+
+          <label class="flex items-center gap-2 text-sm">
+            <input id="tls-certbot-enabled" type="checkbox" class="h-4 w-4" />
+            <span>Use certbot certificates in production runtime (NODE_ENV=production)</span>
+          </label>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label class="block">
+              <span class="text-sm text-slate-300">Let's Encrypt account email</span>
+              <input
+                id="tls-certbot-email"
+                type="email"
+                placeholder="admin@example.com"
+                class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+              />
+            </label>
+            <label class="block">
+              <span class="text-sm text-slate-300">Certbot live base path</span>
+              <input
+                id="tls-certbot-live-path"
+                type="text"
+                placeholder="/etc/letsencrypt/live"
+                class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+              />
+            </label>
+            <label class="block">
+              <span class="text-sm text-slate-300">Certbot domain folder</span>
+              <input
+                id="tls-certbot-domain"
+                type="text"
+                placeholder="example.com"
+                class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+              />
+            </label>
+            <label class="block">
+              <span class="text-sm text-slate-300">Cert file name</span>
+              <input
+                id="tls-certbot-cert-file"
+                type="text"
+                placeholder="fullchain.pem"
+                class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+              />
+            </label>
+            <label class="block">
+              <span class="text-sm text-slate-300">Key file name</span>
+              <input
+                id="tls-certbot-key-file"
+                type="text"
+                placeholder="privkey.pem"
+                class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+              />
+            </label>
+            <label class="block">
+              <span class="text-sm text-slate-300">CA chain file name</span>
+              <input
+                id="tls-certbot-ca-file"
+                type="text"
+                placeholder="chain.pem"
+                class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+              />
+            </label>
+          </div>
+
+          <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-4 flex flex-col sm:flex-row sm:items-center gap-4">
+            <div class="flex-1">
+              <p class="text-sm text-slate-300">One-click setup requirements: DNS for the domain must point to this server and inbound port 80 must be reachable.</p>
+            </div>
+            <button
+              type="button"
+              id="tls-certbot-auto-btn"
+              class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 transition-colors text-white text-sm font-medium whitespace-nowrap"
+            >
+              <i class="fa-solid fa-wand-magic-sparkles"></i>Auto Setup Free SSL
+            </button>
+          </div>
+
+          <button
+            type="submit"
+            id="tls-save-btn"
+            class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-700 hover:bg-cyan-600 transition-colors text-white text-sm font-medium"
+          >
+            <i class="fa-solid fa-certificate"></i>Save TLS Settings
+          </button>
+        </form>
+      </section>
+
+      <!-- Custom CSS -->
+      <section class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/30">
+            <i class="fa-solid fa-paintbrush text-fuchsia-400"></i>
+          </div>
+          <div>
+            <h2 class="text-lg font-semibold">Custom CSS</h2>
+            <p class="text-sm text-slate-400">Admin-only. Paste custom CSS to override the default theme across all pages.</p>
+          </div>
+        </div>
+
+        <form id="appearance-form" class="space-y-4">
+          <div id="appearance-permission-note" class="hidden rounded-lg border border-amber-800 bg-amber-900/20 text-amber-200 px-3 py-2 text-sm">
+            Only admins can update custom CSS.
+          </div>
+
+          <label class="block">
+            <textarea
+              id="appearance-custom-css"
+              rows="12"
+              spellcheck="false"
+              placeholder="/* Paste your custom CSS here */&#10;:root { --color-primary: #f59e0b; }"
+              class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono text-xs resize-y"
+            ></textarea>
+            <p class="text-xs text-slate-500 mt-1">Max 50 KB. Reload any open page after saving to see the new styles.</p>
+          </label>
+
+          <button
+            type="submit"
+            id="appearance-save-btn"
+            class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-fuchsia-700 hover:bg-fuchsia-600 transition-colors text-white text-sm font-medium"
+          >
+            <i class="fa-solid fa-paintbrush"></i>Save Custom CSS
+          </button>
+        </form>
+      </section>
 
     </main>
 
