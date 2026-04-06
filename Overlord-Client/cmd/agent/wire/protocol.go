@@ -248,3 +248,9 @@ type ProxyClose struct {
 	Type         string `msgpack:"type"`
 	ConnectionID string `msgpack:"connectionId"`
 }
+
+type DisconnectInfo struct {
+	Type   string `msgpack:"type"`
+	Reason string `msgpack:"reason"`           // "normal", "panic", "crash", "network", "timeout"
+	Detail string `msgpack:"detail,omitempty"` // error message
+}

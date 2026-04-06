@@ -31,6 +31,8 @@ export type ClientInfo = {
   enrollmentStatus?: EnrollmentStatus;
   publicKey?: string;
   keyFingerprint?: string;
+  disconnectReason?: string;
+  disconnectDetail?: string;
 };
 
 export type ListFilters = {

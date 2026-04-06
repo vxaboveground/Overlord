@@ -266,6 +266,14 @@ export function createRenderer({
               <i class="fa-solid fa-circle"></i>
               ${client.online ? "Online" : "Offline"}
             </span>
+            ${!client.online && client.disconnectReason && client.disconnectReason !== "normal" ? (() => {
+              const iconMap = { panic: "fa-skull-crossbones", crash: "fa-skull", timeout: "fa-clock", network: "fa-plug-circle-xmark" };
+              const colorMap = { panic: "text-red-400", crash: "text-red-400", timeout: "text-amber-400", network: "text-slate-400" };
+              const icon = iconMap[client.disconnectReason] || "fa-circle-exclamation";
+              const color = colorMap[client.disconnectReason] || "text-slate-400";
+              const detail = client.disconnectDetail ? escapeHtml(client.disconnectDetail) : "";
+              return `<span class="pill pill-ghost text-xs ${color}" ${detail ? `title="${detail}"` : ""}><i class="fa-solid ${icon}"></i> ${escapeHtml(client.disconnectReason)}</span>`;
+            })() : ""}
           </div>
           ${hasTagNote ? `<div class="client-tag-note rounded-lg border border-amber-900/60 bg-amber-950/20 px-3 py-2 text-sm text-amber-100 whitespace-pre-wrap break-words max-h-48 overflow-auto ${isTagNoteExpanded ? "" : "hidden"}">${escapeHtml(customTagNote)}</div>` : ""}
           <div class="flex items-center gap-2 flex-wrap text-sm text-slate-300">

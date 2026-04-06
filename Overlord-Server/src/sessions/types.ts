@@ -24,6 +24,8 @@ export type SocketData = {
   autoTasksRan?: boolean;
   autoDeploysRan?: boolean;
   enrollmentNonce?: string;
+  disconnectReason?: string;
+  disconnectDetail?: string;
 };
 
 export type ConsoleSession = {

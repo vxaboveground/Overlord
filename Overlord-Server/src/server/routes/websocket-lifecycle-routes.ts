@@ -555,6 +555,16 @@ export async function handleWebSocketMessage(
         }
         break;
       }
+      case "disconnect_info": {
+        const reason = typeof (payload as any).reason === "string" ? (payload as any).reason : "";
+        const detail = typeof (payload as any).detail === "string" ? (payload as any).detail : "";
+        if (reason) {
+          ws.data.disconnectReason = reason;
+          ws.data.disconnectDetail = detail || undefined;
+          logger.debug(`[disconnect_info] ${client.id} reason=${reason}`);
+        }
+        break;
+      }
       default:
         break;
     }
@@ -709,15 +719,18 @@ export function handleWebSocketClose(
     });
   }
 
+  const storedDisconnectReason = ws.data.disconnectReason;
+  const storedDisconnectDetail = ws.data.disconnectDetail;
+
   clientManager.deleteClient(clientId);
   stopAllProxiesForClient(clientId);
   clearClientSyncState(clientId);
   deps.notifyConsoleClosed(clientId, "Client disconnected");
-  setOnlineState(clientId, false);
+  setOnlineState(clientId, false, storedDisconnectReason, storedDisconnectDetail);
   deps.clearPendingNotificationScreenshots(clientId);
   deps.clearClientPluginState(clientId);
   deps.notifyDashboard();
-  logger.info(`[close] ${clientId} code=${code} reason=${reason}`);
+  logger.info(`[close] ${clientId} code=${code} reason=${reason} disconnect_reason=${storedDisconnectReason || "unknown"}`);
 
   if (role === "client") {
     deps.notifyRemoteDesktopStatus(clientId, "offline", "Client disconnected");
@@ -729,7 +742,7 @@ export function handleWebSocketClose(
       action: AuditAction.CLIENT_DISCONNECT,
       targetClientId: clientId,
       success: true,
-      details: JSON.stringify({ code, reason: String(reason || "") }),
+      details: JSON.stringify({ code, reason: String(reason || ""), disconnectReason: storedDisconnectReason || null }),
     });
   }
 }

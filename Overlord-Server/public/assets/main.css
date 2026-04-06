@@ -2184,6 +2184,7 @@ body.sb-collapsed .sb-collapse-btn i {
 body.sb-collapsed .sb-link {
   justify-content: center;
   padding: 12px 0;
+  gap: 0;
 }
 .sb-icon {
   flex-shrink: 0;

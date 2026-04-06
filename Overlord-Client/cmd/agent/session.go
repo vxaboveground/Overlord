@@ -469,6 +469,38 @@ func getPingInterval() time.Duration {
 	return time.Duration(ms) * time.Millisecond
 }
 
+func classifySessionError(err error) (reason, detail string) {
+	if err == nil {
+		return "crash", ""
+	}
+	msg := err.Error()
+	msgLower := strings.ToLower(msg)
+	if strings.Contains(msgLower, "panic") {
+		return "panic", truncateStr(msg, 300)
+	}
+	var closeErr *websocket.CloseError
+	if errors.As(err, &closeErr) {
+		if closeErr.Code == websocket.StatusNormalClosure || closeErr.Code == websocket.StatusGoingAway {
+			return "normal", ""
+		}
+		return "network", fmt.Sprintf("ws close code=%d reason=%s", closeErr.Code, truncateStr(closeErr.Reason, 100))
+	}
+	if strings.Contains(msgLower, "timed out from inactivity") || strings.Contains(msgLower, "pong timeout") {
+		return "timeout", truncateStr(msg, 300)
+	}
+	if strings.Contains(msgLower, "context canceled") || strings.Contains(msgLower, "context deadline exceeded") {
+		return "normal", ""
+	}
+	return "network", truncateStr(msg, 300)
+}
+
+func truncateStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
+
 func runSession(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, cfg config.Config) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -480,7 +512,14 @@ func runSession(ctx context.Context, cancel context.CancelFunc, conn *websocket.
 		}
 	}()
 	defer cancel()
-	defer conn.Close(websocket.StatusNormalClosure, "bye")
+	defer func() {
+		reason, detail := classifySessionError(err)
+		di := wire.DisconnectInfo{Type: "disconnect_info", Reason: reason, Detail: detail}
+		sendCtx, sendCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer sendCancel()
+		_ = wire.WriteMsg(sendCtx, conn, di)
+		conn.Close(websocket.StatusNormalClosure, "bye")
+	}()
 
 	identity := config.DeriveIdentity()
 	log.Printf("[purgatory] identity fingerprint=%s", identity.Fingerprint)

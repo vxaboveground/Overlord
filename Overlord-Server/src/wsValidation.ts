@@ -32,6 +32,7 @@ export const ALLOWED_CLIENT_MESSAGE_TYPES = new Set([
   "clipboard_content",
   "proxy_data",
   "proxy_close",
+  "disconnect_info",
 ]);
 
 export function isAllowedClientMessageType(type: string): boolean {

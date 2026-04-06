@@ -97,6 +97,12 @@ db.run(
 db.run(
   `CREATE INDEX IF NOT EXISTS idx_clients_ping_ms ON clients(ping_ms);`,
 );
+try {
+  db.run(`ALTER TABLE clients ADD COLUMN disconnect_reason TEXT`);
+} catch {}
+try {
+  db.run(`ALTER TABLE clients ADD COLUMN disconnect_detail TEXT`);
+} catch {}
 
 db.run(`
   CREATE TABLE IF NOT EXISTS banned_ips (
@@ -304,13 +310,22 @@ export function upsertClientRow(
   }
 }
 
-export function setOnlineState(id: string, online: boolean) {
-  db.run(
-    `UPDATE clients SET online=?, last_seen=? WHERE id=?`,
-    online ? 1 : 0,
-    Date.now(),
-    id,
-  );
+export function setOnlineState(id: string, online: boolean, disconnectReason?: string, disconnectDetail?: string) {
+  if (online) {
+    db.run(
+      `UPDATE clients SET online=1, last_seen=?, disconnect_reason=NULL, disconnect_detail=NULL WHERE id=?`,
+      Date.now(),
+      id,
+    );
+  } else {
+    db.run(
+      `UPDATE clients SET online=0, last_seen=?, disconnect_reason=?, disconnect_detail=? WHERE id=?`,
+      Date.now(),
+      disconnectReason ?? null,
+      disconnectDetail ?? null,
+      id,
+    );
+  }
 }
 
 export function deleteClientRow(id: string) {
@@ -541,7 +556,7 @@ export function listClients(filters: ListFilters): ListResult {
 
   const rows = db
     .query<any>(
-      `SELECT id, hwid, role, host, os, arch, version, user, nickname, custom_tag as customTag, custom_tag_note as customTagNote, monitors, country, last_seen as lastSeen, online, ping_ms as pingMs, bookmarked, enrollment_status as enrollmentStatus, public_key as publicKey, key_fingerprint as keyFingerprint, cpu, gpu, ram
+      `SELECT id, hwid, role, host, os, arch, version, user, nickname, custom_tag as customTag, custom_tag_note as customTagNote, monitors, country, last_seen as lastSeen, online, ping_ms as pingMs, bookmarked, enrollment_status as enrollmentStatus, public_key as publicKey, key_fingerprint as keyFingerprint, cpu, gpu, ram, disconnect_reason as disconnectReason, disconnect_detail as disconnectDetail
        FROM clients
        ${whereSql}
        ${orderBy}
@@ -573,6 +588,8 @@ export function listClients(filters: ListFilters): ListResult {
     cpu: c.cpu || null,
     gpu: c.gpu || null,
     ram: c.ram || null,
+    disconnectReason: c.disconnectReason || null,
+    disconnectDetail: c.disconnectDetail || null,
     thumbnail: getThumbnail(c.id),
   }));
 
