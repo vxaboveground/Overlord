@@ -34,6 +34,11 @@
   </head>
   <body class="min-h-screen bg-slate-950 text-slate-100">
     <header id="top-nav"></header>
+    <div id="update-banner" class="hidden bg-green-900/80 border-b border-green-700/60 px-4 py-2 text-center text-sm">
+      <i class="fa-solid fa-circle-up text-green-400 mr-1"></i>
+      <span class="text-green-100">A new version of Overlord is available: <strong id="update-banner-version"></strong></span>
+      <a href="/settings" class="ml-2 text-green-300 hover:text-green-100 underline font-medium">Update now</a>
+    </div>
     <main class="px-5 py-6">
       <div id="clients-shell" class="w-full flex flex-col gap-5">
         <div class="flex items-center justify-between gap-3 flex-wrap">
@@ -177,5 +182,23 @@
     <script src="/assets/toast.js"></script>
     <script src="/assets/ripple.js"></script>
     <script type="module" src="/assets/main.js"></script>
+    <script>
+      // Background update check for admin users
+      (async function checkUpdateBanner() {
+        try {
+          const me = await fetch("/api/auth/me", { credentials: "include" }).then(r => r.ok ? r.json() : null);
+          if (!me || me.role !== "admin") return;
+          const data = await fetch("/api/update/check", { credentials: "include" }).then(r => r.ok ? r.json() : null);
+          if (data && data.updateAvailable) {
+            const banner = document.getElementById("update-banner");
+            const versionEl = document.getElementById("update-banner-version");
+            if (banner && versionEl) {
+              versionEl.textContent = "v" + data.latestVersion;
+              banner.classList.remove("hidden");
+            }
+          }
+        } catch {}
+      })();
+    </script>
   </body>
 </html>

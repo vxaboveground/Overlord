@@ -55,11 +55,34 @@ services:
       - no-new-privileges:true
     healthcheck:
       # Use http:// when OVERLORD_TLS_OFFLOAD=true.
-      test: ["CMD-SHELL", "curl -f ${OVERLORD_HEALTHCHECK_URL:-https://localhost:5173/health} >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "curl -fk ${OVERLORD_HEALTHCHECK_URL:-https://localhost:5173/health} >/dev/null 2>&1 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  overlord-updater:
+    build:
+      context: .
+      dockerfile: docker/updater.Dockerfile
+    container_name: overlord-updater
+    volumes:
+      - overlord-data:/app/data
+      - //./pipe/docker_engine://./pipe/docker_engine
+      - ./docker-compose.windows.yml:/app/docker-compose.yml:ro
+    environment:
+      OVERLORD_DATA_DIR: /app/data
+      OVERLORD_ROOT: /app
+      # Keep the project name consistent so compose targets the right containers
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-overlord}
+      # Port is fixed at 5173 internally on Windows (mapped via ports:)
+      PORT: 5173
+      HOST: 0.0.0.0
+      OVERLORD_HEALTHCHECK_URL: ${OVERLORD_HEALTHCHECK_URL:-}
+      OVERLORD_TLS_OFFLOAD: ${OVERLORD_TLS_OFFLOAD:-false}
+    restart: unless-stopped
+    depends_on:
+      - overlord-server
 
 volumes:
   overlord-data:
