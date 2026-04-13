@@ -1,0 +1,29 @@
+[Unit]
+Description=Overlord In-App Update Daemon
+Documentation=https://github.com/vxaboveground/Overlord
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+# ---- Adjust this path to match your Overlord installation ----
+WorkingDirectory=/opt/Overlord
+ExecStart=/opt/Overlord/scripts/overlord-updater.sh
+Restart=on-failure
+RestartSec=10
+
+# Run as root since Docker commands require it (or use a docker-capable user)
+User=root
+Group=root
+
+# Environment overrides (uncomment and adjust as needed)
+# Environment=OVERLORD_ROOT=/opt/Overlord
+# Environment=OVERLORD_DATA_DIR=/var/lib/docker/volumes/overlord-data/_data
+# Environment=POLL_INTERVAL=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=overlord-updater
+
+[Install]
+WantedBy=multi-user.target

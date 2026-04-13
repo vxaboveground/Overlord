@@ -62,6 +62,22 @@ const appearancePermissionNote = document.getElementById("appearance-permission-
 const appearanceSaveBtn = document.getElementById("appearance-save-btn");
 const appearanceCustomCssInput = document.getElementById("appearance-custom-css");
 
+const updateSection = document.getElementById("update-section");
+const updateVersionLabel = document.getElementById("update-version-label");
+const updateStatusText = document.getElementById("update-status-text");
+const updateCheckBtn = document.getElementById("update-check-btn");
+const updateAvailablePanel = document.getElementById("update-available-panel");
+const updateNewVersion = document.getElementById("update-new-version");
+const updateApplyBtn = document.getElementById("update-apply-btn");
+const updateUpToDatePanel = document.getElementById("update-up-to-date-panel");
+const updateProgressPanel = document.getElementById("update-progress-panel");
+const updateProgressTitle = document.getElementById("update-progress-title");
+const updateProgressBar = document.getElementById("update-progress-bar");
+const updateProgressMessage = document.getElementById("update-progress-message");
+const updateProgressLog = document.getElementById("update-progress-log");
+const updateErrorPanel = document.getElementById("update-error-panel");
+const updateErrorText = document.getElementById("update-error-text");
+
 const exportImportSection = document.getElementById("export-import-section");
 const exportSettingsBtn = document.getElementById("export-settings-btn");
 const importSettingsFile = document.getElementById("import-settings-file");
@@ -827,6 +843,209 @@ async function wipeOfflineClients() {
   }
 }
 
+// ---- In-app update ----
+
+let latestUpdateCheck = null;
+let updatePollTimer = null;
+
+function hideAllUpdatePanels() {
+  [updateAvailablePanel, updateUpToDatePanel, updateProgressPanel, updateErrorPanel].forEach(
+    (el) => el && el.classList.add("hidden"),
+  );
+}
+
+async function checkForUpdates() {
+  if (!updateCheckBtn) return;
+  updateCheckBtn.disabled = true;
+  updateCheckBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Checking...';
+  hideAllUpdatePanels();
+
+  try {
+    const res = await fetch("/api/update/check", { credentials: "include" });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      if (updateErrorPanel && updateErrorText) {
+        updateErrorText.textContent = data.error || "Update check failed.";
+        updateErrorPanel.classList.remove("hidden");
+      }
+      return;
+    }
+
+    latestUpdateCheck = data;
+    if (updateVersionLabel) updateVersionLabel.textContent = data.currentVersion || "-";
+    if (updateStatusText) updateStatusText.textContent = `Last checked: ${new Date().toLocaleTimeString()}`;
+
+    if (data.updateAvailable) {
+      if (updateNewVersion) updateNewVersion.textContent = data.latestVersion;
+      if (updateAvailablePanel) updateAvailablePanel.classList.remove("hidden");
+    } else {
+      if (updateUpToDatePanel) updateUpToDatePanel.classList.remove("hidden");
+    }
+  } catch (err) {
+    if (updateErrorPanel && updateErrorText) {
+      updateErrorText.textContent = `Network error: ${err.message || err}`;
+      updateErrorPanel.classList.remove("hidden");
+    }
+  } finally {
+    updateCheckBtn.disabled = false;
+    updateCheckBtn.innerHTML = '<i class="fa-solid fa-magnifying-glass mr-1"></i>Check for Updates';
+  }
+}
+
+async function applyUpdate() {
+  if (!latestUpdateCheck?.latestVersion) return;
+  if (!confirm(`Update Overlord to version ${latestUpdateCheck.latestVersion}?\n\nThe server will restart during the update. You may briefly lose connection.`)) return;
+
+  if (updateApplyBtn) {
+    updateApplyBtn.disabled = true;
+    updateApplyBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Requesting...';
+  }
+
+  try {
+    const res = await fetch("/api/update/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ targetVersion: latestUpdateCheck.latestVersion }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (updateErrorPanel && updateErrorText) {
+        updateErrorText.textContent = data.error || "Failed to start update.";
+        updateErrorPanel.classList.remove("hidden");
+      }
+      return;
+    }
+
+    hideAllUpdatePanels();
+    if (updateProgressPanel) updateProgressPanel.classList.remove("hidden");
+    if (updateProgressMessage) updateProgressMessage.textContent = "Waiting for host updater to pick up the request...";
+    if (updateProgressBar) updateProgressBar.style.width = "5%";
+    startUpdatePolling();
+  } catch (err) {
+    if (updateErrorPanel && updateErrorText) {
+      updateErrorText.textContent = `Network error: ${err.message || err}`;
+      updateErrorPanel.classList.remove("hidden");
+    }
+  } finally {
+    if (updateApplyBtn) {
+      updateApplyBtn.disabled = false;
+      updateApplyBtn.innerHTML = '<i class="fa-solid fa-rocket mr-1"></i>Apply Update';
+    }
+  }
+}
+
+function startUpdatePolling() {
+  if (updatePollTimer) clearInterval(updatePollTimer);
+  updatePollTimer = setInterval(pollUpdateStatus, 3000);
+  pollUpdateStatus();
+}
+
+async function pollUpdateStatus() {
+  try {
+    const res = await fetch("/api/update/status", { credentials: "include" });
+    if (!res.ok) return;
+    const status = await res.json().catch(() => null);
+    if (!status) return;
+
+    if (status.state === "idle" && status.updatedAt === 0) return;
+
+    hideAllUpdatePanels();
+    if (updateProgressPanel) updateProgressPanel.classList.remove("hidden");
+
+    if (updateProgressBar) updateProgressBar.style.width = `${status.progress || 0}%`;
+    if (updateProgressMessage) updateProgressMessage.textContent = status.message || "";
+
+    const stateLabels = {
+      pending: "Update pending...",
+      pulling: "Pulling new image from registry...",
+      restarting: "Restarting container...",
+      done: "Update complete!",
+      error: "Update failed",
+    };
+    if (updateProgressTitle) {
+      updateProgressTitle.textContent = stateLabels[status.state] || `State: ${status.state}`;
+    }
+
+    if (status.log && status.log.length && updateProgressLog) {
+      updateProgressLog.classList.remove("hidden");
+      updateProgressLog.textContent = status.log.join("\n");
+      updateProgressLog.scrollTop = updateProgressLog.scrollHeight;
+    }
+
+    if (status.state === "done") {
+      if (updatePollTimer) clearInterval(updatePollTimer);
+      await fetch("/api/update/reset", { method: "POST", credentials: "include" }).catch(() => {});
+      hideAllUpdatePanels();
+      const toast = document.createElement("p");
+      toast.className = "text-sm text-emerald-400 flex items-center gap-2";
+      toast.innerHTML = '<i class="fa-solid fa-circle-check"></i>Update complete!';
+      updateSection?.prepend(toast);
+      setTimeout(() => toast.remove(), 4000);
+    }
+
+    if (status.state === "error") {
+      if (updatePollTimer) clearInterval(updatePollTimer);
+      hideAllUpdatePanels();
+      if (updateErrorPanel && updateErrorText) {
+        updateErrorText.textContent = status.message || "Update failed. Check logs.";
+        updateErrorPanel.classList.remove("hidden");
+      }
+    }
+  } catch {
+    // Server may be restarting - keep polling
+  }
+}
+
+async function initUpdateSection() {
+  if (!isAdmin(currentUser?.role) || !updateSection) return;
+  updateSection.classList.remove("hidden");
+
+  // Fetch current version
+  try {
+    const res = await fetch("/api/version", { credentials: "include" });
+    if (res.ok) {
+      const data = await res.json();
+      if (updateVersionLabel) updateVersionLabel.textContent = data.version || "-";
+    }
+  } catch {}
+
+  // Check if an update is already in progress or recently completed
+  try {
+    const res = await fetch("/api/update/status", { credentials: "include" });
+    if (res.ok) {
+      const status = await res.json();
+      if (status.state === "done") {
+        // Clear the status file so future page loads start fresh
+        await fetch("/api/update/reset", { method: "POST", credentials: "include" }).catch(() => {});
+        // Briefly show a success toast then restore the normal check-for-updates UI
+        hideAllUpdatePanels();
+        const toast = document.createElement("p");
+        toast.className = "text-sm text-emerald-400 flex items-center gap-2";
+        toast.innerHTML = '<i class="fa-solid fa-circle-check"></i>Last update completed successfully.';
+        updateSection?.prepend(toast);
+        setTimeout(() => toast.remove(), 4000);
+      } else if (status.state === "error") {
+        hideAllUpdatePanels();
+        if (updateErrorPanel && updateErrorText) {
+          updateErrorText.textContent = status.message || "Last update failed.";
+          updateErrorPanel.classList.remove("hidden");
+        }
+      } else if (status.state && status.state !== "idle") {
+        // In-progress — resume live polling
+        hideAllUpdatePanels();
+        if (updateProgressPanel) updateProgressPanel.classList.remove("hidden");
+        startUpdatePolling();
+      }
+    }
+  } catch {}
+
+  if (updateCheckBtn) updateCheckBtn.addEventListener("click", checkForUpdates);
+  if (updateApplyBtn) updateApplyBtn.addEventListener("click", applyUpdate);
+}
+
 async function init() {
   try {
     await loadCurrentUser();
@@ -840,6 +1059,7 @@ async function init() {
       wipeOfflineSection.classList.remove("hidden");
     }
 
+    await initUpdateSection();
     await loadSecurityPolicy();
     await loadTlsSettings();
     await loadAppearanceSettings();

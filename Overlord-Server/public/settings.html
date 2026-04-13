@@ -55,6 +55,76 @@
         </div>
       </section>
 
+      <section id="update-section" class="hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-green-500/10 border border-green-500/30">
+            <i class="fa-solid fa-cloud-arrow-down text-green-400"></i>
+          </div>
+          <div>
+            <h2 class="text-lg font-semibold">Software Update</h2>
+            <p class="text-sm text-slate-400">Check for and install Overlord updates from the container registry.</p>
+          </div>
+        </div>
+
+        <div id="update-current-version" class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm text-slate-300">Current version: <span id="update-version-label" class="font-mono font-semibold text-slate-100">-</span></p>
+              <p id="update-status-text" class="text-xs text-slate-500 mt-0.5">Click "Check for Updates" to see if a new version is available.</p>
+            </div>
+            <button
+              id="update-check-btn"
+              type="button"
+              class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-green-700 hover:bg-green-600 transition-colors text-white text-sm font-medium whitespace-nowrap"
+            >
+              <i class="fa-solid fa-magnifying-glass"></i>
+              Check for Updates
+            </button>
+          </div>
+        </div>
+
+        <div id="update-available-panel" class="hidden rounded-lg border border-green-700/50 bg-green-900/20 px-4 py-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm font-semibold text-green-200">
+                <i class="fa-solid fa-circle-up mr-1"></i>
+                Update available: <span id="update-new-version" class="font-mono">-</span>
+              </p>
+            </div>
+            <button
+              id="update-apply-btn"
+              type="button"
+              class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500 transition-colors text-white text-sm font-medium whitespace-nowrap"
+            >
+              <i class="fa-solid fa-rocket"></i>
+              Apply Update
+            </button>
+          </div>
+        </div>
+
+        <div id="update-up-to-date-panel" class="hidden rounded-lg border border-slate-700 bg-slate-900 px-4 py-3">
+          <p class="text-sm text-emerald-300"><i class="fa-solid fa-circle-check mr-1"></i> You are running the latest version.</p>
+        </div>
+
+        <div id="update-progress-panel" class="hidden rounded-lg border border-sky-700/50 bg-sky-900/20 px-4 py-4 space-y-3">
+          <div class="flex items-center gap-2">
+            <i class="fa-solid fa-spinner fa-spin text-sky-400"></i>
+            <p id="update-progress-title" class="text-sm font-semibold text-sky-200">Update in progress...</p>
+          </div>
+          <div class="w-full bg-slate-800 rounded-full h-2.5">
+            <div id="update-progress-bar" class="bg-sky-500 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+          </div>
+          <p id="update-progress-message" class="text-xs text-slate-400"></p>
+          <pre id="update-progress-log" class="hidden text-xs text-slate-400 bg-slate-950 rounded-lg p-3 max-h-48 overflow-y-auto font-mono"></pre>
+        </div>
+
+        <div id="update-error-panel" class="hidden rounded-lg border border-red-700/50 bg-red-900/20 px-4 py-3">
+          <p class="text-sm text-red-300"><i class="fa-solid fa-triangle-exclamation mr-1"></i> <span id="update-error-text"></span></p>
+        </div>
+
+        <p id="update-message" class="hidden text-sm rounded-lg px-3 py-2 border"></p>
+      </section>
+
       <section id="export-import-section" class="hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
         <div class="flex items-center gap-3">
           <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-amber-500/10 border border-amber-500/30">

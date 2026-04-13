@@ -1,3 +1,4 @@
+import { logger } from "../../logger";
 import { authenticateRequest } from "../../auth";
 import { AuditAction, getAuditLogs, logAudit } from "../../auditLog";
 import { getConfig, updateSecurityConfig, updateTlsConfig, updateAppearanceConfig, getExportableConfig, importFullConfig } from "../../config";
@@ -11,6 +12,13 @@ import {
   startProxy,
   stopProxy,
 } from "../socks5-proxy-manager";
+import {
+  checkForUpdate,
+  writeUpdateRequest,
+  readUpdateStatus,
+  hasPendingRequest,
+  clearUpdateStatus,
+} from "../update-checker";
 
 type MiscRouteDeps = {
   CORS_HEADERS: Record<string, string>;
@@ -517,6 +525,102 @@ export async function handleMiscRoutes(
 
       return Response.json({ ok: true, customCSS: updated.customCSS }, { headers: deps.CORS_HEADERS });
     }
+  }
+
+  // ---- In-app update endpoints ----
+
+  if (req.method === "GET" && url.pathname === "/api/update/check") {
+    const user = await authenticateRequest(req);
+    if (!user) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    if (user.role !== "admin") {
+      return new Response("Forbidden: Admin access required", { status: 403 });
+    }
+
+    try {
+      const result = await checkForUpdate(deps.SERVER_VERSION);
+      return Response.json(result, { headers: deps.CORS_HEADERS });
+    } catch (error: any) {
+      logger.error("[update] check failed", error);
+      return Response.json(
+        { error: String(error?.message || "Update check failed") },
+        { status: 502, headers: deps.CORS_HEADERS },
+      );
+    }
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/update/start") {
+    const user = await authenticateRequest(req);
+    if (!user) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    if (user.role !== "admin") {
+      return new Response("Forbidden: Admin access required", { status: 403 });
+    }
+
+    let body: any = {};
+    try {
+      body = await req.json();
+    } catch {
+      return Response.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+
+    const targetVersion = typeof body?.targetVersion === "string" ? body.targetVersion.trim() : "";
+    if (!targetVersion) {
+      return Response.json({ error: "targetVersion is required" }, { status: 400 });
+    }
+
+    const pending = await hasPendingRequest();
+    if (pending) {
+      return Response.json(
+        { error: "An update is already pending. Wait for it to complete or check status." },
+        { status: 409, headers: deps.CORS_HEADERS },
+      );
+    }
+
+    await writeUpdateRequest({
+      requestedAt: Date.now(),
+      requestedBy: user.username,
+      targetVersion,
+    });
+
+    logAudit({
+      timestamp: Date.now(),
+      username: user.username,
+      ip: deps.requestIP?.(req)?.address || "unknown",
+      action: AuditAction.COMMAND,
+      details: `Triggered in-app update to version ${targetVersion}`,
+      success: true,
+    });
+
+    return Response.json({ ok: true, message: "Update requested. The host updater will process it shortly." }, { headers: deps.CORS_HEADERS });
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/update/status") {
+    const user = await authenticateRequest(req);
+    if (!user) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    if (user.role !== "admin") {
+      return new Response("Forbidden: Admin access required", { status: 403 });
+    }
+
+    const status = await readUpdateStatus();
+    return Response.json(status, { headers: deps.CORS_HEADERS });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/update/reset") {
+    const user = await authenticateRequest(req);
+    if (!user) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    if (user.role !== "admin") {
+      return new Response("Forbidden: Admin access required", { status: 403 });
+    }
+
+    await clearUpdateStatus();
+    return Response.json({ ok: true }, { headers: deps.CORS_HEADERS });
   }
 
   if (req.method === "GET" && url.pathname === "/api/cert/download" && deps.tlsCertPath) {
