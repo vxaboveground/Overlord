@@ -272,7 +272,6 @@ export function handleConsoleViewerOpen(ws: ServerWebSocket<SocketData>) {
     safeSendViewer(ws, { type: "status", status: "offline", reason: "Client is offline", sessionId: effectiveSessionId });
     return;
   }
-  safeSendViewer(ws, { type: "status", status: "connecting", sessionId: effectiveSessionId });
   startConsoleForViewer(target, effectiveSessionId);
 }
 
