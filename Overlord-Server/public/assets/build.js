@@ -121,6 +121,7 @@ function saveFormSettings() {
       assemblyVersion: document.getElementById("assembly-version")?.value ?? "",
       assemblyCopyright: document.getElementById("assembly-copyright")?.value ?? "",
       outputExtension: document.getElementById("output-extension")?.value ?? ".exe",
+      cryptableMode: document.getElementById("cryptable-mode")?.checked ?? false,
     };
     localStorage.setItem(BUILD_SETTINGS_KEY, JSON.stringify(settings));
   } catch (err) {
@@ -176,6 +177,7 @@ function restoreFormSettings() {
     if (s.assemblyVersion !== undefined) setVal("assembly-version", s.assemblyVersion);
     if (s.assemblyCopyright !== undefined) setVal("assembly-copyright", s.assemblyCopyright);
     if (s.outputExtension !== undefined) setVal("output-extension", s.outputExtension);
+    if (s.cryptableMode !== undefined) setCb("#cryptable-mode", s.cryptableMode);
 
     const restoredObfuscate = document.querySelector('input[name="obfuscate"]');
     const garbleContainer = document.getElementById("garble-settings-container");
@@ -190,6 +192,100 @@ function restoreFormSettings() {
   } catch (err) {
     console.error("Failed to restore form settings:", err);
   }
+}
+
+const CRYPTABLE_DISABLE_TARGETS = [
+  'input[name="enable-persistence"]',
+  'input[name="enable-upx"]',
+  'input[name="upx-strip-headers"]',
+  'input[name="hide-console"]',
+  'input[name="require-admin"]',
+  'input[name="critical-process"]',
+];
+
+const CRYPTABLE_DISABLE_INPUTS = [
+  "#assembly-title",
+  "#assembly-product",
+  "#assembly-company",
+  "#assembly-version",
+  "#assembly-copyright",
+  "#output-extension",
+  "#sleep-seconds",
+];
+
+const CRYPTABLE_HIDE_SECTIONS = [4, 5, 6];
+
+function applyCryptableMode(enabled) {
+  const badge = document.getElementById("cryptable-badge");
+  if (badge) badge.classList.toggle("hidden", !enabled);
+
+  CRYPTABLE_DISABLE_TARGETS.forEach((sel) => {
+    const el = document.querySelector(sel);
+    if (!el) return;
+    if (enabled) {
+      el.checked = false;
+      el.disabled = true;
+      el.closest("label")?.classList.add("opacity-40", "pointer-events-none");
+    } else {
+      el.disabled = false;
+      el.closest("label")?.classList.remove("opacity-40", "pointer-events-none");
+    }
+  });
+
+  CRYPTABLE_DISABLE_INPUTS.forEach((sel) => {
+    const el = document.querySelector(sel);
+    if (!el) return;
+    if (enabled) {
+      el.dataset.preCryptableValue = el.value;
+      el.value = el.type === "number" ? "0" : "";
+      el.disabled = true;
+      el.classList.add("opacity-40");
+    } else {
+      if (el.dataset.preCryptableValue !== undefined) {
+        el.value = el.dataset.preCryptableValue;
+        delete el.dataset.preCryptableValue;
+      }
+      el.disabled = false;
+      el.classList.remove("opacity-40");
+    }
+  });
+
+  const iconUploadEl = document.getElementById("icon-upload");
+  const iconLabelEl = document.getElementById("icon-label");
+  if (iconUploadEl) iconUploadEl.disabled = enabled;
+  if (iconLabelEl && enabled) iconLabelEl.closest("label")?.classList.toggle("opacity-40", enabled);
+  if (iconLabelEl && !enabled) iconLabelEl.closest("label")?.classList.remove("opacity-40");
+
+  const cloneExeUploadEl = document.getElementById("clone-exe-upload");
+  if (cloneExeUploadEl) cloneExeUploadEl.disabled = enabled;
+  if (cloneExeUploadEl) cloneExeUploadEl.closest("label")?.classList.toggle("opacity-40", enabled);
+
+  const bindAddLabelEl = document.getElementById("bind-add-label");
+  if (bindAddLabelEl) {
+    bindAddLabelEl.classList.toggle("opacity-40", enabled);
+    bindAddLabelEl.classList.toggle("pointer-events-none", enabled);
+  }
+
+  const sections = document.querySelectorAll(".accordion-section");
+  CRYPTABLE_HIDE_SECTIONS.forEach((idx) => {
+    const sec = sections[idx - 1];
+    if (!sec) return;
+    if (enabled) {
+      sec.classList.add("opacity-30", "pointer-events-none");
+      sec.dataset.cryptableDisabled = "true";
+    } else {
+      sec.classList.remove("opacity-30", "pointer-events-none");
+      delete sec.dataset.cryptableDisabled;
+    }
+  });
+
+  if (enabled) {
+    updatePersistenceSettingsVisibility();
+    const upxC = document.getElementById("upx-settings-container");
+    if (upxC) upxC.classList.add("hidden");
+  }
+
+  saveFormSettings();
 }
 
 restoreFormSettings();
@@ -374,6 +470,16 @@ if (upxCheckbox && upxSettingsContainer) {
       upxSettingsContainer.classList.add("hidden");
     }
   });
+}
+
+const cryptableCheckbox = document.getElementById("cryptable-mode");
+if (cryptableCheckbox) {
+  cryptableCheckbox.addEventListener("change", () => {
+    applyCryptableMode(cryptableCheckbox.checked);
+  });
+  if (cryptableCheckbox.checked) {
+    applyCryptableMode(true);
+  }
 }
 
 let pendingIconBase64 = null;

