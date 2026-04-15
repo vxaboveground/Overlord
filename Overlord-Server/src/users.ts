@@ -202,6 +202,15 @@ for (const col of clientEventColumns) {
   }
 }
 
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN chat_write INTEGER DEFAULT NULL`);
+  logger.info("[users] Added chat_write column to existing database");
+} catch (err: any) {
+  if (!err.message?.includes("duplicate column name")) {
+    logger.error("[users] Migration error:", err);
+  }
+}
+
 const userCount = db.prepare("SELECT COUNT(*) as count FROM users").get() as {
   count: number;
 };
@@ -747,6 +756,9 @@ export function hasPermission(role: UserRole, permission: string, userId?: numbe
       return canManageEnrollment(role);
     case "audit:view":
       return canViewAuditLogs(role);
+    case "chat:write":
+      if (userId !== undefined) return canChatWrite(userId, role);
+      return role === "admin" || role === "operator";
     default:
       return false;
   }
@@ -781,6 +793,30 @@ export function setUserCanUploadFiles(
   } catch (err: any) {
     logger.error("[users] setUserCanUploadFiles error:", err);
     return { success: false, error: err.message || "Failed to update upload permission" };
+  }
+}
+
+export function canChatWrite(userId: number, role: UserRole): boolean {
+  if (role === "admin") return true;
+  const user = getUserById(userId);
+  if (!user) return false;
+  const chatWrite = (user as any).chat_write;
+  if (chatWrite === null || chatWrite === undefined) {
+    return role === "operator";
+  }
+  return chatWrite === 1;
+}
+
+export function setUserChatWrite(
+  userId: number,
+  canWrite: boolean | null,
+): { success: boolean; error?: string } {
+  try {
+    db.prepare("UPDATE users SET chat_write = ? WHERE id = ?").run(canWrite === null ? null : (canWrite ? 1 : 0), userId);
+    return { success: true };
+  } catch (err: any) {
+    logger.error("[users] setUserChatWrite error:", err);
+    return { success: false, error: err.message || "Failed to update chat write permission" };
   }
 }
 

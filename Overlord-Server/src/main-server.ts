@@ -4,7 +4,7 @@ import { logger } from "./logger";
 import { fileURLToPath } from "url";
 import path from "path";
 import fs from "fs/promises";
-import { upsertClientRow, setOnlineState, listClients, markAllClientsOffline, getBuild, getBuildByTag, getAllBuilds, deleteExpiredBuilds, deleteBuild, getNotificationScreenshot, clearNotificationScreenshots, deleteClientRow, getClientIp, banIp, isIpBanned, clientExists, deleteExpiredSharedFiles } from "./db";
+import { upsertClientRow, setOnlineState, listClients, markAllClientsOffline, getBuild, getBuildByTag, getAllBuilds, deleteExpiredBuilds, deleteBuild, getNotificationScreenshot, clearNotificationScreenshots, deleteClientRow, getClientIp, banIp, isIpBanned, clientExists, deleteExpiredSharedFiles, getChatHistory, insertChatMessage, getOnlineClientCountForUser, deleteExpiredChatMessages } from "./db";
 import { handleFrame, handleHello, handlePing, handlePong } from "./wsHandlers";
 import { getMessageByteLength, getMaxPayloadLimit, isAllowedClientMessageType } from "./wsValidation";
 import { ClientInfo, ClientRole } from "./types";
@@ -12,13 +12,14 @@ import { v4 as uuidv4 } from "uuid";
 import { authenticateRequest } from "./auth";
 import { loadConfig, getConfig } from "./config";
 import { flushAuditLogsSync } from "./auditLog";
-import { getUserById, getUsersForNotificationDelivery, getUsersForNotificationDeliveryByClient, canUserAccessClient, setUserClientAccessRule, setUserClientAccessScope, getUserClientAccessScope } from "./users";
+import { getUserById, getUsersForNotificationDelivery, getUsersForNotificationDeliveryByClient, canUserAccessClient, setUserClientAccessRule, setUserClientAccessScope, getUserClientAccessScope, hasPermission } from "./users";
 import { requireAuth, requirePermission } from "./rbac";
 import { metrics } from "./metrics";
 import { ensureDataDir } from "./paths";
 import { handleAuthRoutes } from "./server/routes/auth-routes";
 import { handleAutoScriptsRoutes } from "./server/routes/auto-scripts-routes";
 import { handleEnrollmentRoutes, setPostApproveHook } from "./server/routes/enrollment-routes";
+import { handleChatRoutes } from "./server/routes/chat-routes";
 import { handleBuildRoutes } from "./server/routes/build-routes";
 import { handleSolRoutes } from "./server/routes/sol-routes";
 import { handleAssetsRoutes } from "./server/routes/assets-routes";
@@ -507,6 +508,54 @@ async function startServer() {
       });
     },
     handleNotificationViewerOpen: notificationPluginHandlers.handleNotificationViewerOpen,
+    handleChatViewerOpen: (ws: import("bun").ServerWebSocket<SocketData>) => {
+      const id = crypto.randomUUID();
+      ws.data.sessionId = id;
+      const userId = ws.data.userId;
+      const userRole = ws.data.userRole || "viewer";
+      const user = userId ? getUserById(userId) : null;
+      const username = user?.username || "Unknown";
+      sessionManager.addChatSession({
+        id,
+        viewer: ws,
+        createdAt: Date.now(),
+        userId: userId || 0,
+        username,
+        userRole,
+      });
+      const retDays = getConfig().chat?.retentionDays ?? 30;
+      const retMs = retDays > 0 ? retDays * 24 * 60 * 60 * 1000 : undefined;
+      const history = getChatHistory(undefined, 50, retMs);
+      const enrichedHistory = history.map((m) => ({
+        ...m,
+        onlineClients: m.userId ? getOnlineClientCountForUser(m.userId) : 0,
+      }));
+      const canWrite = userId ? hasPermission(userRole as any, "chat:write", userId) : false;
+      ws.send(JSON.stringify({ type: "chat_ready", history: enrichedHistory, canWrite, userId: userId || 0 }));
+    },
+    handleChatViewerMessage: (ws: import("bun").ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) => {
+      try {
+        const text = typeof raw === "string" ? raw : new TextDecoder().decode(raw as ArrayBuffer);
+        const parsed = JSON.parse(text);
+        if (parsed.type !== "chat_send" || typeof parsed.message !== "string") return;
+        const userId = ws.data.userId;
+        const userRole = ws.data.userRole || "viewer";
+        if (!userId || !hasPermission(userRole as any, "chat:write", userId)) {
+          ws.send(JSON.stringify({ type: "chat_error", error: "Permission denied" }));
+          return;
+        }
+        const msg = parsed.message.trim();
+        if (!msg || msg.length > 2000) {
+          ws.send(JSON.stringify({ type: "chat_error", error: msg ? "Message too long (max 2000 chars)" : "Message is empty" }));
+          return;
+        }
+        const user = getUserById(userId);
+        const username = user?.username || "Unknown";
+        const record = insertChatMessage(userId, username, userRole, msg);
+        const onlineClients = getOnlineClientCountForUser(userId);
+        sessionManager.broadcastChatMessage(JSON.stringify({ type: "chat_message", ...record, onlineClients }));
+      } catch {}
+    },
     handleConsoleViewerMessage,
     handleRemoteDesktopViewerMessage,
     handleWebcamViewerMessage,
@@ -586,6 +635,7 @@ async function startServer() {
       handleAutoScriptsRoutes,
       handleAutoDeployRoutes,
       handleEnrollmentRoutes,
+      handleChatRoutes,
       handleSolRoutes,
       handleUsersRoutes,
       handleBuildRoutes,
@@ -624,6 +674,22 @@ async function startServer() {
     try { const dir = path.dirname(p); await fs.rm(dir, { recursive: true, force: true }); } catch {}
   }
   if (expiredPaths.length) logger.info(`[db] Cleaned up ${expiredPaths.length} expired shared files`);
+
+  const chatRetentionDays = getConfig().chat?.retentionDays ?? 30;
+  if (chatRetentionDays > 0) {
+    const retentionMs = chatRetentionDays * 24 * 60 * 60 * 1000;
+    const purged = deleteExpiredChatMessages(retentionMs);
+    if (purged > 0) logger.info(`[db] Cleaned up ${purged} expired chat messages (retention: ${chatRetentionDays}d)`);
+  }
+
+  setInterval(() => {
+    const days = getConfig().chat?.retentionDays ?? 30;
+    if (days > 0) {
+      const ms = days * 24 * 60 * 60 * 1000;
+      const count = deleteExpiredChatMessages(ms);
+      if (count > 0) logger.info(`[chat] Purged ${count} expired messages (retention: ${days}d)`);
+    }
+  }, 60 * 60 * 1000); // every hour
 
   startMaintenanceLoops({
     getClients: clientManager.getAllClients,

@@ -7,6 +7,7 @@ import type {
   VoiceViewer,
   NotificationsViewer,
   KeyloggerViewer,
+  ChatViewer,
   SocketData,
 } from "./types";
 
@@ -36,6 +37,7 @@ const keyloggerSessionsByClient = new Map<string, Set<string>>();
 const voiceSessions = new Map<string, VoiceViewer>();
 const voiceSessionsByClient = new Map<string, Set<string>>();
 const dashboardSessions = new Map<string, DashboardViewer>();
+const chatSessions = new Map<string, ChatViewer>();
 
 function addSessionToClientIndex(
   index: Map<string, Set<string>>,
@@ -494,4 +496,30 @@ export function notifyDashboardViewers(): void {
       }
     }
   }, DASHBOARD_DEBOUNCE_MS);
+}
+
+export function addChatSession(session: ChatViewer): void {
+  chatSessions.set(session.id, session);
+}
+
+export function deleteChatSession(sessionId: string): boolean {
+  return chatSessions.delete(sessionId);
+}
+
+export function getAllChatSessions(): Map<string, ChatViewer> {
+  return chatSessions;
+}
+
+export function getChatSessionCount(): number {
+  return chatSessions.size;
+}
+
+export function broadcastChatMessage(msg: string): void {
+  for (const [id, session] of chatSessions) {
+    try {
+      session.viewer.send(msg);
+    } catch {
+      chatSessions.delete(id);
+    }
+  }
 }

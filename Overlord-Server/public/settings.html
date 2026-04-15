@@ -586,6 +586,42 @@
         </form>
       </section>
 
+      <!-- Team Chat -->
+      <section id="chat-settings-section" class="hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-sky-500/10 border border-sky-500/30">
+            <i class="fa-solid fa-comments text-sky-400"></i>
+          </div>
+          <div>
+            <h2 class="text-lg font-semibold">Team Chat</h2>
+            <p class="text-sm text-slate-400">Admin-only. Configure message retention for the team chat.</p>
+          </div>
+        </div>
+
+        <form id="chat-settings-form" class="space-y-4">
+          <label class="block">
+            <span class="text-sm text-slate-300 font-medium">Message Retention (days)</span>
+            <input
+              type="number"
+              id="chat-retention-days"
+              min="0"
+              max="365"
+              step="1"
+              class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm"
+            />
+            <p class="text-xs text-slate-500 mt-1">Messages older than this will be automatically deleted. Set to 0 to keep messages forever. Max 365 days.</p>
+          </label>
+
+          <button
+            type="submit"
+            id="chat-settings-save-btn"
+            class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-700 hover:bg-sky-600 transition-colors text-white text-sm font-medium"
+          >
+            <i class="fa-solid fa-floppy-disk"></i>Save Chat Settings
+          </button>
+        </form>
+      </section>
+
       <!-- Custom CSS -->
       <section class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
         <div class="flex items-center gap-3">

@@ -694,6 +694,53 @@ async function saveAppearanceSettings(event) {
   showMessage("Custom CSS saved. Reload the page to apply the new styles.");
 }
 
+const chatSettingsSection = document.getElementById("chat-settings-section");
+const chatSettingsForm = document.getElementById("chat-settings-form");
+const chatRetentionDaysInput = document.getElementById("chat-retention-days");
+
+async function loadChatSettings() {
+  if (!isAdmin(currentUser?.role)) return;
+  if (chatSettingsSection) chatSettingsSection.classList.remove("hidden");
+  try {
+    const res = await fetch("/api/settings/chat", { credentials: "include" });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.chat) {
+      if (chatRetentionDaysInput) chatRetentionDaysInput.value = data.chat.retentionDays ?? 30;
+    }
+  } catch {
+    console.warn("Failed to load chat settings");
+  }
+}
+
+async function saveChatSettings(event) {
+  event.preventDefault();
+  if (!isAdmin(currentUser?.role)) {
+    showMessage("Admin role required.", "error");
+    return;
+  }
+
+  const retentionDays = Number(chatRetentionDaysInput?.value);
+  if (!Number.isFinite(retentionDays) || retentionDays < 0 || retentionDays > 365) {
+    showMessage("Retention must be 0-365 days.", "error");
+    return;
+  }
+
+  const res = await fetch("/api/settings/chat", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ retentionDays }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    showMessage(data.error || "Failed to save chat settings.", "error");
+    return;
+  }
+
+  showMessage("Chat settings saved.");
+}
+
 function showExportImportMessage(text, type = "ok") {
   if (!exportImportMessage) return;
   exportImportMessage.textContent = text;
@@ -1015,6 +1062,7 @@ async function init() {
     await loadSecurityPolicy();
     await loadTlsSettings();
     await loadAppearanceSettings();
+    await loadChatSettings();
     await loadBannedIps();
 
     passwordForm.addEventListener("submit", updatePassword);
@@ -1039,6 +1087,7 @@ async function init() {
     tlsForm.addEventListener("submit", saveTlsSettings);
     tlsCertbotAutoBtn.addEventListener("click", runCertbotAutoSetup);
     if (appearanceForm) appearanceForm.addEventListener("submit", saveAppearanceSettings);
+    if (chatSettingsForm) chatSettingsForm.addEventListener("submit", saveChatSettings);
     if (exportSettingsBtn) exportSettingsBtn.addEventListener("click", exportSettings);
     if (importSettingsFile) importSettingsFile.addEventListener("change", importSettings);
     refreshBansBtn.addEventListener("click", loadBannedIps);

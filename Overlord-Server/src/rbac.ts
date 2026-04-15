@@ -7,7 +7,8 @@ export type Permission =
   | "clients:view"
   | "clients:build"
   | "clients:enroll"
-  | "audit:view";
+  | "audit:view"
+  | "chat:write";
 
 export function checkPermission(
   user: AuthenticatedUser | null,
@@ -80,6 +81,8 @@ export function getPermissionDescription(permission: Permission): string {
       return "Manage client enrollment approvals";
     case "audit:view":
       return "View audit logs";
+    case "chat:write":
+      return "Send messages in team chat";
     default:
       return "Unknown permission";
   }

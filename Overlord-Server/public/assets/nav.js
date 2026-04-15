@@ -10,6 +10,7 @@ import { mountNav } from "./nav/template.js";
 import { createAdaptiveNavController } from "./nav/layout.js";
 import { applyUserRoleUI } from "./nav/role-ui.js";
 import { showCertBannerIfNeeded } from "./cert-banner.js";
+import * as chatWidget from "./chat-widget.js";
 
 const host = document.getElementById("top-nav");
 if (host) {
@@ -136,5 +137,20 @@ if (host) {
 
   if (refs.usernameDisplay && refs.roleBadge) {
     loadCurrentUser();
+  }
+
+  chatWidget.init();
+
+  if (chatWidget.isHidden() && refs.navUtility) {
+    const restoreBtn = document.createElement("button");
+    restoreBtn.id = "chat-restore-btn";
+    restoreBtn.className = "inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 text-slate-500 hover:text-slate-300 hover:bg-slate-800 text-xs transition-colors";
+    restoreBtn.title = "Show team chat";
+    restoreBtn.innerHTML = '<i class="fa-solid fa-comments"></i><span class="sb-text">Chat</span>';
+    restoreBtn.addEventListener("click", () => {
+      chatWidget.show();
+      restoreBtn.remove();
+    });
+    refs.navUtility.insertBefore(restoreBtn, refs.navUtility.firstChild);
   }
 }

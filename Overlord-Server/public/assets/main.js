@@ -39,6 +39,7 @@ const bulkScreenshotBtn = document.getElementById("bulk-screenshot");
 const bulkDisconnectBtn = document.getElementById("bulk-disconnect");
 const bulkUninstallBtn = document.getElementById("bulk-uninstall");
 const bulkClearBtn = document.getElementById("bulk-clear");
+const bulkGroupBtn = document.getElementById("bulk-group");
 const serverVersionText = document.getElementById("server-version-text");
 const selectedClients = new Set();
 let lastNonOnlineStatus = "all";
@@ -784,6 +785,115 @@ bulkUninstallBtn?.addEventListener("click", async () => {
   updateBulkToolbar();
   setTimeout(() => loadWithOptions({ force: true }), 1000);
 });
+
+bulkGroupBtn?.addEventListener("click", () => {
+  if (selectedClients.size === 0) return;
+  openBulkGroupPicker([...selectedClients]);
+});
+
+async function openBulkGroupPicker(clientIds) {
+  const groups = await loadGroups();
+
+  const overlay = document.createElement("div");
+  overlay.className = "fixed inset-0 z-[10000] flex items-center justify-center bg-black/60";
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+
+  const modal = document.createElement("div");
+  modal.className = "bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-6 w-[400px] max-h-[80vh] flex flex-col gap-4";
+  modal.innerHTML = `
+    <h3 class="text-lg font-semibold text-slate-100 flex items-center gap-2"><i class="fa-solid fa-layer-group text-blue-400"></i> Set Group for ${clientIds.length} client(s)</h3>
+    <div class="bulk-group-list flex flex-col gap-1 overflow-y-auto max-h-60"></div>
+    <div class="border-t border-slate-700 pt-3">
+      <p class="text-xs text-slate-400 mb-2">Create new group</p>
+      <div class="flex gap-2">
+        <input type="text" class="group-new-name flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500" placeholder="Group name" maxlength="64" />
+        <input type="color" class="group-new-color w-10 h-10 rounded-lg border border-slate-700 bg-slate-800 cursor-pointer" value="#3b82f6" />
+        <button class="group-create-btn px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium">Create</button>
+      </div>
+    </div>
+  `;
+
+  const listEl = modal.querySelector(".bulk-group-list");
+
+  async function applyGroup(groupId) {
+    overlay.remove();
+    try {
+      const res = await fetch("/api/clients/bulk-group", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientIds, groupId }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        alert(d.error || "Failed to set group");
+        return;
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Failed to set group");
+      return;
+    }
+    selectedClients.clear();
+    document.querySelectorAll(".client-checkbox").forEach((cb) => (cb.checked = false));
+    updateBulkToolbar();
+    refreshGroupFilter();
+    setTimeout(() => loadWithOptions({ force: true }), 200);
+  }
+
+  function renderList() {
+    listEl.innerHTML = "";
+    const noneBtn = document.createElement("button");
+    noneBtn.className = "w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors text-slate-300 hover:bg-slate-800";
+    noneBtn.innerHTML = '<i class="fa-solid fa-xmark text-slate-500"></i> No Group';
+    noneBtn.addEventListener("click", () => applyGroup(null));
+    listEl.appendChild(noneBtn);
+
+    groups.forEach((g) => {
+      const btn = document.createElement("button");
+      btn.className = "w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors text-slate-300 hover:bg-slate-800";
+      btn.innerHTML = `<span class="inline-block w-3 h-3 rounded-full flex-shrink-0" style="background:${g.color}"></span> ${escapeHtml(g.name)}`;
+      btn.addEventListener("click", () => applyGroup(g.id));
+      listEl.appendChild(btn);
+    });
+  }
+
+  renderList();
+
+  const createBtn = modal.querySelector(".group-create-btn");
+  createBtn.addEventListener("click", async () => {
+    const nameInput = modal.querySelector(".group-new-name");
+    const colorInput = modal.querySelector(".group-new-color");
+    const name = nameInput.value.trim();
+    const color = colorInput.value;
+    if (!name) { nameInput.focus(); return; }
+    try {
+      const res = await fetch("/api/groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, color }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        alert(d.error || "Failed to create group");
+        return;
+      }
+      const newGroup = await res.json();
+      groups.push(newGroup);
+      nameInput.value = "";
+      renderList();
+      refreshGroupFilter();
+    } catch (err) {
+      console.error(err);
+      alert("Failed to create group");
+    }
+  });
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  modal.querySelector(".group-new-name").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") createBtn.click();
+  });
+}
 
 window.toggleClientSelection = toggleClientSelection;
 window.isClientSelected = (clientId) => selectedClients.has(clientId);

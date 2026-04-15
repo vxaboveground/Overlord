@@ -61,6 +61,9 @@ export interface Config {
   plugins: {
     trustedKeys: string[];
   };
+  chat: {
+    retentionDays: number;
+  };
 }
 
 const DEFAULT_CONFIG: Config = {
@@ -119,6 +122,9 @@ const DEFAULT_CONFIG: Config = {
   },
   plugins: {
     trustedKeys: [],
+  },
+  chat: {
+    retentionDays: 30,
   },
 };
 
@@ -447,6 +453,12 @@ export function loadConfig(): Config {
         return fileConfig.plugins?.trustedKeys || DEFAULT_CONFIG.plugins.trustedKeys;
       })(),
     },
+    chat: {
+      retentionDays:
+        Number(process.env.OVERLORD_CHAT_RETENTION_DAYS) ||
+        fileConfig.chat?.retentionDays ||
+        DEFAULT_CONFIG.chat.retentionDays,
+    },
   };
 
   if (saveChanged) {
@@ -656,6 +668,35 @@ export async function updatePluginsConfig(
   return next;
 }
 
+export async function updateChatConfig(
+  updates: Partial<Config["chat"]>,
+): Promise<Config["chat"]> {
+  const current = getConfig();
+
+  const toNumberOr = (value: unknown, fallback: number) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+
+  const next: Config["chat"] = {
+    ...current.chat,
+    ...updates,
+  };
+
+  const raw = toNumberOr(next.retentionDays, 30);
+  next.retentionDays = raw === 0 ? 0 : Math.min(365, Math.max(1, raw));
+
+  configCache = {
+    ...current,
+    chat: next,
+  };
+
+  const fileConfig = readFileConfigForUpdate();
+  fileConfig.chat = next;
+  await writePersistentFileConfig(fileConfig);
+  return next;
+}
+
 export function getExportableConfig(serverVersion: string): Record<string, unknown> {
   const config = getConfig();
   return {
@@ -673,6 +714,7 @@ export function getExportableConfig(serverVersion: string): Record<string, unkno
     enrollment: config.enrollment,
     appearance: config.appearance,
     plugins: config.plugins,
+    chat: config.chat,
   };
 }
 
@@ -729,6 +771,11 @@ export async function importFullConfig(data: Record<string, any>): Promise<{ app
   if (data.plugins && typeof data.plugins === "object") {
     await updatePluginsConfig(data.plugins);
     applied.push("plugins");
+  }
+
+  if (data.chat && typeof data.chat === "object") {
+    await updateChatConfig(data.chat);
+    applied.push("chat");
   }
 
   if (data.auth && typeof data.auth === "object") {

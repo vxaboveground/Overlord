@@ -1,6 +1,6 @@
 import { authenticateRequest } from "../../auth";
 import { AuditAction, getAuditLogs, logAudit } from "../../auditLog";
-import { getConfig, updateSecurityConfig, updateTlsConfig, updateAppearanceConfig, getExportableConfig, importFullConfig } from "../../config";
+import { getConfig, updateSecurityConfig, updateTlsConfig, updateAppearanceConfig, updateChatConfig, getExportableConfig, importFullConfig } from "../../config";
 import { getClientMetricsSummary, getClientMetricsSummaryForUser } from "../../db";
 import { metrics } from "../../metrics";
 import { requirePermission } from "../../rbac";
@@ -490,6 +490,45 @@ export async function handleMiscRoutes(
       });
 
       return Response.json({ ok: false, error: String(error?.message || "Import failed") }, { status: 400, headers: deps.CORS_HEADERS });
+    }
+  }
+
+  if (url.pathname === "/api/settings/chat") {
+    const user = await authenticateRequest(req);
+    if (!user) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+
+    if (user.role !== "admin") {
+      return new Response("Forbidden: Admin access required", { status: 403 });
+    }
+
+    if (req.method === "GET") {
+      return Response.json({ chat: getConfig().chat }, { headers: deps.CORS_HEADERS });
+    }
+
+    if (req.method === "PUT") {
+      let body: any = {};
+      try {
+        body = await req.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON" }, { status: 400 });
+      }
+
+      const updated = await updateChatConfig({
+        retentionDays: Number(body?.retentionDays),
+      });
+
+      logAudit({
+        timestamp: Date.now(),
+        username: user.username,
+        ip: deps.requestIP?.(req)?.address || "unknown",
+        action: AuditAction.COMMAND,
+        details: `Updated chat settings: retention=${updated.retentionDays} days`,
+        success: true,
+      });
+
+      return Response.json({ ok: true, chat: updated }, { headers: deps.CORS_HEADERS });
     }
   }
 

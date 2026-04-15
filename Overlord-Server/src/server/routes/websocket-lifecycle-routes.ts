@@ -45,6 +45,8 @@ type WsLifecycleDeps = {
   handleKeyloggerViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
   handleVoiceViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
   handleNotificationViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
+  handleChatViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
+  handleChatViewerMessage: (ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) => void;
   handleConsoleViewerMessage: (ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) => void;
   handleRemoteDesktopViewerMessage: (ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) => void;
   handleWebcamViewerMessage: (ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) => void;
@@ -151,6 +153,7 @@ export function handleWebSocketOpen(ws: ServerWebSocket<SocketData>, deps: WsLif
   if (role === "keylogger_viewer") return deps.handleKeyloggerViewerOpen(ws);
   if (role === "voice_viewer") return deps.handleVoiceViewerOpen(ws);
   if (role === "notifications_viewer") return deps.handleNotificationViewerOpen(ws);
+  if (role === "chat_viewer") return deps.handleChatViewerOpen(ws);
 
   const id = clientId || uuidv4();
   ws.data.clientId = id;
@@ -202,6 +205,7 @@ export async function handleWebSocketMessage(
   if (socketRole === "voice_viewer") return deps.handleVoiceViewerMessage(ws, message);
   if (socketRole === "notifications_viewer") return;
   if (socketRole === "dashboard_viewer") return;
+  if (socketRole === "chat_viewer") return deps.handleChatViewerMessage(ws, message);
 
   const { clientId, ip } = ws.data;
 
@@ -737,6 +741,13 @@ export function handleWebSocketClose(
 
   if (role === "dashboard_viewer") {
     sessionManager.deleteDashboardSession(ws.data.sessionId || clientId);
+    return;
+  }
+
+  if (role === "chat_viewer") {
+    if (sessionId) {
+      sessionManager.deleteChatSession(sessionId);
+    }
     return;
   }
 
