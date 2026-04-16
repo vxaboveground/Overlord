@@ -247,6 +247,26 @@ export async function handleWsUpgradeRoutes(
     return new Response("Upgrade failed", { status: 500 });
   }
 
+  const desktopAudioMatch = url.pathname.match(/^\/api\/clients\/(.+)\/desktop-audio\/ws$/);
+  if (desktopAudioMatch) {
+    const user = await authenticateRequest(req);
+    if (!user) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+
+    if (user.role === "viewer") {
+      return new Response("Forbidden: Viewers cannot access interactive features", { status: 403 });
+    }
+    const clientId = desktopAudioMatch[1];
+    const denied = checkOperatorAccess(user, clientId, "voice");
+    if (denied) return denied;
+    const ip = server.requestIP(req)?.address || "";
+    if (server.upgrade(req, { data: { role: "desktop_audio_viewer", clientId, ip, userRole: user.role, userId: user.userId } })) {
+      return new Response();
+    }
+    return new Response("Upgrade failed", { status: 500 });
+  }
+
   if (req.method === "GET" && url.pathname === "/api/notifications/ws") {
     const user = await authenticateRequest(req);
     if (!user) {

