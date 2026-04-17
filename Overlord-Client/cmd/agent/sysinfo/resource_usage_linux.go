@@ -4,6 +4,7 @@ package sysinfo
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
@@ -811,4 +812,20 @@ func GetWiFiProfiles() []WiFiProfileInfo {
 		return results
 	}
 	return nil
+}
+
+func formatDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+	days := d / (24 * time.Hour)
+	d -= days * 24 * time.Hour
+	hours := d / time.Hour
+	d -= hours * time.Hour
+	minutes := d / time.Minute
+	d -= minutes * time.Minute
+	seconds := d / time.Second
+
+	if days > 0 {
+		return fmt.Sprintf("%dd %dh %dm", days, hours, minutes)
+	}
+	return fmt.Sprintf("%dh %dm %ds", hours, minutes, seconds)
 }

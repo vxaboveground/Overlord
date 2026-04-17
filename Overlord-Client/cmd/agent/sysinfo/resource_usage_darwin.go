@@ -4,6 +4,7 @@ package sysinfo
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
@@ -122,7 +123,7 @@ func GetRAMUsage() (usagePercent float64, usedBytes, totalBytes uint64) {
 	// Parse vm_stat output
 	pageSize := uint64(4096) // Default macOS page size
 	scanner := bufio.NewScanner(strings.NewReader(string(out)))
-	var pagesActive, pagesWired, pagesSpeculative, pagesFree uint64
+	var pagesActive, pagesWired uint64
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -137,10 +138,6 @@ func GetRAMUsage() (usagePercent float64, usedBytes, totalBytes uint64) {
 			pagesActive = pages
 		} else if strings.Contains(line, "Pages wired down") {
 			pagesWired = pages
-		} else if strings.Contains(line, "Pages speculative") {
-			pagesSpeculative = pages
-		} else if strings.Contains(line, "Pages free") {
-			pagesFree = pages
 		}
 	}
 
@@ -477,7 +474,6 @@ func GetAllDrivesDarwin() []DriveInfo {
 		mount := fields[4]
 		totalStr := fields[1]
 		usedStr := fields[2]
-		usageStr := strings.TrimSuffix(fields[4], "%")
 
 		// Parse usage percentage
 		usage, _ := strconv.ParseFloat(strings.TrimSuffix(fields[4], "%"), 64)
@@ -690,11 +686,11 @@ func GetLaunchDaemons() []LaunchItemInfo {
 func parseLaunchdPlist(path string, location string) LaunchItemInfo {
 	// Use plutil to convert to JSON, then parse
 	cmd := exec.Command("plutil", "-convert", "json", "-o", "-", path)
-	out, err := cmd.Output()
+	_, err := cmd.Output()
 	if err != nil {
 		// Fallback: use defaults command
 		cmd = exec.Command("defaults", "read", strings.TrimSuffix(path, ".plist"))
-		out, err = cmd.Output()
+		_, err = cmd.Output()
 		if err != nil {
 			return LaunchItemInfo{}
 		}
@@ -794,4 +790,20 @@ func GetWiFiProfilesDarwin() []WiFiProfileInfo {
 		return results
 	}
 	return nil
+}
+
+func formatDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+	days := d / (24 * time.Hour)
+	d -= days * 24 * time.Hour
+	hours := d / time.Hour
+	d -= hours * time.Hour
+	minutes := d / time.Minute
+	d -= minutes * time.Minute
+	seconds := d / time.Second
+
+	if days > 0 {
+		return fmt.Sprintf("%dd %dh %dm", days, hours, minutes)
+	}
+	return fmt.Sprintf("%dh %dm %ds", hours, minutes, seconds)
 }
