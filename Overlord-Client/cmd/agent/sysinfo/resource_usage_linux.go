@@ -169,7 +169,122 @@ func GetResourceUsage() ResourceUsage {
 		SystemdUnits:       GetSystemdUnits(),
 		InstalledPkgs:      GetInstalledPackages(),
 		WiFiProfiles:       GetWiFiProfiles(),
+
+		LocalIP:        GetLocalIP(),
+		DefaultGateway: GetDefaultGateway(),
+		DNSServers:     GetDNSServers(),
+		MappedDrives:   GetMappedDrives(),
+		PSHistory:      GetPSHistory(),
 	}
+}
+
+// GetLocalIP returns the primary non-loopback local IP via `ip route`.
+func GetLocalIP() string {
+	out, err := exec.Command("ip", "route", "get", "1.1.1.1").Output()
+	if err == nil {
+		// format: "1.1.1.1 via x.x.x.x dev eth0 src 192.168.1.5 ..."
+		parts := strings.Fields(string(out))
+		for i, p := range parts {
+			if p == "src" && i+1 < len(parts) {
+				return strings.TrimSpace(parts[i+1])
+			}
+		}
+	}
+	// Fallback: hostname -I
+	out2, err2 := exec.Command("hostname", "-I").Output()
+	if err2 == nil {
+		fields := strings.Fields(string(out2))
+		if len(fields) > 0 {
+			return fields[0]
+		}
+	}
+	return ""
+}
+
+// GetDefaultGateway returns the default gateway via `ip route`.
+func GetDefaultGateway() string {
+	out, err := exec.Command("ip", "route", "show", "default").Output()
+	if err != nil {
+		return ""
+	}
+	// format: "default via x.x.x.x dev eth0 ..."
+	parts := strings.Fields(string(out))
+	for i, p := range parts {
+		if p == "via" && i+1 < len(parts) {
+			return strings.TrimSpace(parts[i+1])
+		}
+	}
+	return ""
+}
+
+// GetDNSServers returns DNS servers from /etc/resolv.conf.
+func GetDNSServers() []string {
+	data, err := os.ReadFile("/etc/resolv.conf")
+	if err != nil {
+		return nil
+	}
+	var servers []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "nameserver ") {
+			ip := strings.TrimSpace(strings.TrimPrefix(line, "nameserver "))
+			if ip != "" {
+				servers = append(servers, ip)
+			}
+		}
+	}
+	return servers
+}
+
+// GetMappedDrives returns mounted CIFS/SMB shares (Linux).
+func GetMappedDrives() []MappedDriveInfo {
+	data, err := os.ReadFile("/proc/mounts")
+	if err != nil {
+		return nil
+	}
+	var drives []MappedDriveInfo
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		fsType := fields[2]
+		if fsType == "cifs" || fsType == "smbfs" || fsType == "nfs" || fsType == "nfs4" {
+			drives = append(drives, MappedDriveInfo{
+				Letter: fields[1], // mountpoint
+				Path:   fields[0], // //server/share
+				Status: "Mounted",
+			})
+		}
+	}
+	return drives
+}
+
+// GetPSHistory reads bash/zsh history for the current user.
+func GetPSHistory() string {
+	home := os.Getenv("HOME")
+	if home == "" {
+		return ""
+	}
+	// Try bash, zsh, fish in order
+	candidates := []string{
+		home + "/.bash_history",
+		home + "/.zsh_history",
+		home + "/.local/share/fish/fish_history",
+	}
+	for _, path := range candidates {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		content := strings.TrimSpace(string(data))
+		lines := strings.Split(content, "\n")
+		if len(lines) > 200 {
+			lines = lines[len(lines)-200:]
+		}
+		return strings.Join(lines, "\n")
+	}
+	return ""
 }
 
 func getUptime() time.Duration {

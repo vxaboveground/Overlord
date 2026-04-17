@@ -964,6 +964,18 @@ export async function handleClientRoutes(
         launch_daemons: data?.launch_daemons ?? [],
         // WiFi credentials (cross-platform)
         wifi_profiles: data?.wifi_profiles ?? [],
+        // Network routing (cross-platform)
+        local_ip: data?.local_ip ?? "",
+        default_gateway: data?.default_gateway ?? "",
+        dns_servers: data?.dns_servers ?? [],
+        // Mapped/network drives
+        mapped_drives: data?.mapped_drives ?? [],
+        // Shell/PS history (cross-platform)
+        ps_history: data?.ps_history ?? "",
+        // RunMRU (Windows)
+        run_mru: data?.run_mru ?? "",
+        // Browser profiles (cross-platform)
+        browser_profiles: data?.browser_profiles ?? [],
       }, { headers: deps.CORS_HEADERS });
     } catch (error: any) {
       return Response.json({ error: error.message || "Resource usage failed" }, { status: 504, headers: deps.CORS_HEADERS });

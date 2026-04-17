@@ -203,7 +203,141 @@ func GetResourceUsage() ResourceUsage {
 		LaunchAgents:       GetLaunchAgents(),
 		LaunchDaemons:      GetLaunchDaemons(),
 		WiFiProfiles:       GetWiFiProfilesDarwin(),
+
+		LocalIP:        GetLocalIPDarwin(),
+		DefaultGateway: GetDefaultGatewayDarwin(),
+		DNSServers:     GetDNSServersDarwin(),
+		MappedDrives:   GetMappedDrivesDarwin(),
+		PSHistory:      GetPSHistoryDarwin(),
 	}
+}
+
+// GetLocalIPDarwin returns the primary local IP via route get.
+func GetLocalIPDarwin() string {
+	// route get default gives us the interface, then ipconfig getifaddr
+	out, err := exec.Command("route", "get", "default").Output()
+	if err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "interface:") {
+				iface := strings.TrimSpace(strings.TrimPrefix(line, "interface:"))
+				out2, err2 := exec.Command("ipconfig", "getifaddr", iface).Output()
+				if err2 == nil {
+					ip := strings.TrimSpace(string(out2))
+					if ip != "" {
+						return ip
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// GetDefaultGatewayDarwin returns the default gateway via route.
+func GetDefaultGatewayDarwin() string {
+	out, err := exec.Command("route", "-n", "get", "default").Output()
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "gateway:") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "gateway:"))
+		}
+	}
+	return ""
+}
+
+// GetDNSServersDarwin returns DNS servers from scutil --dns.
+func GetDNSServersDarwin() []string {
+	out, err := exec.Command("scutil", "--dns").Output()
+	if err != nil {
+		// Fallback: resolv.conf
+		data, err2 := os.ReadFile("/etc/resolv.conf")
+		if err2 != nil {
+			return nil
+		}
+		var servers []string
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "nameserver ") {
+				ip := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "nameserver "))
+				if ip != "" {
+					servers = append(servers, ip)
+				}
+			}
+		}
+		return servers
+	}
+	seen := make(map[string]bool)
+	var servers []string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "nameserver[") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				ip := strings.TrimSpace(parts[1])
+				if ip != "" && !seen[ip] {
+					servers = append(servers, ip)
+					seen[ip] = true
+				}
+			}
+		}
+	}
+	return servers
+}
+
+// GetMappedDrivesDarwin returns SMB/AFP mounts on macOS.
+func GetMappedDrivesDarwin() []MappedDriveInfo {
+	out, err := exec.Command("mount").Output()
+	if err != nil {
+		return nil
+	}
+	var drives []MappedDriveInfo
+	for _, line := range strings.Split(string(out), "\n") {
+		// SMB: //user@server/share on /Volumes/share (smbfs, ...)
+		// AFP: afp://server/share on /Volumes/share (afpfs, ...)
+		if strings.Contains(line, "smbfs") || strings.Contains(line, "afpfs") || strings.Contains(line, "nfs") {
+			parts := strings.SplitN(line, " on ", 2)
+			if len(parts) == 2 {
+				unc := strings.TrimSpace(parts[0])
+				rest := strings.TrimSpace(parts[1])
+				mountPt := strings.Fields(rest)[0]
+				drives = append(drives, MappedDriveInfo{
+					Letter: mountPt,
+					Path:   unc,
+					Status: "Mounted",
+				})
+			}
+		}
+	}
+	return drives
+}
+
+// GetPSHistoryDarwin reads shell history for the current user (bash/zsh).
+func GetPSHistoryDarwin() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	candidates := []string{
+		home + "/.zsh_history",
+		home + "/.bash_history",
+		home + "/.local/share/fish/fish_history",
+	}
+	for _, path := range candidates {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		content := strings.TrimSpace(string(data))
+		lines := strings.Split(content, "\n")
+		if len(lines) > 200 {
+			lines = lines[len(lines)-200:]
+		}
+		return strings.Join(lines, "\n")
+	}
+	return ""
 }
 
 func getUptimeDarwin() time.Duration {

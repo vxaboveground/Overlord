@@ -27,6 +27,7 @@
     <link rel="stylesheet" href="/assets/main.css" />
     <link rel="stylesheet" href="/assets/custom.css" />
     <link rel="stylesheet" href="/assets/client-panel.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script defer src="/assets/logout.js"></script>
   </head>
   <body class="min-h-screen bg-slate-950 text-slate-100">
@@ -79,75 +80,111 @@
       </aside>
 
       <!-- Main content -->
-      <div class="panel-content">
-        <!-- Header -->
-        <div class="panel-header">
-          <div class="panel-header-left">
-            <span id="panel-country-flag" class="text-3xl"></span>
-            <div>
-              <h1 id="panel-title" class="text-2xl font-semibold">Loading...</h1>
-              <p id="panel-subtitle" class="text-slate-400 text-sm">Fetching client information...</p>
+      <div class="panel-content w-full p-4 lg:p-8 overflow-y-auto">
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-6 w-full max-w-7xl mx-auto">
+          
+          <!-- Top Row: Header -->
+          <div class="col-span-12 flex flex-col sm:flex-row items-start sm:items-center justify-between bg-slate-900 border border-slate-700/50 p-6 rounded-xl shadow-lg">
+            <div class="flex items-center gap-4">
+              <span id="panel-country-flag" class="text-4xl drop-shadow-md"></span>
+              <div>
+                <h1 id="panel-title" class="text-3xl font-bold text-white tracking-tight">Loading...</h1>
+                <p id="panel-subtitle" class="text-slate-400 text-sm mt-1">Fetching client information...</p>
+              </div>
             </div>
-          </div>
-          <div class="panel-header-right">
-            <span id="panel-status-pill" class="pill pill-offline">
-              <i class="fa-solid fa-circle"></i> Offline
-            </span>
-            <span id="panel-ping-pill" class="pill pill-ghost font-mono text-emerald-200">
-              <i class="fa-solid fa-satellite-dish"></i> -- ms
-            </span>
-          </div>
-        </div>
+            
+            <div class="flex items-center gap-3 mt-4 sm:mt-0">
+              <div id="quick-actions" class="flex gap-2 mr-4 border-r border-slate-700/50 pr-4">
+                <button id="copy-ip-btn" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-600 transition-colors flex items-center gap-2">
+                  <i class="fa-regular fa-copy"></i> <span id="copy-ip-text">Copy IP</span>
+                </button>
+              </div>
 
-        <!-- Resource usage gauges -->
-        <div id="panel-gauges" class="panel-gauges">
-          <div class="gauge-card">
-            <div class="gauge-header">
-              <i class="fa-solid fa-microchip"></i>
-              <span>CPU</span>
-            </div>
-            <div class="gauge-value" id="gauge-cpu">--%</div>
-            <div class="gauge-bar">
-              <div class="gauge-bar-fill" id="gauge-cpu-bar" style="width: 0%"></div>
+              <span id="panel-status-pill" class="pill pill-offline">
+                <i class="fa-solid fa-circle"></i> Offline
+              </span>
+              <span id="panel-ping-pill" class="pill pill-ghost font-mono text-emerald-300 bg-slate-800/50 px-3 py-1 rounded-full border border-emerald-900/50 shadow-inner">
+                <i class="fa-solid fa-satellite-dish"></i> -- ms
+              </span>
             </div>
           </div>
-          <div class="gauge-card">
-            <div class="gauge-header">
-              <i class="fa-solid fa-memory"></i>
-              <span>RAM</span>
-            </div>
-            <div class="gauge-value" id="gauge-ram">--%</div>
-            <div class="gauge-bar">
-              <div class="gauge-bar-fill" id="gauge-ram-bar" style="width: 0%"></div>
-            </div>
-            <div class="gauge-detail" id="gauge-ram-detail"></div>
-          </div>
-          <div class="gauge-card">
-            <div class="gauge-header">
-              <i class="fa-solid fa-hard-drive"></i>
-              <span>Disk</span>
-            </div>
-            <div class="gauge-value" id="gauge-disk">--%</div>
-            <div class="gauge-bar">
-              <div class="gauge-bar-fill" id="gauge-disk-bar" style="width: 0%"></div>
-            </div>
-            <div class="gauge-detail" id="gauge-disk-detail"></div>
-          </div>
-        </div>
 
-        <!-- Info grid -->
-        <div id="panel-info-grid" class="panel-info-grid">
-          <!-- Filled by JS -->
-        </div>
+          <!-- Middle Row: Resource Graphs -->
+          <div class="col-span-12 grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- CPU Chart -->
+            <div class="bg-slate-900 border border-slate-700/50 p-5 rounded-xl shadow-lg relative h-64 flex flex-col hover:border-blue-500/30 transition-colors">
+              <div class="flex justify-between items-center mb-2 text-slate-300 font-semibold uppercase text-xs tracking-wider">
+                <div class="flex items-center gap-2"><i class="fa-solid fa-microchip text-blue-400"></i> CPU Usage</div>
+                <div id="gauge-cpu" class="text-lg font-bold text-white font-mono">--%</div>
+              </div>
+              <div class="flex-1 w-full h-full relative">
+                <canvas id="cpu-chart"></canvas>
+              </div>
+            </div>
+            
+            <!-- RAM Chart -->
+            <div class="bg-slate-900 border border-slate-700/50 p-5 rounded-xl shadow-lg relative h-64 flex flex-col hover:border-purple-500/30 transition-colors">
+              <div class="flex justify-between items-center mb-2 text-slate-300 font-semibold uppercase text-xs tracking-wider">
+                <div class="flex items-center gap-2"><i class="fa-solid fa-memory text-purple-400"></i> RAM Usage</div>
+                <div class="flex flex-col items-end">
+                  <div id="gauge-ram" class="text-lg font-bold text-white font-mono leading-tight">--%</div>
+                  <div id="gauge-ram-detail" class="text-[10px] text-slate-500 font-mono"></div>
+                </div>
+              </div>
+              <div class="flex-1 w-full h-full relative">
+                <canvas id="ram-chart"></canvas>
+              </div>
+            </div>
+          </div>
 
-        <!-- Extended resource usage sections -->
-        <div id="panel-extended-info" class="panel-extended-info">
-          <!-- Filled by resource usage polling -->
+          <!-- Disk usage centered row -->
+          <div class="col-span-12 flex justify-center mt-4">
+             <div class="bg-slate-900 border border-white/5 px-6 py-3 rounded-xl shadow-lg flex items-center justify-center gap-6 text-sm font-medium w-full sm:w-2/3 hover:border-amber-500/30 transition-colors">
+               <span class="text-slate-400 uppercase tracking-wide flex items-center"><i class="fa-solid fa-hard-drive text-amber-500 mr-2 flex-shrink-0"></i> Disk</span>
+               <div class="flex-1 max-w-sm">
+                 <div class="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
+                   <div id="gauge-disk-bar" class="h-full bg-amber-500 rounded-full" style="width: 0%"></div>
+                 </div>
+               </div>
+               <span id="gauge-disk" class="text-white font-bold font-mono text-lg pr-4 border-r border-white/10">--%</span>
+               <span id="gauge-disk-detail" class="text-slate-500 font-mono pl-2"></span>
+             </div>
+          </div>
+
+          <!-- Bottom Row: System / Info Grids -->
+          <div class="col-span-12">
+            <div id="panel-info-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              <!-- Filled by JS -->
+            </div>
+          </div>
+
+          <!-- Extended Info (Persistence, etc) -->
+          <div class="col-span-12 mt-2 space-y-6">
+            <div id="panel-extended-info">
+              <!-- Filled by resource usage polling -->
+            </div>
+          </div>
+
         </div>
       </div>
     </main>
 
     <script type="module" src="/assets/nav.js"></script>
     <script type="module" src="/assets/client-panel.js"></script>
+
+    <!-- Forensic Modal -->
+    <div id="forensic-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 opacity-0 pointer-events-none transition-opacity duration-300">
+      <div id="forensic-modal-box" class="bg-slate-900 border border-white/10 rounded-xl shadow-2xl p-6 w-full max-w-3xl max-h-[80vh] flex flex-col mx-4 transform scale-95 transition-transform duration-300">
+        <div class="flex justify-between items-center mb-4 border-b border-white/5 pb-3">
+          <h3 id="forensic-modal-title" class="text-lg font-bold text-white uppercase tracking-wide">Artifact Detail</h3>
+          <button id="forensic-modal-close" class="text-slate-400 hover:text-white transition-colors cursor-pointer">
+            <i class="fa-solid fa-xmark text-xl"></i>
+          </button>
+        </div>
+        <div class="flex-1 overflow-y-auto custom-scrollbar bg-slate-950 p-4 rounded border border-white/5">
+          <pre id="forensic-modal-content" class="text-xs text-slate-300 font-mono whitespace-pre-wrap break-all"></pre>
+        </div>
+      </div>
+    </div>
   </body>
 </html>
