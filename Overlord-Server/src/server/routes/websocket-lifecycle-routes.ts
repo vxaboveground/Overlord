@@ -539,6 +539,22 @@ export async function handleWebSocketMessage(
           );
         }
         break;
+      case "resource_usage": {
+        // Forward resource_usage responses to pendingCommandReplies
+        const cmdId = (payload as any).commandId;
+        if (cmdId && typeof cmdId === "string") {
+          const pending = deps.pendingCommandReplies.get(cmdId);
+          if (pending) {
+            clearTimeout(pending.timeout);
+            pending.resolve({
+              ok: true,
+              message: JSON.stringify(payload),
+            });
+            deps.pendingCommandReplies.delete(cmdId);
+          }
+        }
+        break;
+      }
       case "command_progress":
         deps.handleFileBrowserMessage(client.id, payload);
         break;

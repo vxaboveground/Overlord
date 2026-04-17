@@ -64,6 +64,10 @@ export interface Config {
   chat: {
     retentionDays: number;
   };
+  geoip: {
+    fallbackApi: boolean;
+    preferClientReported: boolean;
+  };
 }
 
 const DEFAULT_CONFIG: Config = {
@@ -125,6 +129,10 @@ const DEFAULT_CONFIG: Config = {
   },
   chat: {
     retentionDays: 30,
+  },
+  geoip: {
+    fallbackApi: true,
+    preferClientReported: false,
   },
 };
 

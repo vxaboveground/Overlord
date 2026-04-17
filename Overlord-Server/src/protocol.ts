@@ -102,7 +102,8 @@ export type CommandType =
   | "clipboard_sync_start"
   | "clipboard_sync_stop"
   | "winre_install"
-  | "winre_uninstall";
+  | "winre_uninstall"
+  | "resource_usage";
 
 export type Command = {
   type: "command";

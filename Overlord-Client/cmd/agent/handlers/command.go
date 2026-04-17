@@ -778,6 +778,8 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		ClipboardSyncSet(text)
 		sendCommandResultSafe(env, cmdID, true, "")
 		return nil
+	case "resource_usage":
+		return HandleResourceUsage(ctx, env, cmdID)
 	case "desktop_mouse_move":
 		if !env.MouseControl {
 			sendCommandResultAsync(env, cmdID)

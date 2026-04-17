@@ -1,4 +1,5 @@
 import geoip from "geoip-lite";
+import { resolveCountry } from "./server/geoip";
 import { encodeMessage, decodeMessage, WireMessage } from "./protocol";
 import { Buffer } from "node:buffer";
 import { ClientInfo } from "./types";
@@ -103,15 +104,40 @@ export function handleHello(
   info.cpu = sanitizeInfoString((payload as any).cpu) || info.cpu;
   info.gpu = sanitizeInfoString((payload as any).gpu) || info.gpu;
   info.ram = sanitizeInfoString((payload as any).ram, 64) || info.ram;
+  // Country resolution: geoip-lite first, fallback to client-reported
   const geo = ip ? geoip.lookup(ip) : undefined;
+  const clientReported = (payload as any).country;
   const countryRaw =
-    geo?.country || (payload as any).country || info.country || "ZZ";
+    geo?.country || (clientReported && /^[A-Z]{2}$/i.test(clientReported) ? clientReported : null) || info.country || "ZZ";
   const country = /^[A-Z]{2}$/i.test(countryRaw)
     ? countryRaw.toUpperCase()
     : "ZZ";
   info.country = country;
+  // Store ASN/ISP from geoip for later use
+  (info as any).asn = geo?.range ? String(geo.range) : null;
+  (info as any).isp = null;
   info.lastSeen = Date.now();
   info.online = true;
+
+  // Async GeoIP fallback (fire-and-forget, updates cache for next time)
+  if (ip && (!geo?.country || country === "ZZ")) {
+    import("./server/geoip").then(({ lookupGeoIP }) => {
+      lookupGeoIP(ip).then((result) => {
+        if (result.country && /^[A-Z]{2}$/i.test(result.country)) {
+          info.country = result.country.toUpperCase();
+          (info as any).asn = result.asn;
+          (info as any).isp = result.isp;
+          // Update DB with corrected country
+          upsertClientRow({
+            id: info.id,
+            country: info.country,
+            lastSeen: info.lastSeen,
+            online: 1,
+          });
+        }
+      }).catch(() => {});
+    }).catch(() => {});
+  }
 
   upsertClientRow({
     id: info.id,

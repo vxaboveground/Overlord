@@ -41,6 +41,7 @@ export type ClientInfo = {
   groupId?: number | null;
   groupName?: string | null;
   groupColor?: string | null;
+  lastResourceUsage?: Record<string, any>;
 };
 
 export type ListFilters = {

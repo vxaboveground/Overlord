@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Overlord — Client Panel</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/assets/tailwind.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/flag-icons@6.15.0/css/flag-icons.min.css"
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    />
+    <link rel="icon" type="image/x-icon" href="/assets/favicon.ico" />
+    <link rel="stylesheet" href="/assets/main.css" />
+    <link rel="stylesheet" href="/assets/custom.css" />
+    <link rel="stylesheet" href="/assets/client-panel.css" />
+    <script defer src="/assets/logout.js"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <header id="top-nav"></header>
+
+    <main class="panel-layout">
+      <!-- Left sidebar -->
+      <aside class="panel-sidebar">
+        <div class="panel-sidebar-header">
+          <div id="panel-preview" class="panel-preview">
+            <div class="panel-preview-placeholder">
+              <i class="fa-solid fa-desktop"></i>
+            </div>
+          </div>
+        </div>
+
+        <div id="panel-quick-info" class="panel-quick-info">
+          <!-- Filled by JS -->
+        </div>
+
+        <nav class="panel-nav">
+          <a href="/" class="panel-nav-link" title="Back to Dashboard">
+            <i class="fa-solid fa-house"></i> Dashboard
+          </a>
+          <a class="panel-nav-link panel-nav-action" data-href="/console" title="Console">
+            <i class="fa-solid fa-terminal"></i> Console
+          </a>
+          <a class="panel-nav-link panel-nav-action" data-href="/files" title="File Browser">
+            <i class="fa-solid fa-folder-open"></i> Files
+          </a>
+          <a class="panel-nav-link panel-nav-action" data-href="/processes" title="Processes">
+            <i class="fa-solid fa-list"></i> Processes
+          </a>
+          <a class="panel-nav-link panel-nav-action" data-href="/keylogger" title="Keylogger">
+            <i class="fa-solid fa-keyboard"></i> Keylogger
+          </a>
+          <a class="panel-nav-link panel-nav-action" data-href="/remotedesktop" data-query="true" title="Remote Desktop">
+            <i class="fa-solid fa-desktop"></i> Remote Desktop
+          </a>
+          <a class="panel-nav-link panel-nav-action" data-href="/hvnc" data-query="true" title="HVNC">
+            <i class="fa-solid fa-eye"></i> HVNC
+          </a>
+          <a class="panel-nav-link panel-nav-action" data-href="/webcam" data-query="true" title="Webcam">
+            <i class="fa-solid fa-camera"></i> Webcam
+          </a>
+          <a class="panel-nav-link panel-nav-action" data-href="/voice" data-query="true" title="Voice">
+            <i class="fa-solid fa-microphone"></i> Voice
+          </a>
+        </nav>
+      </aside>
+
+      <!-- Main content -->
+      <div class="panel-content">
+        <!-- Header -->
+        <div class="panel-header">
+          <div class="panel-header-left">
+            <span id="panel-country-flag" class="text-3xl"></span>
+            <div>
+              <h1 id="panel-title" class="text-2xl font-semibold">Loading...</h1>
+              <p id="panel-subtitle" class="text-slate-400 text-sm">Fetching client information...</p>
+            </div>
+          </div>
+          <div class="panel-header-right">
+            <span id="panel-status-pill" class="pill pill-offline">
+              <i class="fa-solid fa-circle"></i> Offline
+            </span>
+            <span id="panel-ping-pill" class="pill pill-ghost font-mono text-emerald-200">
+              <i class="fa-solid fa-satellite-dish"></i> -- ms
+            </span>
+          </div>
+        </div>
+
+        <!-- Resource usage gauges -->
+        <div id="panel-gauges" class="panel-gauges">
+          <div class="gauge-card">
+            <div class="gauge-header">
+              <i class="fa-solid fa-microchip"></i>
+              <span>CPU</span>
+            </div>
+            <div class="gauge-value" id="gauge-cpu">--%</div>
+            <div class="gauge-bar">
+              <div class="gauge-bar-fill" id="gauge-cpu-bar" style="width: 0%"></div>
+            </div>
+          </div>
+          <div class="gauge-card">
+            <div class="gauge-header">
+              <i class="fa-solid fa-memory"></i>
+              <span>RAM</span>
+            </div>
+            <div class="gauge-value" id="gauge-ram">--%</div>
+            <div class="gauge-bar">
+              <div class="gauge-bar-fill" id="gauge-ram-bar" style="width: 0%"></div>
+            </div>
+            <div class="gauge-detail" id="gauge-ram-detail"></div>
+          </div>
+          <div class="gauge-card">
+            <div class="gauge-header">
+              <i class="fa-solid fa-hard-drive"></i>
+              <span>Disk</span>
+            </div>
+            <div class="gauge-value" id="gauge-disk">--%</div>
+            <div class="gauge-bar">
+              <div class="gauge-bar-fill" id="gauge-disk-bar" style="width: 0%"></div>
+            </div>
+            <div class="gauge-detail" id="gauge-disk-detail"></div>
+          </div>
+        </div>
+
+        <!-- Info grid -->
+        <div id="panel-info-grid" class="panel-info-grid">
+          <!-- Filled by JS -->
+        </div>
+
+        <!-- Extended resource usage sections -->
+        <div id="panel-extended-info" class="panel-extended-info">
+          <!-- Filled by resource usage polling -->
+        </div>
+      </div>
+    </main>
+
+    <script type="module" src="/assets/nav.js"></script>
+    <script type="module" src="/assets/client-panel.js"></script>
+  </body>
+</html>

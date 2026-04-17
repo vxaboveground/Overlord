@@ -38,5 +38,9 @@
   },
   "plugins": {
     "trustedKeys": []
+  },
+  "geoip": {
+    "fallbackApi": true,
+    "preferClientReported": false
   }
 }

