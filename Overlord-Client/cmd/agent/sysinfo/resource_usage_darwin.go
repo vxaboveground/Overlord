@@ -122,7 +122,7 @@ func GetRAMUsage() (usagePercent float64, usedBytes, totalBytes uint64) {
 	// Parse vm_stat output
 	pageSize := uint64(4096) // Default macOS page size
 	scanner := bufio.NewScanner(strings.NewReader(string(out)))
-	var pagesActive, pagesInactive, pagesWired, pagesSpeculative, pagesFree uint64
+	var pagesActive, pagesWired, pagesSpeculative, pagesFree uint64
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -135,8 +135,6 @@ func GetRAMUsage() (usagePercent float64, usedBytes, totalBytes uint64) {
 
 		if strings.Contains(line, "Pages active") {
 			pagesActive = pages
-		} else if strings.Contains(line, "Pages inactive") {
-			pagesInactive = pages
 		} else if strings.Contains(line, "Pages wired down") {
 			pagesWired = pages
 		} else if strings.Contains(line, "Pages speculative") {
