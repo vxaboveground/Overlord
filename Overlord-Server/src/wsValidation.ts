@@ -30,6 +30,7 @@ export const ALLOWED_CLIENT_MESSAGE_TYPES = new Set([
   "webcam_devices",
   "hvnc_clone_progress",
   "hvnc_lookup_result",
+  "hvnc_browser_check_result",
   "hvnc_dxgi_status",
   "clipboard_content",
   "proxy_data",

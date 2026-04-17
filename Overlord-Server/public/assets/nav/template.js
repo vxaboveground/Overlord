@@ -43,6 +43,7 @@ const NAV_GROUPS = [
     children: [
       { href: "/scripts",        label: "Scripts",        icon: "fa-code",            iconColor: "text-cyan-400",    linkId: "scripts-link" },
       { href: "/socks5-manager", label: "Proxies",        icon: "fa-network-wired",   iconColor: "text-sky-400",     linkId: "socks5-link" },
+      { href: "/sol-publish",    label: "Sol Publish",    icon: "fa-link-slash",      iconColor: "text-purple-400",  linkId: "sol-publish-link",    hidden: true },
     ],
   },
   {
@@ -53,7 +54,6 @@ const NAV_GROUPS = [
     children: [
       { href: "/build",         label: "Builder",        icon: "fa-hammer",          iconColor: "text-orange-400",  linkId: "build-link",          hidden: true },
       { href: "/plugins",       label: "Plugins",        icon: "fa-puzzle-piece",    iconColor: "text-violet-400",  linkId: "plugins-link",        hidden: true },
-      { href: "/sol-publish",   label: "Sol Publish",    icon: "fa-link-slash",      iconColor: "text-purple-400",  linkId: "sol-publish-link",    hidden: true },
     ],
   },
   {

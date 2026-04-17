@@ -246,6 +246,11 @@ type HVNCLookupResult struct {
 	Done bool   `msgpack:"done"`
 }
 
+type HVNCBrowserCheckResult struct {
+	Type     string          `msgpack:"type"`
+	Browsers map[string]bool `msgpack:"browsers"`
+}
+
 type ClipboardContent struct {
 	Type   string `msgpack:"type"`
 	Text   string `msgpack:"text"`

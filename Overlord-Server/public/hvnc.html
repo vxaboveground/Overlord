@@ -185,76 +185,74 @@
         </div>
         <div
           id="hvncContextMenu"
-          class="hidden fixed z-50 min-w-[180px] rounded-lg border border-slate-700 bg-slate-900/95 text-sm text-slate-200 shadow-xl"
+          class="hidden fixed z-50 min-w-[220px] max-h-[80vh] overflow-y-auto rounded-lg border border-slate-700 bg-slate-900/95 text-sm text-slate-200 shadow-xl"
         >
-          <div class="px-3 pt-2 pb-1 text-xs uppercase tracking-wide text-slate-500">Browsers</div>
-          <label class="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-slate-800/70 select-none">
+          <!-- Options -->
+          <div class="px-3 pt-2 pb-1 text-xs uppercase tracking-wide text-slate-500">Options</div>
+          <label class="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-slate-800/70 select-none">
             <input type="checkbox" id="hvncCloneToggle" checked class="accent-violet-500 w-4 h-4 rounded" />
             <span class="text-xs text-slate-300">Clone profile</span>
           </label>
-          <label class="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-slate-800/70 select-none">
+          <label class="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-slate-800/70 select-none">
             <input type="checkbox" id="hvncCloneLiteToggle" class="accent-violet-500 w-4 h-4 rounded" />
             <span class="text-xs text-slate-300">Lite clone (no extensions)</span>
           </label>
-          <label class="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-slate-800/70 select-none">
+          <label class="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-slate-800/70 select-none">
             <input type="checkbox" id="hvncKillIfRunningToggle" class="accent-violet-500 w-4 h-4 rounded" />
             <span class="text-xs text-slate-300">Kill browser if running</span>
           </label>
-          <button
-            type="button"
-            class="w-full text-left px-3 py-2 hover:bg-slate-800/70"
-            data-action="start-cmd"
-          >
-            <i class="fa-solid fa-terminal mr-2 text-violet-300"></i>Start cmd.exe
+          <div class="my-1 border-t border-slate-700/60"></div>
+          <!-- Shells -->
+          <div class="px-3 pt-2 pb-1 text-xs uppercase tracking-wide text-slate-500">Shells</div>
+          <button type="button" class="w-full text-left px-3 py-1.5 hover:bg-slate-800/70" data-action="start-cmd">
+            <i class="fa-solid fa-terminal mr-2 text-violet-300"></i>cmd.exe
           </button>
-          <button
-            type="button"
-            class="w-full text-left px-3 py-2 hover:bg-slate-800/70"
-            data-action="start-powershell"
-          >
-            <i class="fa-solid fa-bolt mr-2 text-sky-300"></i>Start powershell.exe
+          <button type="button" class="w-full text-left px-3 py-1.5 hover:bg-slate-800/70" data-action="start-powershell">
+            <i class="fa-solid fa-bolt mr-2 text-sky-300"></i>powershell.exe
           </button>
-          <button
-            type="button"
-            class="w-full text-left px-3 py-2 hover:bg-slate-800/70"
-            data-action="start-chrome"
-          >
-            <i class="fa-brands fa-chrome mr-2 text-emerald-300"></i>Start Chrome
+          <div class="my-1 border-t border-slate-700/60"></div>
+          <!-- Chromium Browsers -->
+          <div class="px-3 pt-2 pb-1 text-xs uppercase tracking-wide text-slate-500">Chromium</div>
+          <button type="button" class="w-full text-left px-3 py-1.5 hover:bg-slate-800/70" data-action="start-chrome" data-browser="chrome">
+            <i class="fa-brands fa-chrome mr-2 text-emerald-300"></i>Chrome
           </button>
-          <button
-            type="button"
-            class="w-full text-left px-3 py-2 hover:bg-slate-800/70"
-            data-action="start-brave"
-          >
-            <i class="fa-brands fa-firefox-browser mr-2 text-amber-300"></i>Start Brave
+          <button type="button" class="w-full text-left px-3 py-1.5 hover:bg-slate-800/70" data-action="start-brave" data-browser="brave">
+            <i class="fa-brands fa-brave mr-2 text-amber-300"></i>Brave
           </button>
-          <button
-            type="button"
-            class="w-full text-left px-3 py-2 hover:bg-slate-800/70"
-            data-action="start-edge"
-          >
-            <i class="fa-brands fa-edge mr-2 text-sky-300"></i>Start Edge
+          <button type="button" class="w-full text-left px-3 py-1.5 hover:bg-slate-800/70" data-action="start-edge" data-browser="edge">
+            <i class="fa-brands fa-edge mr-2 text-sky-300"></i>Edge
           </button>
-          <button
-            type="button"
-            class="w-full text-left px-3 py-2 hover:bg-slate-800/70"
-            data-action="start-firefox"
-          >
-            <i class="fa-brands fa-firefox mr-2 text-orange-300"></i>Start Firefox
+          <button type="button" class="w-full text-left px-3 py-1.5 hover:bg-slate-800/70" data-action="start-opera" data-browser="opera">
+            <i class="fa-brands fa-opera mr-2 text-red-400"></i>Opera
           </button>
+          <button type="button" class="w-full text-left px-3 py-1.5 hover:bg-slate-800/70" data-action="start-operagx" data-browser="operagx">
+            <i class="fa-brands fa-opera mr-2 text-fuchsia-400"></i>Opera GX
+          </button>
+          <button type="button" class="w-full text-left px-3 py-1.5 hover:bg-slate-800/70" data-action="start-vivaldi" data-browser="vivaldi">
+            <i class="fa-solid fa-globe mr-2 text-rose-300"></i>Vivaldi
+          </button>
+          <button type="button" class="w-full text-left px-3 py-1.5 hover:bg-slate-800/70" data-action="start-yandex" data-browser="yandex">
+            <i class="fa-brands fa-yandex-international mr-2 text-yellow-300"></i>Yandex
+          </button>
+          <button type="button" class="w-full text-left px-3 py-1.5 hover:bg-slate-800/70" data-action="start-arc" data-browser="arc">
+            <i class="fa-solid fa-globe mr-2 text-blue-300"></i>Arc
+          </button>
+          <div class="my-1 border-t border-slate-700/60"></div>
+          <!-- Firefox Browsers -->
+          <div class="px-3 pt-2 pb-1 text-xs uppercase tracking-wide text-slate-500">Firefox</div>
+          <button type="button" class="w-full text-left px-3 py-1.5 hover:bg-slate-800/70" data-action="start-firefox" data-browser="firefox">
+            <i class="fa-brands fa-firefox mr-2 text-orange-300"></i>Firefox
+          </button>
+          <button type="button" class="w-full text-left px-3 py-1.5 hover:bg-slate-800/70" data-action="start-waterfox" data-browser="waterfox">
+            <i class="fa-brands fa-firefox mr-2 text-cyan-300"></i>Waterfox
+          </button>
+          <div class="my-1 border-t border-slate-700/60"></div>
+          <!-- Custom -->
           <div class="px-3 pt-2 pb-1 text-xs uppercase tracking-wide text-slate-500">Custom</div>
-          <button
-            type="button"
-            class="w-full text-left px-3 py-2 hover:bg-slate-800/70"
-            data-action="start-custom"
-          >
+          <button type="button" class="w-full text-left px-3 py-1.5 hover:bg-slate-800/70" data-action="start-custom">
             <i class="fa-solid fa-file mr-2 text-slate-300"></i>Run custom exe…
           </button>
-          <button
-            type="button"
-            class="w-full text-left px-3 py-2 hover:bg-slate-800/70"
-            data-action="lookup-exe"
-          >
+          <button type="button" class="w-full text-left px-3 py-1.5 hover:bg-slate-800/70" data-action="lookup-exe">
             <i class="fa-solid fa-magnifying-glass mr-2 text-amber-300"></i>Lookup exe…
           </button>
         </div>
@@ -285,6 +283,16 @@
           }
           #hvncContextMenu.hidden {
             display: none;
+          }
+          #hvncContextMenu button.browser-unavailable {
+            opacity: 0.35;
+            pointer-events: none;
+            cursor: default;
+          }
+          #hvncContextMenu button.browser-unavailable::after {
+            content: " (not found)";
+            font-size: 0.65rem;
+            color: #94a3b8;
           }
         </style>
       </div>

