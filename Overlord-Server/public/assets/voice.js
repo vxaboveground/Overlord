@@ -17,6 +17,13 @@ const remoteWaveCanvas = document.getElementById("remote-wave");
 const sourceSelect = document.getElementById("source-select");
 const muteSelfBtn = document.getElementById("mute-self-btn");
 const muteRemoteBtn = document.getElementById("mute-remote-btn");
+const micVolumeSlider = document.getElementById("mic-volume");
+const micVolumeLabel = document.getElementById("mic-volume-label");
+const remoteVolumeSlider = document.getElementById("remote-volume");
+const remoteVolumeLabel = document.getElementById("remote-volume-label");
+
+let micGain = 1.0;
+let remoteGain = 1.0;
 
 let ws = null;
 let mediaStream = null;
@@ -25,6 +32,7 @@ let processorNode = null;
 let captureAudioCtx = null;
 let playAudioCtx = null;
 let playProcessorNode = null;
+let playGainNode = null;
 let selfMuted = true;
 let remoteMuted = true;
 let playbackChunks = [];
@@ -236,6 +244,11 @@ function initPlaybackEngine() {
   if (!playAudioCtx) {
     playAudioCtx = new AudioContext({ sampleRate: 16000, latencyHint: "interactive" });
   }
+  if (!playGainNode) {
+    playGainNode = playAudioCtx.createGain();
+    playGainNode.gain.value = remoteGain;
+    playGainNode.connect(playAudioCtx.destination);
+  }
   if (!playProcessorNode) {
     playProcessorNode = playAudioCtx.createScriptProcessor(PLAYBACK_FRAME_SIZE, 1, 1);
     playProcessorNode.onaudioprocess = (event) => {
@@ -266,7 +279,7 @@ function initPlaybackEngine() {
         }
       }
     };
-    playProcessorNode.connect(playAudioCtx.destination);
+    playProcessorNode.connect(playGainNode);
   }
 }
 
@@ -293,6 +306,9 @@ async function startMicCapture() {
 
     const inData = event.inputBuffer.getChannelData(0);
     const downsampled = downsampleTo16k(inData, captureAudioCtx.sampleRate);
+    if (micGain !== 1.0) {
+      for (let i = 0; i < downsampled.length; i++) downsampled[i] *= micGain;
+    }
     localWaveWrite = pushWaveSamples(localWaveBuffer, localWaveWrite, downsampled);
     const pcm16 = floatToInt16(downsampled);
 
@@ -318,6 +334,10 @@ function stopMicCapture() {
     playProcessorNode.disconnect();
     playProcessorNode.onaudioprocess = null;
     playProcessorNode = null;
+  }
+  if (playGainNode) {
+    playGainNode.disconnect();
+    playGainNode = null;
   }
   if (playAudioCtx) {
     playAudioCtx.close().catch(() => {});
@@ -437,6 +457,7 @@ async function loadCapabilities() {
   }
 
   const sources = Array.isArray(caps.sources) && caps.sources.length > 0 ? caps.sources : ["default"];
+  if (!sources.includes("system")) sources.push("system");
   const defaultSource = caps.defaultSource && sources.includes(caps.defaultSource) ? caps.defaultSource : sources[0];
 
   if (sourceSelect) {
@@ -468,6 +489,16 @@ muteRemoteBtn?.addEventListener("click", () => {
 });
 window.addEventListener("beforeunload", disconnectVoice);
 
+micVolumeSlider?.addEventListener("input", () => {
+  micGain = parseInt(micVolumeSlider.value, 10) / 100;
+  if (micVolumeLabel) micVolumeLabel.textContent = micVolumeSlider.value + "%";
+});
+remoteVolumeSlider?.addEventListener("input", () => {
+  remoteGain = parseInt(remoteVolumeSlider.value, 10) / 100;
+  if (playGainNode) playGainNode.gain.value = remoteGain;
+  if (remoteVolumeLabel) remoteVolumeLabel.textContent = remoteVolumeSlider.value + "%";
+});
+
 updateMuteButtons();
 drawWave(localWaveCanvas, localWaveBuffer, localWaveWrite, "rgba(34, 211, 238, 0.95)");
 drawWave(remoteWaveCanvas, remoteWaveBuffer, remoteWaveWrite, "rgba(16, 185, 129, 0.95)");
@@ -478,3 +509,207 @@ checkFeatureAccess("voice", clientId).then(ok => {
     connectBtn.disabled = true;
   }
 });
+
+/* =====================================================================
+   Desktop Audio – independent listen-only stream (system/loopback)
+   ===================================================================== */
+
+const daConnectBtn   = document.getElementById("da-connect-btn");
+const daDisconnectBtn = document.getElementById("da-disconnect-btn");
+const daStatusPill   = document.getElementById("da-status-pill");
+const daWaveCanvas   = document.getElementById("da-wave");
+const daVolumeSlider = document.getElementById("da-volume");
+const daVolumeLabel  = document.getElementById("da-volume-label");
+
+let daWs = null;
+let daGain = 1.0;
+let daPlayAudioCtx = null;
+let daPlayProcessorNode = null;
+let daPlayGainNode = null;
+let daPlaybackChunks = [];
+let daPlaybackChunkReadOffset = 0;
+let daLevelLoop = false;
+const DA_WAVE_SIZE = 2048;
+const daWaveBuffer = new Float32Array(DA_WAVE_SIZE);
+let daWaveWrite = 0;
+
+function daSetStatus(text, cls) {
+  if (!daStatusPill) return;
+  daStatusPill.className =
+    "inline-flex items-center gap-2 px-3 py-1.5 rounded-full border " + cls;
+  daStatusPill.innerHTML = `<i class="fa-solid fa-circle"></i><span>${text}</span>`;
+}
+
+function daClearPlayback() {
+  daPlaybackChunks = [];
+  daPlaybackChunkReadOffset = 0;
+}
+
+function daStartLevelLoop() {
+  if (daLevelLoop) return;
+  daLevelLoop = true;
+  const tick = () => {
+    if (!daLevelLoop) return;
+    drawWave(daWaveCanvas, daWaveBuffer, daWaveWrite, "rgba(251, 191, 36, 0.95)");
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+function daStopLevelLoop() {
+  daLevelLoop = false;
+  daWaveBuffer.fill(0);
+  daWaveWrite = 0;
+  drawWave(daWaveCanvas, daWaveBuffer, daWaveWrite, "rgba(251, 191, 36, 0.95)");
+}
+
+function daInitPlaybackEngine() {
+  if (!daPlayAudioCtx) {
+    daPlayAudioCtx = new AudioContext({ sampleRate: 16000, latencyHint: "interactive" });
+  }
+  if (!daPlayGainNode) {
+    daPlayGainNode = daPlayAudioCtx.createGain();
+    daPlayGainNode.gain.value = daGain;
+    daPlayGainNode.connect(daPlayAudioCtx.destination);
+  }
+  if (!daPlayProcessorNode) {
+    daPlayProcessorNode = daPlayAudioCtx.createScriptProcessor(PLAYBACK_FRAME_SIZE, 1, 1);
+    daPlayProcessorNode.onaudioprocess = (event) => {
+      const out = event.outputBuffer.getChannelData(0);
+      out.fill(0);
+      let writeIndex = 0;
+      while (writeIndex < out.length && daPlaybackChunks.length > 0) {
+        const head = daPlaybackChunks[0];
+        const remaining = head.length - daPlaybackChunkReadOffset;
+        if (remaining <= 0) {
+          daPlaybackChunks.shift();
+          daPlaybackChunkReadOffset = 0;
+          continue;
+        }
+        const needed = out.length - writeIndex;
+        const take = Math.min(needed, remaining);
+        out.set(head.subarray(daPlaybackChunkReadOffset, daPlaybackChunkReadOffset + take), writeIndex);
+        writeIndex += take;
+        daPlaybackChunkReadOffset += take;
+        if (daPlaybackChunkReadOffset >= head.length) {
+          daPlaybackChunks.shift();
+          daPlaybackChunkReadOffset = 0;
+        }
+      }
+    };
+    daPlayProcessorNode.connect(daPlayGainNode);
+  }
+}
+
+function daAppendPcm(binary) {
+  if (!daPlayAudioCtx) daInitPlaybackEngine();
+  const samples = Math.floor(binary.byteLength / 2);
+  if (samples <= 0) return;
+  const src = new Int16Array(binary.buffer, binary.byteOffset, samples);
+  const chunk = resampleInt16ToFloat32(src, UPLINK_SAMPLE_RATE, daPlayAudioCtx?.sampleRate || UPLINK_SAMPLE_RATE);
+  if (chunk.length === 0) return;
+  daPlaybackChunks.push(chunk);
+  daWaveWrite = pushWaveSamples(daWaveBuffer, daWaveWrite, chunk);
+
+  const sampleRate = daPlayAudioCtx?.sampleRate || UPLINK_SAMPLE_RATE;
+  const maxSamples = Math.max(PLAYBACK_FRAME_SIZE, Math.round(sampleRate * (MAX_PLAYBACK_BUFFER_MS / 1000)));
+  let buffered = -daPlaybackChunkReadOffset;
+  for (const c of daPlaybackChunks) buffered += c.length;
+  while (buffered > maxSamples && daPlaybackChunks.length > 0) {
+    const dropped = daPlaybackChunks.shift();
+    buffered -= dropped?.length || 0;
+    daPlaybackChunkReadOffset = 0;
+  }
+}
+
+function daCleanup() {
+  if (daPlayProcessorNode) {
+    daPlayProcessorNode.disconnect();
+    daPlayProcessorNode.onaudioprocess = null;
+    daPlayProcessorNode = null;
+  }
+  if (daPlayGainNode) {
+    daPlayGainNode.disconnect();
+    daPlayGainNode = null;
+  }
+  if (daPlayAudioCtx) {
+    daPlayAudioCtx.close().catch(() => {});
+    daPlayAudioCtx = null;
+  }
+  daStopLevelLoop();
+  daClearPlayback();
+}
+
+function daConnect() {
+  if (daWs && daWs.readyState === WebSocket.OPEN) return;
+  daClearPlayback();
+  daStartLevelLoop();
+  // Create AudioContext inside click handler so the browser trusts the user gesture.
+  daInitPlaybackEngine();
+  if (daPlayAudioCtx?.state === "suspended") daPlayAudioCtx.resume();
+
+  const proto = window.location.protocol === "https:" ? "wss" : "ws";
+  daWs = new WebSocket(`${proto}://${window.location.host}/api/clients/${encodeURIComponent(clientId)}/desktop-audio/ws`);
+  daWs.binaryType = "arraybuffer";
+
+  daWs.onopen = () => {
+    daSetStatus("Connecting", "border-blue-700 bg-blue-900/40 text-blue-100");
+    daConnectBtn.disabled = true;
+    daDisconnectBtn.disabled = false;
+    daWs.send(JSON.stringify({ type: "start" }));
+  };
+
+  daWs.onmessage = (ev) => {
+    if (typeof ev.data === "string") {
+      try {
+        const msg = JSON.parse(ev.data);
+        console.log("[desktop-audio] status message:", msg);
+        if (msg?.type === "status") {
+          if (msg.status === "offline") {
+            daSetStatus("Client Offline", "border-amber-700 bg-amber-900/30 text-amber-200");
+          } else if (msg.status === "connected") {
+            daSetStatus("Listening", "border-emerald-700 bg-emerald-900/40 text-emerald-100");
+          } else if (msg.status === "error") {
+            daSetStatus("Error", "border-red-700 bg-red-900/40 text-red-100");
+          }
+        }
+      } catch {}
+      return;
+    }
+    const bytes = new Uint8Array(ev.data);
+    if (bytes.byteLength > 1) daAppendPcm(bytes);
+  };
+
+  daWs.onclose = () => {
+    daCleanup();
+    daConnectBtn.disabled = false;
+    daDisconnectBtn.disabled = true;
+    daSetStatus("Disconnected", "border-slate-700 bg-slate-800 text-slate-300");
+  };
+
+  daWs.onerror = () => {
+    daSetStatus("Error", "border-red-700 bg-red-900/40 text-red-100");
+  };
+}
+
+function daDisconnect() {
+  daCleanup();
+  if (daWs) {
+    try { daWs.send(JSON.stringify({ type: "stop" })); } catch {}
+    try { daWs.close(); } catch {}
+    daWs = null;
+  }
+  daConnectBtn.disabled = false;
+  daDisconnectBtn.disabled = true;
+  daSetStatus("Disconnected", "border-slate-700 bg-slate-800 text-slate-300");
+}
+
+daConnectBtn?.addEventListener("click", daConnect);
+daDisconnectBtn?.addEventListener("click", daDisconnect);
+daVolumeSlider?.addEventListener("input", () => {
+  daGain = parseInt(daVolumeSlider.value, 10) / 100;
+  if (daPlayGainNode) daPlayGainNode.gain.value = daGain;
+  if (daVolumeLabel) daVolumeLabel.textContent = daVolumeSlider.value + "%";
+});
+window.addEventListener("beforeunload", daDisconnect);
+drawWave(daWaveCanvas, daWaveBuffer, daWaveWrite, "rgba(251, 191, 36, 0.95)");

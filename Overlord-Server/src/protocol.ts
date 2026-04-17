@@ -90,6 +90,8 @@ export type CommandType =
   | "voice_session_stop"
   | "voice_downlink"
   | "voice_capabilities"
+  | "desktop_audio_start"
+  | "desktop_audio_stop"
   | "process_list"
   | "process_kill"
   | "plugin_load"

@@ -21,11 +21,17 @@ jobs:
         shell: cmd
         run: call build-hvnc-dll.bat
 
-      - name: Upload HVNCInjection DLL
+      - name: Build HVNCCapture DLL with MSVC
+        shell: cmd
+        run: call build-hvnc-capture-dll.bat
+
+      - name: Upload HVNC DLLs
         uses: actions/upload-artifact@v4
         with:
           name: hvnc-dll
-          path: Overlord-Server/dist-clients/HVNCInjection.x64.dll
+          path: |
+            Overlord-Server/dist-clients/HVNCInjection.x64.dll
+            Overlord-Server/dist-clients/HVNCCapture.x64.dll
           if-no-files-found: error
           retention-days: 1
 
@@ -40,7 +46,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download HVNCInjection DLL
+      - name: Download HVNC DLLs
         uses: actions/download-artifact@v4
         with:
           name: hvnc-dll

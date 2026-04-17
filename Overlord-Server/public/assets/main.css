@@ -2500,6 +2500,9 @@ body.sb-open #sb-backdrop { display: block; }
   justify-content: center;
   margin-left: auto;
 }
+.nav-dd-badge.hidden {
+  display: none;
+}
 .nav-dd-badge:not(.hidden) {
   display: inline-flex;
 }
@@ -2571,6 +2574,9 @@ body.sb-collapsed .sb-group-btn {
 .sb-group-children.sb-group-open {
   display: block;
 }
+body.sb-collapsed .sb-group-children {
+  display: none;
+}
 
 /* Child links — indented */
 .sb-link-child {
@@ -2596,6 +2602,9 @@ body.sb-collapsed .sb-link-child {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+.sb-badge.hidden {
+  display: none;
 }
 .sb-badge:not(.hidden) {
   display: inline-flex;

@@ -46,7 +46,6 @@ type PluginRouteDeps = {
   enqueuePluginEvent: (clientId: string, pluginId: string, event: string, payload: any) => void;
   drainPluginUIEvents: (clientId: string, pluginId: string) => Array<{ event: string; payload: any }>;
   secureHeaders: (contentType?: string) => Record<string, string>;
-  securePluginHeaders: () => Record<string, string>;
   mimeType: (path: string) => string;
 };
 
@@ -715,7 +714,6 @@ export async function handlePluginRoutes(
 
     const raw = await file.text();
     const baseTag = `<base href="/plugins/${pluginId}/assets/" />`;
-    const bridgeTag = `<script src="/assets/plugin-bridge.js"></script>`;
     let injected = raw;
 
     const headMatch = raw.match(/<head[^>]*>/i);
@@ -723,16 +721,8 @@ export async function handlePluginRoutes(
       injected = raw.replace(headMatch[0], `${headMatch[0]}\n    ${baseTag}`);
     }
 
-    if (injected.includes("</head>")) {
-      injected = injected.replace("</head>", `    ${bridgeTag}\n  </head>`);
-    } else if (injected.includes("</body>")) {
-      injected = injected.replace("</body>", `  ${bridgeTag}\n</body>`);
-    } else {
-      injected = `${bridgeTag}\n${injected}`;
-    }
-
     return new Response(injected, {
-      headers: { ...deps.securePluginHeaders(), "Content-Type": "text/html; charset=utf-8" },
+      headers: deps.secureHeaders("text/html; charset=utf-8"),
     });
   }
 
@@ -746,9 +736,33 @@ export async function handlePluginRoutes(
     }
 
     const clientId = url.searchParams.get("clientId") || "";
-    const bridgeToken = uuidv4();
-    const origin = url.origin;
-    const iframeSrc = `/plugins/${pluginId}/frame?clientId=${encodeURIComponent(clientId)}&token=${encodeURIComponent(bridgeToken)}&origin=${encodeURIComponent(origin)}`;
+
+    const htmlFile = path.join(deps.PLUGIN_ROOT, pluginId, "assets", `${pluginId}.html`);
+    const file = Bun.file(htmlFile);
+    let pluginBody = "";
+    let pluginHeadExtras = "";
+
+    if (await file.exists()) {
+      const raw = await file.text();
+
+      const bodyMatch = raw.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+      pluginBody = bodyMatch ? bodyMatch[1] : raw;
+
+      const headMatch = raw.match(/<head[^>]*>([\s\S]*?)<\/head>/i);
+      if (headMatch) {
+        const headContent = headMatch[1];
+        const linkTags = headContent.match(/<link[^>]*>/gi) || [];
+        const styleTags = headContent.match(/<style[\s\S]*?<\/style>/gi) || [];
+        pluginHeadExtras = [...linkTags, ...styleTags]
+          .map((tag) =>
+            tag.replace(/href="(?!https?:\/\/|\/)/g, `href="/plugins/${pluginId}/assets/`),
+          )
+          .join("\n    ");
+      }
+    }
+
+    const jsFile = Bun.file(path.join(deps.PLUGIN_ROOT, pluginId, "assets", `${pluginId}.js`));
+    const hasPluginJs = await jsFile.exists();
 
     const html = `<!doctype html>
 <html lang="en">
@@ -771,27 +785,19 @@ export async function handlePluginRoutes(
     />
     <link rel="stylesheet" href="/assets/main.css" />
     <link rel="stylesheet" href="/assets/custom.css" />
+    ${pluginHeadExtras}
   </head>
   <body class="min-h-screen bg-slate-950 text-slate-100">
     <header id="top-nav"></header>
     <main class="px-5 py-6">
       <div class="max-w-6xl mx-auto">
-        <div class="rounded-2xl border border-slate-800 bg-slate-900/50 overflow-hidden">
-          <iframe
-            id="plugin-frame"
-            src="${iframeSrc}"
-            sandbox="allow-scripts allow-same-origin"
-            class="w-full h-[calc(100vh-220px)] bg-slate-950"
-          ></iframe>
+        <div id="plugin-container" class="rounded-2xl border border-slate-800 bg-slate-900/50 overflow-hidden p-4">
+          ${pluginBody}
         </div>
       </div>
     </main>
-    <div
-      id="plugin-host"
-      data-bridge-token="${bridgeToken}"
-    ></div>
     <script type="module" src="/assets/nav.js"></script>
-    <script src="/assets/plugin-host.js"></script>
+    ${hasPluginJs ? `<script src="/plugins/${pluginId}/assets/${pluginId}.js"></script>` : ""}
   </body>
 </html>`;
 

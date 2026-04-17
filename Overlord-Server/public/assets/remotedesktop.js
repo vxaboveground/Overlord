@@ -45,6 +45,7 @@ import { checkFeatureAccess } from "./feature-gate.js";
   const inputLatency = document.getElementById("inputLatency");
   const statusEl = document.getElementById("streamStatus");
   const clipboardSyncCtrl = document.getElementById("clipboardSyncCtrl");
+  const audioCtrl = document.getElementById("audioCtrl");
   ws.binaryType = "arraybuffer";
 
   let activeClientId = clientId;
@@ -96,6 +97,125 @@ import { checkFeatureAccess } from "./feature-gate.js";
     h264FirstFrameAt = 0;
     h264FramesSeen = 0;
     h264KeyframeErrorStreak = 0;
+  }
+
+  /* ── Remote Desktop Audio (system audio from client) ── */
+  const AUDIO_SAMPLE_RATE = 16000;
+  const AUDIO_PLAYBACK_FRAME = 512;
+  const AUDIO_MAX_BUFFER_MS = 120;
+  let audioWs = null;
+  let audioPlayCtx = null;
+  let audioProcessorNode = null;
+  let audioChunks = [];
+  let audioChunkOffset = 0;
+
+  function audioResampleInt16ToFloat32(srcInt16, srcRate, dstRate) {
+    if (!srcInt16 || srcInt16.length === 0) return new Float32Array(0);
+    if (srcRate === dstRate) {
+      const out = new Float32Array(srcInt16.length);
+      for (let i = 0; i < srcInt16.length; i++) out[i] = srcInt16[i] / 0x8000;
+      return out;
+    }
+    const outLength = Math.max(1, Math.round((srcInt16.length * dstRate) / srcRate));
+    const out = new Float32Array(outLength);
+    const step = srcRate / dstRate;
+    for (let i = 0; i < outLength; i++) {
+      const srcPos = i * step;
+      const i0 = Math.floor(srcPos);
+      const i1 = Math.min(i0 + 1, srcInt16.length - 1);
+      const frac = srcPos - i0;
+      out[i] = (srcInt16[i0] * (1 - frac) + srcInt16[i1] * frac) / 0x8000;
+    }
+    return out;
+  }
+
+  function initAudioPlayback() {
+    if (!audioPlayCtx) {
+      audioPlayCtx = new AudioContext({ sampleRate: AUDIO_SAMPLE_RATE, latencyHint: "interactive" });
+    }
+    if (!audioProcessorNode) {
+      audioProcessorNode = audioPlayCtx.createScriptProcessor(AUDIO_PLAYBACK_FRAME, 1, 1);
+      audioProcessorNode.onaudioprocess = function (event) {
+        const out = event.outputBuffer.getChannelData(0);
+        out.fill(0);
+        let writeIndex = 0;
+        while (writeIndex < out.length && audioChunks.length > 0) {
+          const head = audioChunks[0];
+          const remaining = head.length - audioChunkOffset;
+          if (remaining <= 0) { audioChunks.shift(); audioChunkOffset = 0; continue; }
+          const take = Math.min(out.length - writeIndex, remaining);
+          out.set(head.subarray(audioChunkOffset, audioChunkOffset + take), writeIndex);
+          writeIndex += take;
+          audioChunkOffset += take;
+          if (audioChunkOffset >= head.length) { audioChunks.shift(); audioChunkOffset = 0; }
+        }
+      };
+      audioProcessorNode.connect(audioPlayCtx.destination);
+    }
+  }
+
+  function appendAudioPcm(binary) {
+    if (!audioPlayCtx) initAudioPlayback();
+    const samples = Math.floor(binary.byteLength / 2);
+    if (samples <= 0) return;
+    const src = new Int16Array(binary.buffer, binary.byteOffset, samples);
+    const chunk = audioResampleInt16ToFloat32(src, AUDIO_SAMPLE_RATE, audioPlayCtx?.sampleRate || AUDIO_SAMPLE_RATE);
+    if (chunk.length === 0) return;
+    audioChunks.push(chunk);
+    let buffered = -audioChunkOffset;
+    for (const c of audioChunks) buffered += c.length;
+    const rate = audioPlayCtx?.sampleRate || AUDIO_SAMPLE_RATE;
+    const max = Math.max(AUDIO_PLAYBACK_FRAME, Math.round(rate * (AUDIO_MAX_BUFFER_MS / 1000)));
+    while (buffered > max && audioChunks.length > 0) {
+      const dropped = audioChunks.shift();
+      buffered -= dropped?.length || 0;
+      audioChunkOffset = 0;
+    }
+  }
+
+  function connectAudio() {
+    if (audioWs && audioWs.readyState === WebSocket.OPEN) return;
+    // Create AudioContext in click/change handler so the browser trusts the user gesture.
+    initAudioPlayback();
+    if (audioPlayCtx?.state === "suspended") audioPlayCtx.resume();
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    audioWs = new WebSocket(proto + "//" + location.host + "/api/clients/" + encodeURIComponent(clientId) + "/desktop-audio/ws");
+    audioWs.binaryType = "arraybuffer";
+    audioWs.onopen = function () {
+      audioWs.send(JSON.stringify({ type: "start", source: "system" }));
+    };
+    audioWs.onmessage = function (ev) {
+      if (typeof ev.data === "string") return;
+      const bytes = new Uint8Array(ev.data);
+      if (bytes.byteLength > 1) appendAudioPcm(bytes);
+    };
+    audioWs.onclose = function () { cleanupAudio(false); };
+    audioWs.onerror = function () {};
+  }
+
+  function disconnectAudio() {
+    if (audioWs) {
+      try { audioWs.send(JSON.stringify({ type: "stop" })); } catch {}
+      try { audioWs.close(); } catch {}
+      audioWs = null;
+    }
+    cleanupAudio(true);
+  }
+
+  function cleanupAudio(uncheckBox) {
+    if (audioProcessorNode) {
+      audioProcessorNode.disconnect();
+      audioProcessorNode.onaudioprocess = null;
+      audioProcessorNode = null;
+    }
+    if (audioPlayCtx) {
+      audioPlayCtx.close().catch(function () {});
+      audioPlayCtx = null;
+    }
+    audioChunks = [];
+    audioChunkOffset = 0;
+    audioWs = null;
+    if (uncheckBox && audioCtrl) audioCtrl.checked = false;
   }
 
   function resetH264SessionState() {
@@ -565,6 +685,7 @@ import { checkFeatureAccess } from "./feature-gate.js";
     desiredStreaming = false;
     setStreamState("stopping", "Stopping stream");
     sendCmd("desktop_stop", {});
+    disconnectAudio();
   });
   fullscreenBtn.addEventListener("click", function () {
     if (canvasContainer.requestFullscreen) {
@@ -618,6 +739,15 @@ import { checkFeatureAccess } from "./feature-gate.js";
   if (duplicationCtrl) {
     duplicationCtrl.addEventListener("change", function () {
       pushCaptureToggles();
+    });
+  }
+  if (audioCtrl) {
+    audioCtrl.addEventListener("change", function () {
+      if (audioCtrl.checked) {
+        connectAudio();
+      } else {
+        disconnectAudio();
+      }
     });
   }
 
@@ -1076,6 +1206,7 @@ import { checkFeatureAccess } from "./feature-gate.js";
 
   ws.addEventListener("close", function () {
     desiredStreaming = false;
+    disconnectAudio();
     destroyVideoDecoder();
     setStreamState("disconnected", "Disconnected");
   });
@@ -1217,6 +1348,7 @@ import { checkFeatureAccess } from "./feature-gate.js";
       desiredStreaming = false;
       sendCmd("desktop_stop", {});
     }
+    disconnectAudio();
     destroyVideoDecoder();
   }
 

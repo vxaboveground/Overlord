@@ -2,7 +2,7 @@
 TODO-IMPROVEMENTS.md
 upx-reference.txt
 Overlord-Desktop-Tauri\*
-plugin-clipreplace
+plugins/clipreplace
 
 # Node/Bun
 node_modules/
@@ -52,10 +52,12 @@ plugins/sample-go/*.h
 plugins/hrdp/*
 plugins/netscan/
 plugins/sysprofile/
+plugins/ranreg/
 plugins/build-netscan.bat
 plugins/build-netscan.sh
 plugins/build-sysprofile.bat
 plugins/build-sysprofile.sh
+plugins/build-ranreg.bat
 
 # Runtime data
 Overlord-Server/data/
@@ -496,4 +498,3 @@ FodyWeavers.xsd
 *.exp
 *.lib
 save.txt
-CLAUDE.md

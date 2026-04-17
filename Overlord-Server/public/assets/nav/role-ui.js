@@ -1,17 +1,5 @@
 export function applyUserRoleUI(user, refs) {
-  const {
-    usernameDisplay,
-    roleBadge,
-    usersLink,
-    buildLink,
-    solPublishLink,
-    pluginsLink,
-    scriptsLink,
-    logsLink,
-    notificationsLink,
-    enrollmentLink,
-    fileShareLink,
-  } = refs;
+  const { usernameDisplay, roleBadge } = refs;
 
   if (!user || !usernameDisplay || !roleBadge) return;
 

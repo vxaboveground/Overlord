@@ -12,7 +12,6 @@ extern "C" {
 #include <string.h>
 
 #ifdef _MSC_VER
-#pragma comment(lib, "libMinHook.x64.lib")
 #pragma comment(lib, "ntdll.lib")
 #endif
 

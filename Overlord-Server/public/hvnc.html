@@ -101,6 +101,13 @@
             <span id="cloneProgressPct" class="pill pill-ghost font-mono text-violet-200 min-w-[3ch] text-right">0%</span>
           </div>
           <div
+            id="dxgiStatus"
+            class="hidden items-center gap-2 bg-slate-900/70 border border-slate-800 rounded-lg px-3 py-2 text-sm"
+          >
+            <i id="dxgiStatusIcon" class="fa-solid fa-microchip text-emerald-400"></i>
+            <span id="dxgiStatusLabel">DXGI</span>
+          </div>
+          <div
             class="flex items-center gap-2 bg-slate-900/70 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-300"
           >
             <span class="uppercase tracking-wide text-xs text-slate-500"
@@ -128,12 +135,22 @@
             <label class="flex items-center gap-2 text-sm text-slate-200"
               ><input type="checkbox" id="kbdCtrl" /> Keyboard</label
             >
-            <label class="flex items-center gap-2 text-sm text-slate-200" title="Show mouse cursor in captured frames"
-              ><input type="checkbox" id="cursorCtrl" /> Cursor</label
-            >
             <label class="flex items-center gap-2 text-sm text-slate-200" title="Sync clipboard between your browser and the remote machine"
               ><input type="checkbox" id="clipboardSyncCtrl" /> Clipboard Sync</label
             >
+            <label class="flex items-center gap-2 text-sm text-slate-200" title="Use DXGI Present hook for faster capture (requires injected process)"
+              ><input type="checkbox" id="dxgiCtrl" checked /> DXGI Capture</label
+            >
+            <label for="hvncResolutionSelect" class="text-sm text-slate-200">Resolution</label>
+            <select
+              id="hvncResolutionSelect"
+              class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-100 text-sm"
+            >
+              <option value="720">720p</option>
+              <option value="1080" selected>1080p</option>
+              <option value="1440">1440p</option>
+              <option value="-1">Native</option>
+            </select>
 
           </div>
         </div>

