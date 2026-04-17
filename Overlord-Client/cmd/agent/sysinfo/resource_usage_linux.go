@@ -601,7 +601,7 @@ func GetCronJobs() []CronJobInfo {
 			}
 			schedule := strings.Join(fields[:5], " ")
 			command := strings.Join(fields[5:], " ")
-			user, _ := os.UserCurrent()
+			user, _ := user.Current()
 			jobs = append(jobs, CronJobInfo{
 				User:     user.Username,
 				Command:  command,
