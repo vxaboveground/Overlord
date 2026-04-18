@@ -176,6 +176,20 @@ export function createNotificationPluginHandlers(deps: CreateDeps) {
     return true;
   }
 
+  function pruneNotificationRate() {
+    const notificationConfig = deps.getNotificationConfig();
+    const spamWindow = Math.max(5000, notificationConfig.spamWindowMs || 60000);
+    const maxAge = spamWindow * 2;
+    const now = Date.now();
+    for (const [key, state] of deps.notificationRate) {
+      if (now - state.lastSent > maxAge && now - state.windowStart > maxAge) {
+        deps.notificationRate.delete(key);
+      }
+    }
+  }
+
+  setInterval(pruneNotificationRate, 60_000);
+
   function flushPluginEvents(clientId: string, pluginId: string) {
     const key = `${clientId}:${pluginId}`;
     const list = deps.pendingPluginEvents.get(key);

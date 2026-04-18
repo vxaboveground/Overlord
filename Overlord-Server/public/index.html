@@ -45,7 +45,7 @@
             </p>
           </div>
           <span
-            class="inline-flex items-center gap-2 px-3 py-2 rounded-full bg-blue-900/40 text-blue-100 border border-blue-700/60"
+            class="inline-flex items-center gap-2 px-3 py-2 rounded-full bg-slate-800/70 text-slate-300 border border-slate-600/60"
             id="total-pill"
             >0 online</span
           >
@@ -53,7 +53,7 @@
         <div class="flex flex-wrap gap-3 items-center">
           <label
             id="search-shell"
-            class="flex items-center gap-2 bg-slate-900/70 border border-slate-800 rounded-lg px-3 py-2 w-full sm:w-auto flex-1"
+            class="flex items-center gap-2 bg-slate-800/70 border border-slate-700/60 rounded-lg px-3 py-2 w-full sm:w-auto flex-1"
           >
             <i class="fa-solid fa-magnifying-glass text-slate-500"></i>
             <input
@@ -64,7 +64,7 @@
             />
           </label>
           <label
-            class="inline-flex items-center gap-2 bg-slate-900/70 border border-slate-800 rounded-lg px-3 py-2 text-slate-100"
+            class="inline-flex items-center gap-2 bg-slate-800/70 border border-slate-700/60 rounded-lg px-3 py-2 text-slate-300"
           >
             <input
               id="toggle-offline"
@@ -76,7 +76,7 @@
           </label>
           <select
             id="filter-status"
-            class="bg-slate-900/70 border border-slate-800 rounded-lg px-3 py-2 text-slate-100"
+            class="bg-slate-800/70 border border-slate-700/60 rounded-lg px-3 py-2 text-slate-300"
           >
             <option value="all">All Status</option>
             <option value="online">Online Only</option>
@@ -84,13 +84,13 @@
           </select>
           <select
             id="filter-os"
-            class="bg-slate-900/70 border border-slate-800 rounded-lg px-3 py-2 text-slate-100"
+            class="bg-slate-800/70 border border-slate-700/60 rounded-lg px-3 py-2 text-slate-300"
           >
             <option value="all">All OS</option>
           </select>
           <select
             id="filter-group"
-            class="bg-slate-900/70 border border-slate-800 rounded-lg px-3 py-2 text-slate-100"
+            class="bg-slate-800/70 border border-slate-700/60 rounded-lg px-3 py-2 text-slate-300"
           >
             <option value="all">All Groups</option>
             <option value="none">No Group</option>
@@ -98,7 +98,7 @@
           <div id="country-picker-anchor" class="relative"></div>
           <select
             id="sort"
-            class="bg-slate-900/70 border border-slate-800 rounded-lg px-3 py-2 text-slate-100"
+            class="bg-slate-800/70 border border-slate-700/60 rounded-lg px-3 py-2 text-slate-300"
           >
             <option value="stable">Default</option>
             <option value="last_seen_desc">Newest</option>
@@ -113,13 +113,13 @@
           </select>
           <button
             id="select-all"
-            class="px-3 py-2 rounded-lg bg-slate-800/70 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors"
+            class="px-3 py-2 rounded-lg bg-slate-800/70 hover:bg-slate-700/70 text-slate-300 border border-slate-700/60 transition-colors"
           >
             <i class="fa-solid fa-check"></i> Select all
           </button>
           <button
             id="clear-selection"
-            class="px-3 py-2 rounded-lg bg-slate-800/70 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
+            class="px-3 py-2 rounded-lg bg-slate-800/70 hover:bg-slate-700/70 text-slate-400 border border-slate-700/60 transition-colors"
           >
             Clear selection
           </button>
@@ -127,42 +127,42 @@
         <!-- Bulk Actions Toolbar -->
         <div
           id="bulk-toolbar"
-          class="hidden bg-indigo-900/40 border border-indigo-700/60 rounded-lg p-3 flex flex-wrap items-center justify-between gap-3"
+          class="hidden bg-slate-800/70 border border-slate-700/60 rounded-lg p-3 flex flex-wrap items-center justify-between gap-3"
         >
           <div class="flex items-center gap-2">
-            <i class="fa-solid fa-check-double text-indigo-300"></i>
-            <span class="text-indigo-100"
+            <i class="fa-solid fa-check-double text-slate-400"></i>
+            <span class="text-slate-300"
               ><span id="selected-count">0</span> selected</span
             >
           </div>
           <div class="flex items-center gap-2 flex-wrap">
             <button
               id="bulk-screenshot"
-              class="px-3 py-2 rounded-lg bg-indigo-800/60 hover:bg-indigo-700 text-indigo-100 border border-indigo-600 transition-colors"
+              class="px-3 py-2 rounded-lg bg-slate-800/70 hover:bg-slate-700/70 text-slate-300 border border-slate-600/60 transition-colors"
             >
               <i class="fa-solid fa-camera"></i> Screenshot
             </button>
             <button
               id="bulk-disconnect"
-              class="px-3 py-2 rounded-lg bg-red-800/60 hover:bg-red-700 text-red-100 border border-red-600 transition-colors"
+              class="px-3 py-2 rounded-lg bg-slate-800/70 hover:bg-red-950/60 text-red-300 border border-red-900/60 transition-colors"
             >
               <i class="fa-solid fa-plug-circle-xmark"></i> Disconnect
             </button>
             <button
               id="bulk-uninstall"
-              class="px-3 py-2 rounded-lg bg-rose-900/70 hover:bg-rose-800 text-rose-100 border border-rose-700 transition-colors"
+              class="px-3 py-2 rounded-lg bg-slate-800/70 hover:bg-rose-950/60 text-rose-300 border border-rose-900/60 transition-colors"
             >
               <i class="fa-solid fa-trash"></i> Uninstall
             </button>
             <button
               id="bulk-group"
-              class="px-3 py-2 rounded-lg bg-blue-800/60 hover:bg-blue-700 text-blue-100 border border-blue-600 transition-colors"
+              class="px-3 py-2 rounded-lg bg-slate-800/70 hover:bg-slate-700/70 text-slate-300 border border-slate-600/60 transition-colors"
             >
               <i class="fa-solid fa-layer-group"></i> Set Group
             </button>
             <button
               id="bulk-clear"
-              class="px-3 py-2 rounded-lg bg-slate-800/60 hover:bg-slate-700 text-slate-300 border border-slate-600 transition-colors"
+              class="px-3 py-2 rounded-lg bg-slate-800/70 hover:bg-slate-700/70 text-slate-400 border border-slate-600/60 transition-colors"
             >
               Clear
             </button>
@@ -172,7 +172,7 @@
         <div class="flex items-center justify-center gap-3 py-4">
           <button
             id="prev"
-            class="px-4 py-2 rounded-lg border border-slate-800 bg-slate-800/60 hover:bg-slate-700 disabled:opacity-40"
+            class="px-4 py-2 rounded-lg border border-slate-700/60 bg-slate-800/70 hover:bg-slate-700/70 text-slate-300 disabled:opacity-40"
             disabled
           >
             Prev
@@ -180,7 +180,7 @@
           <span class="text-slate-400" id="page-label"></span>
           <button
             id="next"
-            class="px-4 py-2 rounded-lg border border-slate-800 bg-slate-800/60 hover:bg-slate-700 disabled:opacity-40"
+            class="px-4 py-2 rounded-lg border border-slate-700/60 bg-slate-800/70 hover:bg-slate-700/70 text-slate-300 disabled:opacity-40"
             disabled
           >
             Next

@@ -409,7 +409,7 @@ export function createRenderer({
     };
     const gpuHtml = dedupeGpu(client.gpu);
     const borderClass = client.bookmarked ? "border-yellow-600/60" : "border-slate-800";
-    card.className = `card rounded-xl border ${borderClass} bg-slate-900/70 p-4 shadow-lg ${client.online ? "" : "card-offline"} tone-${os.tone}`;
+    card.className = `card rounded-xl border ${borderClass} p-4 ${client.online ? "" : "card-offline"}`;
     if (!client.bookmarked && groupColor) {
       card.style.setProperty("--group-color", groupColor);
     } else {

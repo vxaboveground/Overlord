@@ -1,7 +1,13 @@
-import sharp from "sharp";
+let _sharp: typeof import("sharp") extends { default: infer D } ? D : never;
+async function getSharp() {
+  if (!_sharp) {
+    _sharp = (await import("sharp")).default;
+  }
+  return _sharp;
+}
 
-const THUMBNAIL_WIDTH = Math.max(64, Number(process.env.OVERLORD_THUMBNAIL_WIDTH || 1920));
-const THUMBNAIL_HEIGHT = Math.max(48, Number(process.env.OVERLORD_THUMBNAIL_HEIGHT || 1080));
+const THUMBNAIL_WIDTH = Math.max(64, Number(process.env.OVERLORD_THUMBNAIL_WIDTH || 640));
+const THUMBNAIL_HEIGHT = Math.max(48, Number(process.env.OVERLORD_THUMBNAIL_HEIGHT || 360));
 const THUMBNAIL_QUALITY = Math.min(90, Math.max(40, Number(process.env.OVERLORD_THUMBNAIL_QUALITY || 72)));
 const MAX_THUMBNAIL_SOURCE_BYTES = Math.max(
   256 * 1024,
@@ -44,6 +50,7 @@ async function buildThumbnailDataUrl(bytes: Uint8Array, format: string): Promise
     return null;
   }
 
+  const sharp = await getSharp();
   const output = await sharp(Buffer.from(bytes), { failOn: "none" })
     .rotate()
     .resize({

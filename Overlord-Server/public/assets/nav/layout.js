@@ -1,7 +1,51 @@
 import { NAV_MODE_KEY } from "./template.js";
 
 const LS_KEY = "sb_collapsed";
+const NAV_HIDDEN_KEY = "nav_hidden";
 const MOBILE_BP = 768;
+
+/* ──────────────────────────────────────────────
+   NAV HIDE / REVEAL — shared across both modes
+   ────────────────────────────────────────────── */
+
+function createNavHideController() {
+  let hidden = localStorage.getItem(NAV_HIDDEN_KEY) === "true";
+
+  // Create reveal button (injected into body)
+  const revealBtn = document.createElement("button");
+  revealBtn.id = "nav-reveal-btn";
+  revealBtn.setAttribute("aria-label", "Show navigation");
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform || "");
+  revealBtn.dataset.tooltip = `Show nav  ${isMac ? "⌘" : "Ctrl"}+\\`;
+  revealBtn.innerHTML = '<i class="fa-solid fa-angles-right" style="font-size:0.65rem"></i>';
+  document.body.appendChild(revealBtn);
+
+  function setHidden(val) {
+    hidden = val;
+    localStorage.setItem(NAV_HIDDEN_KEY, String(val));
+    document.body.classList.toggle("nav-hidden", val);
+  }
+
+  function toggle() {
+    setHidden(!hidden);
+  }
+
+  // Apply persisted state
+  if (hidden) document.body.classList.add("nav-hidden");
+
+  // Click the reveal button → show nav
+  revealBtn.addEventListener("click", () => { if (hidden) setHidden(false); });
+
+  // Keyboard shortcut: Ctrl+\ (or Cmd+\ on Mac)
+  document.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "\\") {
+      e.preventDefault();
+      toggle();
+    }
+  });
+
+  return { toggle, isHidden: () => hidden, setHidden };
+}
 
 /* ──────────────────────────────────────────────
    TOPBAR DROPDOWN LOGIC
@@ -241,9 +285,15 @@ function createSidebarController(host, refs) {
 
 export function createAdaptiveNavController(host, refs) {
   const mode = localStorage.getItem(NAV_MODE_KEY);
-  if (mode === "sidebar") {
-    return createSidebarController(host, refs);
-  }
-  return createTopbarController(host, refs);
+  const navCtrl = mode === "sidebar"
+    ? createSidebarController(host, refs)
+    : createTopbarController(host, refs);
+
+  const hideCtrl = createNavHideController();
+
+  return {
+    applyAdaptiveNavLayout: navCtrl.applyAdaptiveNavLayout,
+    navHide: hideCtrl,
+  };
 }
 

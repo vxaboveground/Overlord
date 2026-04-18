@@ -2,16 +2,14 @@ import { createHash, randomBytes, createCipheriv } from "crypto";
 import { authenticateRequest } from "../../auth";
 import { getConfig } from "../../config";
 import { logger } from "../../logger";
-import {
-  Connection,
-  Keypair,
-  Transaction,
-  TransactionInstruction,
-  PublicKey,
-  LAMPORTS_PER_SOL,
-} from "@solana/web3.js";
 
-const MEMO_PROGRAM_ID = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
+let _solana: typeof import("@solana/web3.js") | null = null;
+async function getSolana() {
+  if (!_solana) {
+    _solana = await import("@solana/web3.js");
+  }
+  return _solana;
+}
 
 const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 function decodeBase58(str: string): Uint8Array {
@@ -112,10 +110,11 @@ export async function handleSolRoutes(
         return Response.json({ error: "No agent token configured on this server" }, { status: 400 });
       }
 
-      let keypair: Keypair;
+      let keypair: InstanceType<Awaited<ReturnType<typeof getSolana>>["Keypair"]>;
       try {
+        const { Keypair: SolKeypair } = await getSolana();
         const decoded = decodeBase58(privateKeyBase58.trim());
-        keypair = Keypair.fromSecretKey(decoded);
+        keypair = SolKeypair.fromSecretKey(decoded);
       } catch {
         return Response.json({ error: "Invalid Solana private key (Base58)" }, { status: 400 });
       }
@@ -133,6 +132,8 @@ export async function handleSolRoutes(
       const memo = encryptServerUrl(serverUrl.trim(), agentToken);
 
       try {
+        const { Connection, Transaction, TransactionInstruction, PublicKey } = await getSolana();
+        const MEMO_PROGRAM_ID = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
         const connection = new Connection(endpoint, "confirmed");
 
         const memoInstruction = new TransactionInstruction({
@@ -184,8 +185,9 @@ export async function handleSolRoutes(
         return Response.json({ error: "publicKeyBase58 is required" }, { status: 400 });
       }
 
-      let pubkey: PublicKey;
+      let pubkey: InstanceType<Awaited<ReturnType<typeof getSolana>>["PublicKey"]>;
       try {
+        const { PublicKey } = await getSolana();
         pubkey = new PublicKey(publicKeyBase58.trim());
       } catch {
         return Response.json({ error: "Invalid Solana public key" }, { status: 400 });
@@ -196,6 +198,7 @@ export async function handleSolRoutes(
         : "https://api.mainnet-beta.solana.com";
 
       try {
+        const { Connection, LAMPORTS_PER_SOL } = await getSolana();
         const connection = new Connection(endpoint, "confirmed");
         const balance = await connection.getBalance(pubkey);
         return Response.json({

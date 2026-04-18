@@ -161,6 +161,11 @@ function mountTopbar(host) {
             title="Logout" aria-label="Logout">
             <i class="fa-solid fa-right-from-bracket text-rose-300 group-hover:text-rose-200 transition-colors"></i>
           </button>
+          <button id="nav-hide-btn"
+            class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-slate-900/50 border border-slate-800 text-slate-500 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+            title="Hide navigation (Ctrl+\\)" aria-label="Hide navigation">
+            <i class="fa-solid fa-eye-slash" style="font-size:0.75rem"></i>
+          </button>
         </div>
       </div>
     </div>
@@ -180,6 +185,7 @@ function mountTopbar(host) {
     usernameDisplay: document.getElementById("username-display"),
     roleBadge: document.getElementById("role-badge"),
     enrollmentBadge: document.getElementById("enrollment-badge"),
+    navHideBtn: document.getElementById("nav-hide-btn"),
   };
 
   // Add individual link refs
@@ -293,6 +299,11 @@ function mountSidebar(host) {
         <i class="fa-solid fa-right-from-bracket sb-icon"></i>
         <span class="sb-text">Logout</span>
       </button>
+      <button id="nav-hide-btn" class="sb-link"
+        title="Hide navigation (Ctrl+\\)" aria-label="Hide navigation">
+        <i class="fa-solid fa-eye-slash sb-icon" style="font-size:0.75rem"></i>
+        <span class="sb-text">Hide Nav</span>
+      </button>
     </div>
   `;
 
@@ -329,6 +340,7 @@ function mountSidebar(host) {
     usernameDisplay: document.getElementById("username-display"),
     roleBadge: document.getElementById("role-badge"),
     enrollmentBadge: document.getElementById("enrollment-badge"),
+    navHideBtn: document.getElementById("nav-hide-btn"),
   };
 
   // Convenience refs expected by nav.js

@@ -1,6 +1,12 @@
 import type { ServerWebSocket } from "bun";
 import { v4 as uuidv4 } from "uuid";
-import geoip from "geoip-lite";
+let _geoip: typeof import("geoip-lite") extends { default: infer D } ? D : never;
+async function getGeoip() {
+  if (!_geoip) {
+    _geoip = (await import("geoip-lite")).default;
+  }
+  return _geoip;
+}
 import { logAudit, AuditAction } from "../../auditLog";
 import * as clientManager from "../../clientManager";
 import { clientExists, setOnlineState, upsertClientRow, getClientEnrollmentStatus, setClientEnrollmentStatus, lookupClientByPublicKey, getClientPublicKeyById, getBuildByTag } from "../../db";
@@ -304,6 +310,7 @@ export async function handleWebSocketMessage(
         }
 
         if (enrollmentStatus === "pending") {
+          const geoip = await getGeoip();
           const geo = ip ? geoip.lookup(ip) : undefined;
           const countryRaw = geo?.country || (payload as any).country || "ZZ";
           const country = /^[A-Z]{2}$/i.test(countryRaw) ? countryRaw.toUpperCase() : "ZZ";
@@ -431,7 +438,7 @@ export async function handleWebSocketMessage(
           logger.warn(`[purgatory] failed to send hello_ack to ${resolvedId}: ${sendErr}`);
         }
 
-        handleHello(infoObj, payload, ws, ip);
+        await handleHello(infoObj, payload, ws, ip);
         clientManager.addClient(infoObj.id, infoObj);
 
         deps.dispatchAutoScriptsForConnection(infoObj, ws);

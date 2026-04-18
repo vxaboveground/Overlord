@@ -1392,3 +1392,33 @@ menu.addEventListener("click", async (e) => {
 });
 
 loadCurrentUser();
+
+// console easter egg
+(function () {
+  const consoleimg = {
+    load: function (src, { size = 320, color = "transparent" } = {}) {
+      const reader = new FileReader();
+      reader.addEventListener("load", function () {
+        const style =
+          "background: url('" + reader.result + "') left top no-repeat; font-size: " +
+          size +
+          "px; background-size: contain; background-color:" +
+          color;
+        console.log("%c     ", style);
+      }, false);
+      fetch(src)
+        .then((r) => r.blob())
+        .then((blob) => {
+          if (blob.type.indexOf("image") === 0) {
+            if (blob.size > 8192 && navigator.userAgent.indexOf("Firefox") > 0)
+              throw new Error("Image size too big to be displayed in Firefox.");
+            return blob;
+          }
+          throw new Error("Valid image not found.");
+        })
+        .then((blob) => reader.readAsDataURL(blob))
+        .catch((err) => console.warn(err.message));
+    },
+  };
+  consoleimg.load("/assets/console.gif", { size: 320, color: "transparent" });
+})();

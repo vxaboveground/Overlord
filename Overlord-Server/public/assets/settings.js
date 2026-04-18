@@ -8,6 +8,7 @@ import {
 
 const PREF_REFRESH_KEY = "overlord_refresh_interval_seconds";
 const NAV_MODE_KEY = "sb_mode";
+const NAV_HIDDEN_KEY = "nav_hidden";
 
 const usernameEl = document.getElementById("settings-username");
 const roleEl = document.getElementById("settings-role");
@@ -302,6 +303,11 @@ function loadPrefs() {
   if (sidebarBtn && topbarBtn) {
     updateNavLayoutButtons(navMode === "topbar" ? "topbar" : "sidebar", sidebarBtn, topbarBtn);
   }
+
+  const navHiddenInput = document.getElementById("pref-nav-hidden");
+  if (navHiddenInput) {
+    navHiddenInput.checked = localStorage.getItem(NAV_HIDDEN_KEY) === "true";
+  }
 }
 
 async function loadCurrentUser() {
@@ -389,6 +395,11 @@ function savePrefs(event) {
     showMessage("Preferences saved.");
   }
 
+  const navHiddenInput = document.getElementById("pref-nav-hidden");
+  if (navHiddenInput) {
+    localStorage.setItem(NAV_HIDDEN_KEY, String(navHiddenInput.checked));
+    document.body.classList.toggle("nav-hidden", navHiddenInput.checked);
+  }
 }
 
 async function saveSecurityPolicy(event) {

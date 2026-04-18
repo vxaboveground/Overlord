@@ -7,5 +7,5 @@ export const MAX_WS_MESSAGE_BYTES_VIEWER = Number(
   process.env.MAX_WS_MESSAGE_BYTES_VIEWER || 1_000_000,
 );
 export const MAX_WS_MESSAGE_BYTES_CLIENT = Number(
-  process.env.MAX_WS_MESSAGE_BYTES_CLIENT || 50_000_000,
+  process.env.MAX_WS_MESSAGE_BYTES_CLIENT || 16_000_000,
 );

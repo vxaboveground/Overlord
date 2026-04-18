@@ -30,7 +30,7 @@ function assetCacheControl(relativePath: string): string {
   if (relativePath.endsWith(".min.js") || relativePath.endsWith(".min.css")) {
     return STATIC_ASSET_CACHE;
   }
-  if (/\.(ico|png|jpg|jpeg|webp|woff2?|ttf|eot|svg)$/.test(relativePath)) {
+  if (/\.(ico|png|jpg|jpeg|gif|webp|woff2?|ttf|eot|svg)$/.test(relativePath)) {
     return STATIC_ASSET_CACHE;
   }
   return MUTABLE_ASSET_CACHE;
