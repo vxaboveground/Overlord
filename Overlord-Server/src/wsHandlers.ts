@@ -1,8 +1,3 @@
-<<<<<<< HEAD
-import geoip from "geoip-lite";
-import { resolveCountry } from "./server/geoip";
-=======
->>>>>>> cc4fe570ab42603035efc84c9e7f85a6d430bdfb
 import { encodeMessage, decodeMessage, WireMessage } from "./protocol";
 import { Buffer } from "node:buffer";
 
@@ -115,11 +110,7 @@ export async function handleHello(
   info.cpu = sanitizeInfoString((payload as any).cpu) || info.cpu;
   info.gpu = sanitizeInfoString((payload as any).gpu) || info.gpu;
   info.ram = sanitizeInfoString((payload as any).ram, 64) || info.ram;
-<<<<<<< HEAD
-  // Country resolution: geoip-lite first, fallback to client-reported
-=======
   const geoip = await getGeoip();
->>>>>>> cc4fe570ab42603035efc84c9e7f85a6d430bdfb
   const geo = ip ? geoip.lookup(ip) : undefined;
   const clientReported = (payload as any).country;
   const countryRaw =
