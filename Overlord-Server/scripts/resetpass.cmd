@@ -1,0 +1,1 @@
+docker exec overlord-server bun -e "import {Database} from 'bun:sqlite'; import {resolve} from 'path'; const db = new Database(resolve('/app/data','overlord.db')); const hash = await Bun.password.hash('NewPassword123', {algorithm:'bcrypt'}); db.run(\"UPDATE users SET password_hash=?, must_change_password=0 WHERE username=?\", [hash, 'admin']); console.log('Password reset.');"
