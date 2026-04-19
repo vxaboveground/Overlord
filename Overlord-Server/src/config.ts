@@ -131,7 +131,7 @@ const DEFAULT_CONFIG: Config = {
     retentionDays: 30,
   },
   geoip: {
-    fallbackApi: true,
+    fallbackApi: false,
     preferClientReported: false,
   },
 };

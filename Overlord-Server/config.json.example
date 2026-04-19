@@ -40,7 +40,7 @@
     "trustedKeys": []
   },
   "geoip": {
-    "fallbackApi": true,
+    "fallbackApi": false,
     "preferClientReported": false
   }
 }

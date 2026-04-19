@@ -1,7 +1,6 @@
 /**
- * Enhanced GeoIP lookup with fallback to external API.
- * geoip-lite uses a local database that can be stale.
- * This module adds a fallback to ip-api.com (free, no auth required).
+ * GeoIP lookup using the local geoip-lite database only.
+ * No external IP lookup services are used.
  */
 
 import geoip from "geoip-lite";
@@ -13,47 +12,28 @@ type GeoResult = {
   isp: string | null;
 };
 
-// Cache to avoid repeated API calls for the same IP
+// Cache to avoid repeated lookups for the same IP
 const cache = new Map<string, { result: GeoResult; expires: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 /**
- * Look up GeoIP info for an IP address.
- * Tries local geoip-lite first, then falls back to ip-api.com if configured.
+ * Look up GeoIP info for an IP address using geoip-lite locally.
  */
 export async function lookupGeoIP(ip: string): Promise<GeoResult> {
-  // Check cache first
   const cached = cache.get(ip);
   if (cached && cached.expires > Date.now()) {
     return cached.result;
   }
 
-  const config = getConfig();
   const localResult = geoip.lookup(ip);
+  const result: GeoResult = {
+    country: localResult?.country || null,
+    asn: localResult?.range ? String(localResult.range) : null,
+    isp: null,
+  };
 
-  // If local lookup succeeded and we don't prefer client-reported, use it
-  if (localResult?.country) {
-    const result: GeoResult = {
-      country: localResult.country,
-      asn: localResult.range ? String(localResult.range) : null,
-      isp: null,
-    };
-    cache.set(ip, { result, expires: Date.now() + CACHE_TTL_MS });
-    return result;
-  }
-
-  // Fallback to external API if configured
-  if (config.geoip?.fallbackApi) {
-    try {
-      const apiResult = await lookupViaApi(ip);
-      cache.set(ip, { result: apiResult, expires: Date.now() + CACHE_TTL_MS });
-      return apiResult;
-    } catch (err) {
-      console.warn(`[geoip] API fallback failed for ${ip}:`, err);
-    }
-  }
-
-  return { country: null, asn: null, isp: null };
+  cache.set(ip, { result, expires: Date.now() + CACHE_TTL_MS });
+  return result;
 }
 
 /**
@@ -91,22 +71,4 @@ export async function resolveCountry(
   }
 
   return "ZZ";
-}
-
-async function lookupViaApi(ip: string): Promise<GeoResult> {
-  const res = await fetch(`http://ip-api.com/json/${ip}?fields=countryCode,as,isp`, {
-    signal: AbortSignal.timeout(5000),
-  });
-  if (!res.ok) {
-    throw new Error(`ip-api.com returned ${res.status}`);
-  }
-  const data = await res.json();
-  if (data.status !== "success") {
-    throw new Error(`ip-api.com error: ${data.message}`);
-  }
-  return {
-    country: data.countryCode || null,
-    asn: data.as || null,
-    isp: data.isp || null,
-  };
 }
