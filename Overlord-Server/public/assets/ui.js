@@ -110,10 +110,15 @@ menuStyle.textContent = `
   -webkit-user-select: none;
   transition: background 0.1s, color 0.1s;
 }
-.ctx-row:hover,
-.ctx-row.ctx-active {
+.ctx-row:hover:not([disabled]):not([aria-disabled="true"]),
+.ctx-row.ctx-active:not([disabled]):not([aria-disabled="true"]) {
   background: rgba(71,85,105,0.55);
   color: #f1f5f9;
+}
+.ctx-row[disabled],
+.ctx-row[aria-disabled="true"] {
+  opacity: 0.38;
+  cursor: not-allowed;
 }
 .ctx-row.ctx-active .ctx-chevron {
   opacity: 1;
@@ -270,6 +275,7 @@ function isMobileMenu() {
 ctxMain.querySelectorAll(".ctx-row").forEach(rowEl => {
   rowEl.addEventListener("mouseenter", () => {
     if (isMobileMenu()) return;
+    if (rowEl.disabled || rowEl.getAttribute("aria-disabled") === "true") return;
     const groupId = rowEl.dataset.groupToggle;
     if (groupId) showSubmenu(groupId, rowEl);
   });
@@ -289,6 +295,7 @@ ctxMain.querySelectorAll(".ctx-row").forEach(rowEl => {
   rowEl.addEventListener("click", (e) => {
     const groupId = rowEl.dataset.groupToggle;
     if (!groupId) return;
+    if (rowEl.disabled || rowEl.getAttribute("aria-disabled") === "true") return;
     e.stopPropagation();
     if (activeGroupId === groupId) { hideSubmenu(); } else { showSubmenu(groupId, rowEl); }
   });

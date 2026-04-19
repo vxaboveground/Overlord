@@ -175,6 +175,7 @@ function isClientOnline(clientId) {
 function applyMenuSupportRules(clientId) {
   const platform = detectClientPlatform(clientId);
   const isWindows = platform === "windows";
+  const isOnline = isClientOnline(clientId);
 
   const setAvailability = (btn, enabled, reason) => {
     if (!btn) return;
@@ -188,21 +189,21 @@ function applyMenuSupportRules(clientId) {
   };
 
   const hvncBtn = menu.querySelector('[data-open="Backstage"]');
-  setAvailability(hvncBtn, isWindows, "Backstage is only supported on Windows clients.");
+  setAvailability(hvncBtn, isOnline && isWindows, isOnline ? "Backstage is only supported on Windows clients." : "Client is offline");
 
   const webcamBtn = menu.querySelector('[data-open="webcam"]');
-  setAvailability(webcamBtn, isWindows, "Webcam viewer is only supported on Windows clients.");
+  setAvailability(webcamBtn, isOnline && isWindows, isOnline ? "Webcam viewer is only supported on Windows clients." : "Client is offline");
 
   const keyloggerBtn = menu.querySelector('[data-open="keylogger"]');
   setAvailability(
     keyloggerBtn,
-    isWindows,
-    "Keylogger capture is only fully supported on Windows clients.",
+    isOnline && isWindows,
+    isOnline ? "Keylogger capture is only fully supported on Windows clients." : "Client is offline",
   );
 
   const winreBtn = menu.querySelector('[data-open="winre"]');
   if (winreBtn) {
-    setAvailability(winreBtn, isWindows, "WinRE Persistence is only supported on Windows clients.");
+    setAvailability(winreBtn, isOnline && isWindows, isOnline ? "WinRE Persistence is only supported on Windows clients." : "Client is offline");
     const label = winreBtn.querySelector("span");
     if (label) label.style.textDecoration = isWindows ? "" : "line-through";
   }
@@ -210,7 +211,26 @@ function applyMenuSupportRules(clientId) {
   const elevateBtn = menu.querySelector('[data-action="elevate"]');
   if (elevateBtn) {
     elevateBtn.style.display = platform === "mac" ? "" : "none";
+    if (platform === "mac") setAvailability(elevateBtn, isOnline, "Client is offline");
   }
+
+  setAvailability(menu.querySelector('[data-open="console"]'), isOnline, "Client is offline");
+  setAvailability(menu.querySelector('[data-open="remotedesktop"]'), isOnline, "Client is offline");
+  setAvailability(menu.querySelector('[data-open="voice"]'), isOnline, "Client is offline");
+  setAvailability(menu.querySelector('[data-open="processes"]'), isOnline, "Client is offline");
+  setAvailability(menu.querySelector('[data-open="files"]'), isOnline, "Client is offline");
+  const silentExecBtn = menu.querySelector('[data-open="silent-exec"]');
+  if (silentExecBtn && !silentExecBtn.classList.contains("hidden")) {
+    setAvailability(silentExecBtn, isOnline, "Client is offline");
+  }
+
+  ["remote-access", "monitoring", "system"].forEach(groupId => {
+    setAvailability(menu.querySelector(`[data-group-toggle="${groupId}"]`), isOnline, "Client is offline");
+  });
+
+  ["ping", "reconnect", "disconnect", "uninstall"].forEach(action => {
+    setAvailability(menu.querySelector(`[data-action="${action}"]`), isOnline, "Client is offline");
+  });
 }
 
 async function loadCurrentUser() {
