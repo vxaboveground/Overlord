@@ -1,0 +1,60 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "schedule": ["before 6am on Monday"],
+  "timezone": "UTC",
+  "pinDigests": true,
+  "labels": ["dependencies"],
+  "packageRules": [
+    {
+      "description": "Group Overlord-Server minor and patch npm updates",
+      "matchManagers": ["npm"],
+      "matchPaths": ["Overlord-Server/package.json"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "Overlord-Server dependencies (minor + patch)",
+      "automerge": false
+    },
+    {
+      "description": "Group Overlord-Desktop minor and patch npm updates",
+      "matchManagers": ["npm"],
+      "matchPaths": ["Overlord-Desktop/package.json"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "Overlord-Desktop dependencies (minor + patch)",
+      "automerge": false
+    },
+    {
+      "description": "Group Go module minor and patch updates",
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "Go modules (minor + patch)",
+      "automerge": false
+    },
+    {
+      "description": "Group GitHub Actions minor and patch updates",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "GitHub Actions (minor + patch)",
+      "automerge": false
+    },
+    {
+      "description": "Group Docker base image minor and patch updates",
+      "matchManagers": ["dockerfile", "docker-compose"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "Docker base images (minor + patch)",
+      "automerge": false
+    },
+    {
+      "description": "Individual PRs for all major updates",
+      "matchUpdateTypes": ["major"],
+      "groupName": null,
+      "automerge": false
+    }
+  ],
+  "ignoreDeps": [],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["dependencies", "security"]
+  }
+}
