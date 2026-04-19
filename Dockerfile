@@ -99,8 +99,8 @@ RUN if [ -f dist-clients/HVNCCapture.x64.dll ]; then \
 # Create necessary directories
 RUN mkdir -p certs public data
 
-# Build production server bundle and ensure Tailwind CSS is present
-RUN bun run build && test -s ./public/assets/tailwind.css
+# Build production server bundle and ensure Tailwind CSS + vendor assets are present
+RUN bun run build && test -s ./public/assets/tailwind.css && test -d ./public/vendor/fontawesome
 
 # Expose the default port
 EXPOSE 5173
