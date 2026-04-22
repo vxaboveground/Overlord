@@ -497,6 +497,13 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
       sendDesktopCommandWithId(target, "desktop_mouse_up", { button: Number(payload.button) || 0 }, commandId);
       break;
     }
+    case "mouse_wheel": {
+      if (!state.isStreaming) break;
+      const commandId = uuidv4();
+      recordRdInput(commandId, clientId, "mouse_wheel");
+      sendDesktopCommandWithId(target, "desktop_mouse_wheel", { delta: Number(payload.delta) || 0, x: Number((payload as any).x) || 0, y: Number((payload as any).y) || 0 }, commandId);
+      break;
+    }
     case "key_down": {
       if (!state.isStreaming) break;
       const commandId = uuidv4();

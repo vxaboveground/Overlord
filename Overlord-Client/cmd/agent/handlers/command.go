@@ -888,6 +888,22 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		sendMouseUp(btn)
 		sendCommandResultAsync(env, cmdID)
 		return nil
+	case "desktop_mouse_wheel":
+		if !env.MouseControl {
+			sendCommandResultAsync(env, cmdID)
+			return nil
+		}
+		payload := payloadAsMap(envelope["payload"])
+		delta, _ := payloadInt32(payload, "delta")
+		if x, okX := payloadInt32(payload, "x"); okX {
+			if y, okY := payloadInt32(payload, "y"); okY {
+				absX, absY := resolveDesktopPoint(env.SelectedDisplay, x, y)
+				setCursorPos(absX, absY)
+			}
+		}
+		sendMouseWheel(delta)
+		sendCommandResultAsync(env, cmdID)
+		return nil
 	case "desktop_key_down":
 		if !env.KeyboardControl {
 			sendCommandResultAsync(env, cmdID)

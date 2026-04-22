@@ -23,6 +23,7 @@ const (
 	MOUSEEVENTF_RIGHTUP     = 0x0010
 	MOUSEEVENTF_MIDDLEDOWN  = 0x0020
 	MOUSEEVENTF_MIDDLEUP    = 0x0040
+	MOUSEEVENTF_WHEEL       = 0x0800
 	MOUSEEVENTF_ABSOLUTE    = 0x8000
 	MOUSEEVENTF_VIRTUALDESK = 0x4000
 
@@ -95,6 +96,10 @@ func sendMouseUp(button int) {
 	case 1:
 		sendMouseInput(MOUSEEVENTF_MIDDLEUP, 0)
 	}
+}
+
+func sendMouseWheel(delta int32) {
+	sendMouseInput(MOUSEEVENTF_WHEEL, uint32(delta))
 }
 
 func sendMouseInput(flags uint32, mouseData uint32) {

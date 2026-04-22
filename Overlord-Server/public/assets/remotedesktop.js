@@ -1318,6 +1318,14 @@ import { checkFeatureAccess } from "./feature-gate.js";
   canvas.addEventListener("contextmenu", function (e) {
     e.preventDefault();
   });
+  canvas.addEventListener("wheel", function (e) {
+    if (!mouseCtrl.checked) return;
+    const pt = getCanvasPoint(e);
+    if (!pt) return;
+    const delta = Math.max(-120, Math.min(120, Math.round(-e.deltaY)));
+    sendCmd("mouse_wheel", { delta, x: pt.x, y: pt.y });
+    e.preventDefault();
+  }, { passive: false });
 
   canvas.setAttribute("tabindex", "0");
   canvas.addEventListener("click", function () {
