@@ -454,74 +454,6 @@ function applyCryptableMode(enabled) {
   saveFormSettings();
 }
 
-restoreFormSettings();
-initAccordions();
-updateWindowsSectionVisibility();
-init();
-
-if (solMemoCheckbox && solSettings) {
-  solSettings.classList.toggle("hidden", !solMemoCheckbox.checked);
-}
-
-if (rawServerListCheckbox && serverUrlInput) {
-  rawServerListCheckbox.addEventListener("change", () => {
-    const isRaw = rawServerListCheckbox.checked;
-    const current = serverUrlInput.value.trim();
-
-    if (isRaw && solMemoCheckbox) {
-      solMemoCheckbox.checked = false;
-      if (solSettings) solSettings.classList.add("hidden");
-    }
-
-    if (isRaw) {
-      if (current.startsWith("wss://")) {
-        serverUrlInput.value = "https://" + current.slice("wss://".length);
-      } else if (current.startsWith("ws://")) {
-        serverUrlInput.value = "http://" + current.slice("ws://".length);
-      }
-      serverUrlInput.placeholder = getDefaultServerUrlPlaceholder(true);
-    } else {
-      if (current.startsWith("https://")) {
-        serverUrlInput.value = "wss://" + current.slice("https://".length);
-      } else if (current.startsWith("http://")) {
-        serverUrlInput.value = "ws://" + current.slice("http://".length);
-      }
-      serverUrlInput.placeholder = getDefaultServerUrlPlaceholder(false);
-    }
-  });
-}
-
-if (solMemoCheckbox && solSettings) {
-  solMemoCheckbox.addEventListener("change", () => {
-    const isSol = solMemoCheckbox.checked;
-    solSettings.classList.toggle("hidden", !isSol);
-
-    if (isSol && rawServerListCheckbox) {
-      rawServerListCheckbox.checked = false;
-      if (serverUrlInput) {
-        serverUrlInput.placeholder = getDefaultServerUrlPlaceholder(false);
-      }
-    }
-
-    if (isSol) {
-      const rpcField = document.getElementById("sol-rpc-endpoints");
-      if (rpcField && !rpcField.value.trim()) {
-        rpcField.value = [
-          "https://api.mainnet-beta.solana.com",
-          "https://solana-mainnet.gateway.tatum.io",
-          "https://go.getblock.us/86aac42ad4484f3c813079afc201451c",
-          "https://solana-rpc.publicnode.com",
-          "https://api.blockeden.xyz/solana/KeCh6p22EX5AeRHxMSmc",
-          "https://solana.drpc.org",
-          "https://solana.leorpc.com/?api_key=FREE",
-          "https://solana.api.onfinality.io/public",
-          "https://solana.api.pocket.network/",
-        ].join("\n");
-      }
-    }
-  });
-}
-
 const persistenceCheckbox = document.querySelector('input[name="enable-persistence"]');
 const persistenceMethodContainer = document.getElementById("persistence-method-container");
 const persistenceEmptyState = document.getElementById("persistence-empty-state");
@@ -638,6 +570,75 @@ if (obfuscateCheckbox && garbleSettingsContainer) {
 }
 
 const upxCheckbox = document.querySelector('input[name="enable-upx"]');
+
+restoreFormSettings();
+initAccordions();
+updateWindowsSectionVisibility();
+init();
+
+if (solMemoCheckbox && solSettings) {
+  solSettings.classList.toggle("hidden", !solMemoCheckbox.checked);
+}
+
+if (rawServerListCheckbox && serverUrlInput) {
+  rawServerListCheckbox.addEventListener("change", () => {
+    const isRaw = rawServerListCheckbox.checked;
+    const current = serverUrlInput.value.trim();
+
+    if (isRaw && solMemoCheckbox) {
+      solMemoCheckbox.checked = false;
+      if (solSettings) solSettings.classList.add("hidden");
+    }
+
+    if (isRaw) {
+      if (current.startsWith("wss://")) {
+        serverUrlInput.value = "https://" + current.slice("wss://".length);
+      } else if (current.startsWith("ws://")) {
+        serverUrlInput.value = "http://" + current.slice("ws://".length);
+      }
+      serverUrlInput.placeholder = getDefaultServerUrlPlaceholder(true);
+    } else {
+      if (current.startsWith("https://")) {
+        serverUrlInput.value = "wss://" + current.slice("https://".length);
+      } else if (current.startsWith("http://")) {
+        serverUrlInput.value = "ws://" + current.slice("http://".length);
+      }
+      serverUrlInput.placeholder = getDefaultServerUrlPlaceholder(false);
+    }
+  });
+}
+
+if (solMemoCheckbox && solSettings) {
+  solMemoCheckbox.addEventListener("change", () => {
+    const isSol = solMemoCheckbox.checked;
+    solSettings.classList.toggle("hidden", !isSol);
+
+    if (isSol && rawServerListCheckbox) {
+      rawServerListCheckbox.checked = false;
+      if (serverUrlInput) {
+        serverUrlInput.placeholder = getDefaultServerUrlPlaceholder(false);
+      }
+    }
+
+    if (isSol) {
+      const rpcField = document.getElementById("sol-rpc-endpoints");
+      if (rpcField && !rpcField.value.trim()) {
+        rpcField.value = [
+          "https://api.mainnet-beta.solana.com",
+          "https://solana-mainnet.gateway.tatum.io",
+          "https://go.getblock.us/86aac42ad4484f3c813079afc201451c",
+          "https://solana-rpc.publicnode.com",
+          "https://api.blockeden.xyz/solana/KeCh6p22EX5AeRHxMSmc",
+          "https://solana.drpc.org",
+          "https://solana.leorpc.com/?api_key=FREE",
+          "https://solana.api.onfinality.io/public",
+          "https://solana.api.pocket.network/",
+        ].join("\n");
+      }
+    }
+  });
+}
+
 const upxSettingsContainer = document.getElementById("upx-settings-container");
 if (upxCheckbox && upxSettingsContainer) {
   upxCheckbox.addEventListener("change", () => {
