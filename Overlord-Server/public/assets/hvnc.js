@@ -73,12 +73,14 @@ import { checkFeatureAccess } from "./feature-gate.js";
   const statusEl = document.getElementById("streamStatus");
   const clipboardSyncCtrl = document.getElementById("clipboardSyncCtrl");
   const dxgiCtrl = document.getElementById("dxgiCtrl");
+  const uiaCtrl = document.getElementById("uiaCtrl");
   const hvncResolutionSelect = document.getElementById("hvncResolutionSelect");
 
   function syncInputEnableState() {
     if (mouseCtrl) sendCmd("hvnc_enable_mouse", { enabled: mouseCtrl.checked });
     if (kbdCtrl) sendCmd("hvnc_enable_keyboard", { enabled: kbdCtrl.checked });
     if (dxgiCtrl) sendCmd("hvnc_enable_dxgi", { enabled: dxgiCtrl.checked });
+    if (uiaCtrl) sendCmd("hvnc_enable_uia", { enabled: uiaCtrl.checked });
     pushHvncResolution();
   }
   let activeClientId = clientId;
@@ -617,6 +619,11 @@ import { checkFeatureAccess } from "./feature-gate.js";
   if (dxgiCtrl) {
     dxgiCtrl.addEventListener("change", function () {
       sendCmd("hvnc_enable_dxgi", { enabled: dxgiCtrl.checked });
+    });
+  }
+  if (uiaCtrl) {
+    uiaCtrl.addEventListener("change", function () {
+      sendCmd("hvnc_enable_uia", { enabled: uiaCtrl.checked });
     });
   }
 

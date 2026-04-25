@@ -137,6 +137,9 @@
               ><input type="checkbox" id="dxgiCtrl" /> DXGI Capture
               <i class="fa-solid fa-triangle-exclamation text-amber-400 text-xs" title="If Chrome or HVNC is running slowly, DXGI capture may be the cause — uncheck this and restart Chrome inside HVNC to fix it."></i></label
             >
+            <label class="flex items-center gap-2 text-sm text-slate-200" title="Use UI Automation for WinUI3 app input (modern Windows apps). Disable if input is unreliable in non-WinUI3 apps."
+              ><input type="checkbox" id="uiaCtrl" checked /> UIA Support</label
+            >
             <label for="hvncResolutionSelect" class="text-sm text-slate-200">Resolution</label>
             <select
               id="hvncResolutionSelect"

