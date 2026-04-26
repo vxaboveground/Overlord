@@ -115,13 +115,10 @@ RUN mkdir -p certs public data
 RUN bun run build:css && bun run vendor \
     && test -s ./public/assets/tailwind.css && test -d ./public/vendor/fontawesome
 
-# Minify public JS, CSS, and HTML assets
-RUN bun run minify
-
 # Compile a standalone production binary (sharp is external — kept in node_modules)
 RUN BUN_TARGET="bun-linux-x64" \
     && if [ "${TARGETARCH}" = "arm64" ]; then BUN_TARGET="bun-linux-arm64"; fi \
-    && bun build --production --minify --external sharp src/index.ts \
+    && bun build --production --external sharp src/index.ts \
        --compile --target "$BUN_TARGET" --outfile overlord-server
 
 # Expose the default port

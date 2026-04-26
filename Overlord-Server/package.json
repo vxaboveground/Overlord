@@ -6,10 +6,10 @@
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "start": "bun run build:css && bun run vendor && bun run src/index.ts",
-    "build": "bun run build:css && bun run vendor && bun build --production --minify --external sharp src/index.ts --target bun --outdir dist",
+    "build": "bun run build:css && bun run vendor && bun build --production --external sharp src/index.ts --target bun --outdir dist",
     "vendor": "bun run scripts/vendor.ts",
-    "build:prod:win": "bun build --production --minify --external sharp src/index.ts --compile --target bun-windows-x64 --outfile dist/overlord-server.exe",
-    "build:prod:linux": "bun build --production --minify --external sharp src/index.ts --compile --target bun-linux-x64 --outfile dist/overlord-server-linux-x64",
+    "build:prod:win": "bun build --production --external sharp src/index.ts --compile --target bun-windows-x64 --outfile dist/overlord-server.exe",
+    "build:prod:linux": "bun build --production --external sharp src/index.ts --compile --target bun-linux-x64 --outfile dist/overlord-server-linux-x64",
     "build:css": "tailwindcss -i ./src/styles.css -o ./public/assets/tailwind.css --minify",
     "watch:css": "tailwindcss -i ./src/styles.css -o ./public/assets/tailwind.css --watch",
     "minify": "bun run scripts/minify-public.ts"
