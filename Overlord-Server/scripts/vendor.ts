@@ -137,9 +137,9 @@ for (const mode of ["powershell", "shell", "python"]) {
 /* ── Ace Editor ──────────────────────────────────────────────────── */
 
 console.log("Copying Ace Editor ...");
-copyFile(
-  path.join(NM, "ace-builds", "src-min-noconflict", "ace.js"),
-  path.join(VENDOR, "ace-builds", "ace.js"),
+copyDir(
+  path.join(NM, "ace-builds", "src-min-noconflict"),
+  path.join(VENDOR, "ace-builds"),
 );
 
 /* ── Chart.js ────────────────────────────────────────────────────── */

@@ -12,21 +12,83 @@ const walletInfo = document.getElementById("wallet-info");
 const walletAddress = document.getElementById("wallet-address");
 const walletBalance = document.getElementById("wallet-balance");
 
+const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+function decodeBase58(str) {
+  const bytes = [0];
+  for (const char of str) {
+    const idx = BASE58_ALPHABET.indexOf(char);
+    if (idx < 0) throw new Error(`Invalid base58 character: ${char}`);
+    let carry = idx;
+    for (let j = 0; j < bytes.length; j++) {
+      carry += bytes[j] * 58;
+      bytes[j] = carry & 0xff;
+      carry >>= 8;
+    }
+    while (carry > 0) {
+      bytes.push(carry & 0xff);
+      carry >>= 8;
+    }
+  }
+  for (const char of str) {
+    if (char !== "1") break;
+    bytes.push(0);
+  }
+  return new Uint8Array(bytes.reverse());
+}
+
+function encodeBase58(buffer) {
+  const digits = [0];
+  for (const byte of buffer) {
+    let carry = byte;
+    for (let j = 0; j < digits.length; j++) {
+      carry += digits[j] << 8;
+      digits[j] = carry % 58;
+      carry = (carry / 58) | 0;
+    }
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = (carry / 58) | 0;
+    }
+  }
+  for (const byte of buffer) {
+    if (byte !== 0) break;
+    digits.push(0);
+  }
+  return digits.reverse().map((d) => BASE58_ALPHABET[d]).join("");
+}
+
 async function loadRpcEndpoints() {
+  const fallbackEndpoints = [
+    "https://api.mainnet-beta.solana.com",
+    "https://solana-rpc.publicnode.com",
+    "https://api.devnet.solana.com",
+  ];
+  let loadedEndpoints = false;
+
   try {
     const res = await fetch("/api/sol/rpc-endpoints", { credentials: "include" });
     if (res.ok) {
       const data = await res.json();
-      if (Array.isArray(data.endpoints)) {
+      if (Array.isArray(data.endpoints) && data.endpoints.length > 0) {
         data.endpoints.forEach((ep) => {
           const opt = document.createElement("option");
           opt.value = ep;
           opt.textContent = ep;
           rpcSelect.appendChild(opt);
         });
+        loadedEndpoints = true;
       }
     }
   } catch {}
+
+  if (!loadedEndpoints) {
+    fallbackEndpoints.forEach((ep) => {
+      const opt = document.createElement("option");
+      opt.value = ep;
+      opt.textContent = ep;
+      rpcSelect.appendChild(opt);
+    });
+  }
 
   const customOpt = document.createElement("option");
   customOpt.value = "__custom__";
@@ -66,9 +128,29 @@ privateKeyInput.addEventListener("input", () => {
   balanceTimeout = setTimeout(checkWalletBalance, 800);
 });
 
+function showWalletInfo(publicKey, balanceSol) {
+  walletAddress.textContent = `Address: ${publicKey}`;
+  walletBalance.textContent = balanceSol != null ? `Balance: ${balanceSol} SOL` : "";
+  walletInfo.classList.remove("hidden");
+}
+
 async function checkWalletBalance() {
   const key = privateKeyInput.value.trim();
   if (!key || key.length < 32) {
+    walletInfo.classList.add("hidden");
+    return;
+  }
+
+  let publicKey = key;
+  try {
+    const decoded = decodeBase58(key);
+    if (decoded.length === 64) {
+      publicKey = encodeBase58(decoded.slice(32));
+    } else if (decoded.length !== 32) {
+      walletInfo.classList.add("hidden");
+      return;
+    }
+  } catch {
     walletInfo.classList.add("hidden");
     return;
   }
@@ -79,9 +161,20 @@ async function checkWalletBalance() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ publicKeyBase58: key, rpcUrl: rpc }),
+      body: JSON.stringify({ publicKeyBase58: publicKey, rpcUrl: rpc }),
     });
-    walletInfo.classList.add("hidden");
+
+    if (!res.ok) {
+      walletInfo.classList.add("hidden");
+      return;
+    }
+
+    const data = await res.json();
+    if (data && typeof data.balanceSol === "number") {
+      showWalletInfo(publicKey, data.balanceSol);
+    } else {
+      walletInfo.classList.add("hidden");
+    }
   } catch {
     walletInfo.classList.add("hidden");
   }

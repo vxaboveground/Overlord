@@ -5,6 +5,7 @@ import { getClientMetricsSummary, getClientMetricsSummaryForUser } from "../../d
 import { metrics } from "../../metrics";
 import { requirePermission } from "../../rbac";
 import { getUserTelegramChatId, setUserTelegramChatId, getUserClientAccessScope, listUserClientRuleIdsByAccess } from "../../users";
+import { logger } from "../../logger";
 import { runCertbotSetup } from "../certbot-setup";
 import {
   getActiveProxies,

@@ -19,6 +19,7 @@ RUN apt-get update \
        wget \
        git \
        unzip \
+       certbot \
        upx-ucl \
        zip \
     && rm -rf /var/lib/apt/lists/*
