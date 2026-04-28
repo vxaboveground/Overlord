@@ -10,26 +10,22 @@ async function getSharp(): Promise<typeof import("sharp") extends { default: inf
     return _sharp!;
   } catch (bareErr) {
     try {
-      const { createRequire } = await import("node:module");
+      const fs = await import("node:fs");
       const path = await import("node:path");
+      const url = await import("node:url");
       const root = process.env.OVERLORD_ROOT || process.cwd();
-      const req = createRequire(path.join(root, "noop.js"));
-      const candidates = [
-        path.join(root, "node_modules", "sharp"),
-        "sharp",
-      ];
-      let lastErr: unknown = bareErr;
-      for (const id of candidates) {
-        try {
-          const mod = req(id);
-          _sharp = (mod && (mod.default ?? mod)) as any;
-          return _sharp!;
-        } catch (err) {
-          lastErr = err;
-        }
-      }
-      console.error("[thumbnails] Failed to load sharp module. Thumbnails will be unavailable.", lastErr);
-      throw lastErr;
+      const sharpDir = path.join(root, "node_modules", "sharp");
+      const pkgJsonPath = path.join(sharpDir, "package.json");
+      const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf8"));
+      const entryRel: string =
+        (pkg.exports && (pkg.exports["."]?.require ?? pkg.exports["."]?.default ?? pkg.exports["."])) ||
+        pkg.main ||
+        "lib/index.js";
+      const entryAbs = path.resolve(sharpDir, typeof entryRel === "string" ? entryRel : "lib/index.js");
+      const entryUrl = url.pathToFileURL(entryAbs).href;
+      const mod: any = await import(entryUrl);
+      _sharp = (mod && (mod.default ?? mod)) as any;
+      return _sharp!;
     } catch (err) {
       console.error("[thumbnails] Failed to load sharp module. Thumbnails will be unavailable.", err);
       throw err;
