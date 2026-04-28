@@ -8,9 +8,32 @@ async function getSharp(): Promise<typeof import("sharp") extends { default: inf
   try {
     _sharp = (await import("sharp")).default as any;
     return _sharp!;
-  } catch (err) {
-    console.error("[thumbnails] Failed to load sharp module. Thumbnails will be unavailable.", err);
-    throw err;
+  } catch (bareErr) {
+    try {
+      const { createRequire } = await import("node:module");
+      const path = await import("node:path");
+      const root = process.env.OVERLORD_ROOT || process.cwd();
+      const req = createRequire(path.join(root, "noop.js"));
+      const candidates = [
+        path.join(root, "node_modules", "sharp"),
+        "sharp",
+      ];
+      let lastErr: unknown = bareErr;
+      for (const id of candidates) {
+        try {
+          const mod = req(id);
+          _sharp = (mod && (mod.default ?? mod)) as any;
+          return _sharp!;
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+      console.error("[thumbnails] Failed to load sharp module. Thumbnails will be unavailable.", lastErr);
+      throw lastErr;
+    } catch (err) {
+      console.error("[thumbnails] Failed to load sharp module. Thumbnails will be unavailable.", err);
+      throw err;
+    }
   }
 }
 
