@@ -191,7 +191,18 @@ db.run(`
 
 try { db.run(`ALTER TABLE builds ADD COLUMN build_tag TEXT`); } catch {}
 try { db.run(`ALTER TABLE builds ADD COLUMN built_by_user_id INTEGER`); } catch {}
+try { db.run(`ALTER TABLE builds ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0`); } catch {}
 db.run(`CREATE INDEX IF NOT EXISTS idx_builds_build_tag ON builds(build_tag);`);
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS build_claims (
+    build_id TEXT NOT NULL,
+    key_fingerprint TEXT NOT NULL,
+    claimed_at INTEGER NOT NULL,
+    PRIMARY KEY (build_id, key_fingerprint)
+  );
+`);
+db.run(`CREATE INDEX IF NOT EXISTS idx_build_claims_build ON build_claims(build_id);`);
 
 db.run(`
   CREATE TABLE IF NOT EXISTS build_profiles (
@@ -1537,6 +1548,7 @@ export interface BuildRecord {
   }>;
   buildTag?: string;
   builtByUserId?: number;
+  blocked?: boolean;
 }
 
 export function saveBuild(build: BuildRecord) {
@@ -1553,10 +1565,7 @@ export function saveBuild(build: BuildRecord) {
   );
 }
 
-export function getBuild(id: string): BuildRecord | null {
-  const row = db.query<any>(`SELECT * FROM builds WHERE id = ?`).get(id);
-  if (!row) return null;
-
+function mapBuildRow(row: any): BuildRecord {
   return {
     id: row.id,
     status: row.status,
@@ -1565,22 +1574,87 @@ export function getBuild(id: string): BuildRecord | null {
     files: JSON.parse(row.files),
     buildTag: row.build_tag || undefined,
     builtByUserId: row.built_by_user_id || undefined,
+    blocked: row.blocked === 1,
   };
+}
+
+export function getBuild(id: string): BuildRecord | null {
+  const row = db.query<any>(`SELECT * FROM builds WHERE id = ?`).get(id);
+  if (!row) return null;
+  return mapBuildRow(row);
 }
 
 export function getBuildByTag(buildTag: string): BuildRecord | null {
   const row = db.query<any>(`SELECT * FROM builds WHERE build_tag = ?`).get(buildTag);
   if (!row) return null;
+  return mapBuildRow(row);
+}
 
-  return {
-    id: row.id,
-    status: row.status,
-    startTime: row.start_time,
-    expiresAt: row.expires_at,
-    files: JSON.parse(row.files),
-    buildTag: row.build_tag || undefined,
-    builtByUserId: row.built_by_user_id || undefined,
-  };
+export function isBuildTagBlocked(buildTag: string): boolean {
+  if (!buildTag) return false;
+  const row = db.query<{ blocked: number }>(
+    `SELECT blocked FROM builds WHERE build_tag = ?`,
+  ).get(buildTag);
+  return !!row && row.blocked === 1;
+}
+
+export function setBuildBlocked(buildId: string, blocked: boolean): boolean {
+  const result = db.run(
+    `UPDATE builds SET blocked = ? WHERE id = ?`,
+    blocked ? 1 : 0,
+    buildId,
+  );
+  return ((result as any)?.changes || 0) > 0;
+}
+
+export function listClientIdsByBuildTag(buildTag: string): string[] {
+  if (!buildTag) return [];
+  const rows = db.query<{ id: string }>(
+    `SELECT id FROM clients WHERE build_tag = ?`,
+  ).all(buildTag);
+  return rows.map((r) => r.id);
+}
+
+export function recordBuildClaim(buildId: string, keyFingerprint: string): boolean {
+  if (!buildId || !keyFingerprint) return false;
+  try {
+    const result = db.run(
+      `INSERT OR IGNORE INTO build_claims (build_id, key_fingerprint, claimed_at) VALUES (?, ?, ?)`,
+      buildId,
+      keyFingerprint,
+      Date.now(),
+    );
+    return ((result as any)?.changes || 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Number of distinct agent fingerprints that have ever claimed this build's tag. */
+export function countBuildClaims(buildId: string): number {
+  if (!buildId) return 0;
+  const row = db.query<{ count: number }>(
+    `SELECT COUNT(*) as count FROM build_claims WHERE build_id = ?`,
+  ).get(buildId);
+  return row?.count ?? 0;
+}
+
+/** Batch helper — returns Map<buildId, claimCount> for the given build IDs. */
+export function countBuildClaimsBatch(buildIds: string[]): Map<string, number> {
+  const out = new Map<string, number>();
+  if (buildIds.length === 0) return out;
+  // SQLite has a host-parameter limit (~999 by default); chunk to be safe.
+  for (let i = 0; i < buildIds.length; i += 500) {
+    const chunk = buildIds.slice(i, i + 500);
+    const placeholders = chunk.map(() => "?").join(",");
+    const rows = db.query<{ build_id: string; count: number }>(
+      `SELECT build_id, COUNT(*) as count FROM build_claims WHERE build_id IN (${placeholders}) GROUP BY build_id`,
+    ).all(...chunk);
+    for (const r of rows) out.set(r.build_id, r.count);
+  }
+  // Ensure every requested ID is in the map (default 0).
+  for (const id of buildIds) if (!out.has(id)) out.set(id, 0);
+  return out;
 }
 
 export function getAllBuilds(userId?: number, role?: string): BuildRecord[] {
@@ -1591,28 +1665,12 @@ export function getAllBuilds(userId?: number, role?: string): BuildRecord[] {
     const rows = db
       .query<any>(`SELECT * FROM builds WHERE built_by_user_id = ? ORDER BY start_time DESC`)
       .all(userId);
-    return rows.map((row) => ({
-      id: row.id,
-      status: row.status,
-      startTime: row.start_time,
-      expiresAt: row.expires_at,
-      files: JSON.parse(row.files),
-      buildTag: row.build_tag || undefined,
-      builtByUserId: row.built_by_user_id || undefined,
-    }));
+    return rows.map(mapBuildRow);
   }
   const rows = db
     .query<any>("SELECT * FROM builds ORDER BY start_time DESC")
     .all();
-  return rows.map((row) => ({
-    id: row.id,
-    status: row.status,
-    startTime: row.start_time,
-    expiresAt: row.expires_at,
-    files: JSON.parse(row.files),
-    buildTag: row.build_tag || undefined,
-    builtByUserId: row.built_by_user_id || undefined,
-  }));
+  return rows.map(mapBuildRow);
 }
 
 export function deleteExpiredBuilds() {

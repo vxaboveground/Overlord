@@ -3,6 +3,11 @@ import { AuditAction, logAudit } from "../../auditLog";
 import { logger } from "../../logger";
 import { requirePermission } from "../../rbac";
 import {
+  listUserSessions,
+  persistRevokedTokenHash,
+  revokeAllUserSessions,
+} from "../../db";
+import {
   type ClientAccessRuleKind,
   type ClientAccessScope,
   type FeatureName,
@@ -80,6 +85,9 @@ export async function handleUsersRoutes(
     }
 
     if (req.method === "PUT" && url.pathname.match(/^\/api\/users\/\d+\/password$/)) {
+      if (!user) {
+        return Response.json({ error: "Not authenticated" }, { status: 401 });
+      }
       const userId = parseInt(url.pathname.split("/")[3]);
       const body = await req.json();
       const { password, newPassword, currentPassword } = body;
@@ -90,10 +98,17 @@ export async function handleUsersRoutes(
         return Response.json({ error: "Permission denied" }, { status: 403 });
       }
 
-      if (user.userId === userId && currentPassword) {
+      if (user.userId === userId) {
         const targetUser = getUserById(userId);
         if (!targetUser) {
           return Response.json({ error: "User not found" }, { status: 404 });
+        }
+
+        if (typeof currentPassword !== "string" || currentPassword.length === 0) {
+          return Response.json(
+            { error: "Current password is required" },
+            { status: 400 },
+          );
         }
 
         const isValid = await Bun.password.verify(
@@ -117,6 +132,13 @@ export async function handleUsersRoutes(
 
       if (result.success) {
         const targetUser = getUserById(userId);
+
+        const existingSessions = listUserSessions(userId).filter((s) => !s.revoked);
+        for (const s of existingSessions) {
+          persistRevokedTokenHash(s.tokenHash, s.expiresAt);
+        }
+        revokeAllUserSessions(userId);
+
         const ip = server.requestIP(req)?.address || "unknown";
         logAudit({
           timestamp: Date.now(),
@@ -168,6 +190,13 @@ export async function handleUsersRoutes(
 
       if (result.success) {
         const targetUser = getUserById(userId);
+
+        const existingSessions = listUserSessions(userId).filter((s) => !s.revoked);
+        for (const s of existingSessions) {
+          persistRevokedTokenHash(s.tokenHash, s.expiresAt);
+        }
+        revokeAllUserSessions(userId);
+
         const ip = server.requestIP(req)?.address || "unknown";
         logAudit({
           timestamp: Date.now(),

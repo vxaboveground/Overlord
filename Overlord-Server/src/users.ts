@@ -280,10 +280,7 @@ if (userCount.count === 0) {
 
   logger.info(`[users] Initial admin account created (username: ${initialUsername})`);
   logger.warn(
-    `[users] Bootstrap login credentials -> username: ${initialUsername} | password: ${initialPassword}`,
-  );
-  logger.warn(
-    "[users] SECURITY WARNING: Rotate the bootstrap password after first login. Default bootstrap credentials are admin/admin unless overridden by configuration.",
+    "[users] SECURITY WARNING: A default admin account has been created. Sign in and rotate the password immediately. Bootstrap credentials default to admin/admin unless overridden by configuration; the password is not logged.",
   );
 }
 
@@ -742,12 +739,30 @@ export function updateLastLogin(userId: number): void {
   );
 }
 
+let _dummyHashPromise: Promise<string> | null = null;
+function getDummyPasswordHash(): Promise<string> {
+  if (!_dummyHashPromise) {
+    _dummyHashPromise = Bun.password.hash("__overlord_dummy_hash_for_timing__", {
+      algorithm: "bcrypt",
+      cost: 10,
+    });
+  }
+  return _dummyHashPromise;
+}
+
 export async function verifyPassword(
   username: string,
   password: string,
 ): Promise<User | null> {
   const user = getUserByUsername(username);
-  if (!user) return null;
+  if (!user) {
+    try {
+      const dummy = await getDummyPasswordHash();
+      await Bun.password.verify(password, dummy);
+    } catch {
+    }
+    return null;
+  }
 
   const isValid = await Bun.password.verify(password, user.password_hash);
   if (!isValid) return null;

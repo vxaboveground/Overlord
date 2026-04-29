@@ -1,5 +1,7 @@
 import fs from "fs/promises";
+import { constants as fsConstants } from "fs";
 import path from "path";
+import AdmZip from "adm-zip";
 import { v4 as uuidv4 } from "uuid";
 import { authenticateRequest } from "../../auth";
 import { requirePermission } from "../../rbac";
@@ -189,6 +191,12 @@ export async function handlePluginRoutes(
       return new Response("Only .zip files are supported", { status: 400 });
     }
 
+    const MAX_PLUGIN_ZIP_BYTES = 50 * 1024 * 1024; // 50 MB compressed
+    const MAX_PLUGIN_UNCOMPRESSED_BYTES = 200 * 1024 * 1024; // 200 MB total uncompressed
+    if (typeof file.size === "number" && file.size > MAX_PLUGIN_ZIP_BYTES) {
+      return new Response("Plugin zip exceeds size limit", { status: 413 });
+    }
+
     const base = path.basename(filename, path.extname(filename));
     let pluginId = "";
     try {
@@ -197,9 +205,30 @@ export async function handlePluginRoutes(
       return new Response("Invalid plugin name", { status: 400 });
     }
 
+    const data = new Uint8Array(await file.arrayBuffer());
+    if (data.byteLength > MAX_PLUGIN_ZIP_BYTES) {
+      return new Response("Plugin zip exceeds size limit", { status: 413 });
+    }
+
+    try {
+      const probe = new AdmZip(Buffer.from(data));
+      let totalUncompressed = 0;
+      for (const entry of probe.getEntries() as any[]) {
+        const sz = Number(entry?.header?.size ?? 0);
+        if (!Number.isFinite(sz) || sz < 0) {
+          return new Response("Invalid plugin zip", { status: 400 });
+        }
+        totalUncompressed += sz;
+        if (totalUncompressed > MAX_PLUGIN_UNCOMPRESSED_BYTES) {
+          return new Response("Plugin uncompressed size exceeds limit", { status: 413 });
+        }
+      }
+    } catch {
+      return new Response("Invalid plugin zip", { status: 400 });
+    }
+
     await fs.mkdir(deps.PLUGIN_ROOT, { recursive: true });
     const zipPath = path.join(deps.PLUGIN_ROOT, `${pluginId}.zip`);
-    const data = new Uint8Array(await file.arrayBuffer());
     await fs.writeFile(zipPath, data);
 
     try {
@@ -262,8 +291,8 @@ export async function handlePluginRoutes(
     if (!user) {
       return new Response("Unauthorized", { status: 401 });
     }
-    if (user.role !== "admin" && user.role !== "operator") {
-      return new Response("Forbidden: Admin or operator access required", { status: 403 });
+    if (user.role !== "admin") {
+      return new Response("Forbidden: Admin access required", { status: 403 });
     }
     let pluginId = "";
     try {
@@ -325,6 +354,28 @@ export async function handlePluginRoutes(
     return target;
   }
 
+  async function isPathSafe(target: string, dataDir: string): Promise<boolean> {
+    const root = path.resolve(dataDir);
+    let current = path.resolve(target);
+    while (current !== root) {
+      try {
+        const st = await fs.lstat(current);
+        if (st.isSymbolicLink()) return false;
+      } catch {
+      }
+      const parent = path.dirname(current);
+      if (parent === current) return false;
+      current = parent;
+    }
+    try {
+      const st = await fs.lstat(root);
+      if (st.isSymbolicLink() || !st.isDirectory()) return false;
+    } catch {
+      return false;
+    }
+    return true;
+  }
+
   const pluginDataListMatch = url.pathname.match(/^\/api\/plugins\/([^/]+)\/data$/);
   if (req.method === "GET" && pluginDataListMatch) {
     const user = await authenticateRequest(req);
@@ -366,10 +417,13 @@ export async function handlePluginRoutes(
     if (relPath.includes("\u0000")) return new Response("Bad request", { status: 400 });
     const target = resolveDataPath(pluginId, relPath);
     if (!target) return new Response("Forbidden", { status: 403 });
+    const dataDir = path.join(deps.PLUGIN_ROOT, pluginId, "data");
+    if (!(await isPathSafe(target, dataDir))) return new Response("Forbidden", { status: 403 });
     const file = Bun.file(target);
     if (!(await file.exists())) return new Response("Not found", { status: 404 });
-    const st = await fs.stat(target);
+    const st = await fs.lstat(target);
     if (st.isDirectory()) return new Response("Is a directory", { status: 400 });
+    if (st.isSymbolicLink()) return new Response("Forbidden", { status: 403 });
     return new Response(file, { headers: deps.secureHeaders(deps.mimeType(relPath)) });
   }
 
@@ -387,9 +441,27 @@ export async function handlePluginRoutes(
     }
     const target = resolveDataPath(pluginId, relPath);
     if (!target) return new Response("Forbidden", { status: 403 });
+    const dataDir = path.join(deps.PLUGIN_ROOT, pluginId, "data");
+    await fs.mkdir(dataDir, { recursive: true });
     await fs.mkdir(path.dirname(target), { recursive: true });
+    if (!(await isPathSafe(target, dataDir))) return new Response("Forbidden", { status: 403 });
+    const existingSt = await fs.lstat(target).catch(() => null);
+    if (existingSt && existingSt.isSymbolicLink()) {
+      return new Response("Forbidden", { status: 403 });
+    }
     const body = await req.arrayBuffer();
-    await fs.writeFile(target, new Uint8Array(body));
+    let fh: import("fs/promises").FileHandle | null = null;
+    try {
+      fh = await fs.open(target, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_TRUNC | (fsConstants.O_NOFOLLOW || 0));
+      await fh.writeFile(new Uint8Array(body));
+    } catch (err: any) {
+      if (err && (err.code === "ELOOP" || err.code === "EISDIR")) {
+        return new Response("Forbidden", { status: 403 });
+      }
+      throw err;
+    } finally {
+      if (fh) await fh.close().catch(() => {});
+    }
     return Response.json({ ok: true, path: relPath, size: body.byteLength });
   }
 
@@ -405,9 +477,14 @@ export async function handlePluginRoutes(
     if (relPath.includes("\u0000")) return new Response("Bad request", { status: 400 });
     const target = resolveDataPath(pluginId, relPath);
     if (!target) return new Response("Forbidden", { status: 403 });
+    const dataDir = path.join(deps.PLUGIN_ROOT, pluginId, "data");
+    if (!(await isPathSafe(target, dataDir))) return new Response("Forbidden", { status: 403 });
     try {
-      const st = await fs.stat(target);
-      if (st.isDirectory()) {
+      const st = await fs.lstat(target);
+      if (st.isSymbolicLink()) {
+        // Just unlink the link itself; never traverse it.
+        await fs.unlink(target);
+      } else if (st.isDirectory()) {
         await fs.rm(target, { recursive: true, force: true });
       } else {
         await fs.unlink(target);
@@ -437,19 +514,35 @@ export async function handlePluginRoutes(
     if (decodedFile.includes("\u0000")) return new Response("Bad request", { status: 400 });
     const target = resolveDataPath(pluginId, decodedFile);
     if (!target) return new Response("Forbidden", { status: 403 });
+    const dataDir = path.join(deps.PLUGIN_ROOT, pluginId, "data");
+    if (!(await isPathSafe(target, dataDir))) return new Response("Forbidden", { status: 403 });
     try {
-      const st = await fs.stat(target);
+      const st = await fs.lstat(target);
+      if (st.isSymbolicLink()) return new Response("Forbidden", { status: 403 });
       if (st.isDirectory()) return new Response("Is a directory", { status: 400 });
     } catch {
       return new Response("Not found", { status: 404 });
     }
+    // Resolve via realpath to defeat any symlink raced into place after the lstat
+    // above; re-verify the resolved path is still under the data dir.
+    let realTarget: string;
+    try {
+      realTarget = await fs.realpath(target);
+    } catch {
+      return new Response("Forbidden", { status: 403 });
+    }
+    const dataDirPrefix = dataDir.endsWith(path.sep) ? dataDir : `${dataDir}${path.sep}`;
+    if (realTarget !== dataDir && !realTarget.startsWith(dataDirPrefix)) {
+      return new Response("Forbidden", { status: 403 });
+    }
     const args: string[] = Array.isArray(body.args) ? body.args.filter((a: any) => typeof a === "string") : [];
     const stdinData: string = typeof body.stdin === "string" ? body.stdin : "";
     const timeoutMs: number = typeof body.timeoutMs === "number" && body.timeoutMs > 0 ? Math.min(body.timeoutMs, 60_000) : 30_000;
-    // Ensure the binary is executable
-    try { await fs.chmod(target, 0o755); } catch {}
-    const proc = Bun.spawn([target, ...args], {
-      cwd: path.dirname(target),
+    // Ensure the binary is executable. chmod follows symlinks, but we've verified
+    // the realpath stays inside dataDir, so this is safe.
+    try { await fs.chmod(realTarget, 0o755); } catch {}
+    const proc = Bun.spawn([realTarget, ...args], {
+      cwd: path.dirname(realTarget),
       stdin: stdinData ? Buffer.from(stdinData) : "ignore",
       stdout: "pipe",
       stderr: "pipe",

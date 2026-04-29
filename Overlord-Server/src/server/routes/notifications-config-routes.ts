@@ -81,8 +81,8 @@ export async function handleNotificationsConfigRoutes(
         headers: { "Content-Type": "application/json" },
       });
     }
-    if (user.role !== "admin" && user.role !== "operator") {
-      return new Response("Forbidden: Admin or operator access required", {
+    if (user.role !== "admin") {
+      return new Response("Forbidden: Admin access required", {
         status: 403,
       });
     }

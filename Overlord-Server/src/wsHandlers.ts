@@ -24,6 +24,37 @@ function sanitizeInfoString(val: unknown, maxLen = 256): string | undefined {
   return val.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "").slice(0, maxLen);
 }
 
+function sanitizeMonitorCount(val: unknown): number | undefined {
+  if (typeof val !== "number" || !Number.isFinite(val)) return undefined;
+  const n = Math.floor(val);
+  if (n < 0) return 0;
+  if (n > 32) return 32;
+  return n;
+}
+
+function sanitizeJsonField(
+  val: unknown,
+  opts: { maxJsonBytes: number; maxArrayLen?: number; maxKeys?: number },
+): unknown | undefined {
+  if (val === null || val === undefined) return undefined;
+  if (typeof val !== "object") return undefined;
+  if (Array.isArray(val) && opts.maxArrayLen !== undefined && val.length > opts.maxArrayLen) {
+    return undefined;
+  }
+  if (!Array.isArray(val) && opts.maxKeys !== undefined) {
+    const keys = Object.keys(val as Record<string, unknown>);
+    if (keys.length > opts.maxKeys) return undefined;
+  }
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(val);
+  } catch {
+    return undefined;
+  }
+  if (serialized.length > opts.maxJsonBytes) return undefined;
+  return val;
+}
+
 const MAX_PING_RTT_MS = 15_000;
 const CLIENT_DB_SYNC_INTERVAL_MS = Number(process.env.OVERLORD_CLIENT_DB_SYNC_MS || 5000);
 const lastClientDbSync = new Map<string, number>();
@@ -99,13 +130,23 @@ export async function handleHello(
   info.arch = sanitizeInfoString(payload.arch, 32);
   info.version = sanitizeInfoString(payload.version, 64);
   info.user = sanitizeInfoString(payload.user);
-  info.monitors = payload.monitors;
-  info.monitorInfo = (payload as any).monitorInfo || info.monitorInfo;
+  info.monitors = sanitizeMonitorCount(payload.monitors) ?? info.monitors;
+  const cleanMonitorInfo = sanitizeJsonField((payload as any).monitorInfo, {
+    maxJsonBytes: 8 * 1024,
+    maxArrayLen: 32,
+  });
+  if (cleanMonitorInfo !== undefined) {
+    info.monitorInfo = cleanMonitorInfo as any;
+  }
   info.inMemory = !!(payload as any).inMemory;
   info.isAdmin = !!(payload as any).isAdmin;
   info.elevation = sanitizeInfoString((payload as any).elevation, 32) ?? info.elevation;
-  if ((payload as any).permissions && typeof (payload as any).permissions === "object") {
-    info.permissions = (payload as any).permissions;
+  const cleanPermissions = sanitizeJsonField((payload as any).permissions, {
+    maxJsonBytes: 4 * 1024,
+    maxKeys: 64,
+  });
+  if (cleanPermissions !== undefined && !Array.isArray(cleanPermissions)) {
+    info.permissions = cleanPermissions as any;
   }
   info.cpu = sanitizeInfoString((payload as any).cpu) || info.cpu;
   info.gpu = sanitizeInfoString((payload as any).gpu) || info.gpu;

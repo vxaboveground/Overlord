@@ -5,7 +5,7 @@ import { fileURLToPath } from "url";
 import path from "path";
 import fs from "fs/promises";
 import { existsSync } from "node:fs";
-import { upsertClientRow, setOnlineState, listClients, markAllClientsOffline, getBuild, getBuildByTag, getAllBuilds, deleteExpiredBuilds, deleteBuild, getNotificationScreenshot, clearNotificationScreenshots, deleteClientRow, getClientIp, banIp, isIpBanned, clientExists, deleteExpiredSharedFiles, getChatHistory, insertChatMessage, getOnlineClientCountForUser, deleteExpiredChatMessages } from "./db";
+import { upsertClientRow, setOnlineState, listClients, markAllClientsOffline, getBuild, getBuildByTag, getAllBuilds, deleteExpiredBuilds, deleteBuild, getNotificationScreenshot, clearNotificationScreenshots, deleteClientRow, getClientIp, banIp, isIpBanned, clientExists, deleteExpiredSharedFiles, getChatHistory, insertChatMessage, getOnlineClientCountForUser, deleteExpiredChatMessages, recordBuildClaim } from "./db";
 import { handleFrame, handleHello, handlePing, handlePong } from "./wsHandlers";
 import { getMessageByteLength, getMaxPayloadLimit, isAllowedClientMessageType } from "./wsValidation";
 import { ClientInfo, ClientRole } from "./types";
@@ -482,10 +482,15 @@ async function startServer() {
     registration: {},
   };
 
-  function handleBuildTagConnection(clientId: string, buildTagValue: string) {
+  function handleBuildTagConnection(clientId: string, buildTagValue: string, keyFingerprint: string) {
     if (!buildTagValue) return;
     const build = getBuildByTag(buildTagValue);
     if (!build || !build.builtByUserId) return;
+
+    if (build.blocked) return;
+
+    const isFirstClaim = recordBuildClaim(build.id, keyFingerprint);
+    if (!isFirstClaim) return;
 
     const userId = build.builtByUserId;
     const user = getUserById(userId);
@@ -500,7 +505,7 @@ async function startServer() {
 
     if (currentScope === "none" || currentScope === "allowlist") {
       setUserClientAccessRule(userId, clientId, "allow");
-      logger.info(`[build-tag] Auto-added client ${clientId} to user ${user.username}'s allowlist (build: ${build.id.substring(0, 8)})`);
+      logger.info(`[build-tag] Auto-added client ${clientId} to user ${user.username}'s allowlist (build: ${build.id.substring(0, 8)}, fp: ${keyFingerprint.substring(0, 12)}...)`);
     }
   }
 

@@ -46,10 +46,16 @@ function resolveClientBuildCacheRoot(): string {
 }
 
 function resolveAndroidNdkToolchainBin(): string | null {
-  const ndkHome = (process.env.ANDROID_NDK_HOME || "/opt/android-ndk").trim();
+  const explicit = process.env.ANDROID_NDK_HOME?.trim();
+  const ndkHome = explicit || (process.platform === "win32" ? "" : "/opt/android-ndk");
+  if (!ndkHome) return null;
   const hostArch = process.arch === "arm64" ? "linux-aarch64" : "linux-x86_64";
   const toolchainBin = path.join(ndkHome, "toolchains", "llvm", "prebuilt", hostArch, "bin");
-  return fs.existsSync(toolchainBin) ? toolchainBin : null;
+  try {
+    return fs.existsSync(toolchainBin) ? toolchainBin : null;
+  } catch {
+    return null;
+  }
 }
 
 type BoundFile = {
@@ -291,8 +297,8 @@ export async function startBuildProcess(
       });
     }
 
-    const ndkBin = resolveAndroidNdkToolchainBin();
-    if (!ndkBin && platformsToBuild.some((p) => p.startsWith("android-"))) {
+    const ndkBin = hasAndroidTargets ? resolveAndroidNdkToolchainBin() : null;
+    if (hasAndroidTargets && !ndkBin) {
       sendToStream({
         type: "output",
         text: "Warning: Android NDK not found. Android builds require the NDK. Install it to /opt/android-ndk or set the ANDROID_NDK_HOME environment variable.\n",

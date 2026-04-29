@@ -77,6 +77,21 @@ export async function ensurePluginExtracted(
 
   const zip = new AdmZip(zipPath);
   const entries = zip.getEntries();
+
+  const MAX_PLUGIN_UNCOMPRESSED_BYTES = 200 * 1024 * 1024;
+  let totalUncompressed = 0;
+  for (const entry of entries as any[]) {
+    if (entry?.isDirectory) continue;
+    const sz = Number(entry?.header?.size ?? 0);
+    if (!Number.isFinite(sz) || sz < 0) {
+      throw new Error(`Invalid plugin bundle: ${safeId} (malformed zip)`);
+    }
+    totalUncompressed += sz;
+    if (totalUncompressed > MAX_PLUGIN_UNCOMPRESSED_BYTES) {
+      throw new Error(`Plugin bundle too large: ${safeId} (uncompressed > 200 MB)`);
+    }
+  }
+
   let htmlEntry: Buffer | null = null;
   let cssEntry: Buffer | null = null;
   let jsEntry: Buffer | null = null;

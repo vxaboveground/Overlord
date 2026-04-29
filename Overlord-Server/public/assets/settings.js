@@ -650,6 +650,285 @@ async function handleUnbanClick(event) {
   await loadBannedIps();
 }
 
+// ---- Build IDs section ----------------------------------------------------
+
+const buildsSection = document.getElementById("section-builds");
+const buildsTableBody = document.getElementById("builds-table-body");
+const refreshBuildsBtn = document.getElementById("refresh-builds-btn");
+const buildsShowAllInput = document.getElementById("builds-show-all");
+const buildsShowAllWrap = document.getElementById("builds-show-all-wrap");
+const buildsMessageEl = document.getElementById("builds-message");
+
+function showBuildsMessage(text, type = "ok") {
+  if (!buildsMessageEl) return;
+  buildsMessageEl.textContent = text;
+  buildsMessageEl.classList.remove(
+    "hidden",
+    "text-emerald-200", "border-emerald-700", "bg-emerald-900/30",
+    "text-rose-200", "border-rose-700", "bg-rose-900/30",
+  );
+  if (type === "error") {
+    buildsMessageEl.classList.add("text-rose-200", "border-rose-700", "bg-rose-900/30");
+  } else {
+    buildsMessageEl.classList.add("text-emerald-200", "border-emerald-700", "bg-emerald-900/30");
+  }
+  setTimeout(() => buildsMessageEl.classList.add("hidden"), 4000);
+}
+
+function canManageBuilds(role) {
+  return role === "admin" || role === "operator";
+}
+
+async function loadBuilds() {
+  if (!buildsTableBody) return;
+  if (!canManageBuilds(currentUser?.role)) return;
+
+  const showAll = !!buildsShowAllInput?.checked && isAdmin(currentUser?.role);
+  const url = showAll ? "/api/build/list?all=true" : "/api/build/list";
+
+  buildsTableBody.innerHTML = `
+    <tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">Loading...</td></tr>
+  `;
+
+  let res;
+  try {
+    res = await fetch(url, { credentials: "include" });
+  } catch {
+    buildsTableBody.innerHTML = `
+      <tr><td colspan="6" class="px-3 py-6 text-center text-rose-300">Network error</td></tr>
+    `;
+    return;
+  }
+
+  if (!res.ok) {
+    buildsTableBody.innerHTML = `
+      <tr><td colspan="6" class="px-3 py-6 text-center text-rose-300">Failed to load builds (HTTP ${res.status})</td></tr>
+    `;
+    return;
+  }
+
+  const data = await res.json().catch(() => ({ builds: [] }));
+  const builds = Array.isArray(data.builds) ? data.builds : [];
+
+  if (builds.length === 0) {
+    buildsTableBody.innerHTML = `
+      <tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">No builds</td></tr>
+    `;
+    return;
+  }
+
+  buildsTableBody.innerHTML = builds.map((b) => {
+    const tag = b.buildTag ? String(b.buildTag) : "";
+    const tagShort = tag ? `${tag.substring(0, 8)}...` : "—";
+    const idShort = `${String(b.id).substring(0, 8)}...`;
+    const statusBadge = b.blocked
+      ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-900/40 border border-red-700 text-red-200 text-xs"><i class="fa-solid fa-ban"></i>Blocked</span>`
+      : `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-900/30 border border-emerald-700 text-emerald-200 text-xs"><i class="fa-solid fa-circle-check"></i>Active</span>`;
+    const actionBtn = b.blocked
+      ? `<button type="button" class="builds-action-btn px-2.5 py-1.5 rounded bg-emerald-700/80 hover:bg-emerald-600 text-white text-xs" data-build-id="${escapeHtml(b.id)}" data-block="false"><i class="fa-solid fa-unlock mr-1"></i>Unblock</button>`
+      : `<button type="button" class="builds-action-btn px-2.5 py-1.5 rounded bg-red-700/80 hover:bg-red-600 text-white text-xs" data-build-id="${escapeHtml(b.id)}" data-block="true"><i class="fa-solid fa-ban mr-1"></i>Block</button>`;
+    const tagCell = tag
+      ? `<span class="font-mono text-xs text-slate-300" title="${escapeHtml(tag)}">${escapeHtml(tagShort)}</span>`
+      : `<span class="text-slate-500 text-xs">—</span>`;
+    return `
+      <tr>
+        <td class="px-3 py-2 font-mono text-xs text-slate-100" title="${escapeHtml(b.id)}">${escapeHtml(idShort)}</td>
+        <td class="px-3 py-2">${tagCell}</td>
+        <td class="px-3 py-2">${statusBadge}</td>
+        <td class="px-3 py-2 text-slate-400">${formatDate(b.startTime)}</td>
+        <td class="px-3 py-2 text-right font-mono text-slate-200">${Number(b.claimCount) || 0}</td>
+        <td class="px-3 py-2 text-right">${actionBtn}</td>
+      </tr>
+    `;
+  }).join("");
+}
+
+async function handleBuildBlockClick(event) {
+  const btn = event.target.closest(".builds-action-btn");
+  if (!btn) return;
+  const buildId = btn.dataset.buildId;
+  const block = btn.dataset.block === "true";
+  if (!buildId) return;
+
+  const verb = block ? "Block" : "Unblock";
+  if (block) {
+    if (!confirm(`Block build ${buildId.substring(0, 8)}...?\n\nAny agent currently connected from this build will be disconnected, and future connection attempts with this build's tag will be rejected.`)) return;
+  }
+
+  btn.disabled = true;
+  let res;
+  try {
+    res = await fetch(`/api/build/${encodeURIComponent(buildId)}/block`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ blocked: block }),
+    });
+  } catch {
+    showBuildsMessage(`${verb} failed: network error`, "error");
+    btn.disabled = false;
+    return;
+  }
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.success === false) {
+    showBuildsMessage(data.error || `${verb} failed`, "error");
+    btn.disabled = false;
+    return;
+  }
+
+  if (block && typeof data.disconnected === "number" && data.disconnected > 0) {
+    showBuildsMessage(`Build blocked. Disconnected ${data.disconnected} live agent${data.disconnected === 1 ? "" : "s"}.`);
+  } else {
+    showBuildsMessage(`Build ${block ? "blocked" : "unblocked"}.`);
+  }
+  await loadBuilds();
+}
+
+// ---- Sidebar nav ---------------------------------------------------------
+
+/**
+ * Update the --settings-scroll-mt CSS variable to match whatever the top nav
+ * is currently consuming at the top of the viewport. In topbar mode this is
+ * the topbar's rendered height + an 8px buffer so the section title isn't
+ * flush against the nav. In sidebar mode the nav doesn't obstruct the top, so
+ * we use a small visual margin. Called on init and on viewport changes.
+ */
+function updateSettingsScrollOffset() {
+  const root = document.documentElement;
+  const nav = document.getElementById("top-nav");
+  // Sidebar mode (left column): no top obstruction. Body gets `sb-ready` from
+  // the adaptive nav layout.
+  const isSidebarMode = document.body.classList.contains("sb-ready");
+  // Nav hidden via Ctrl+\: also no obstruction.
+  const isHidden = document.body.classList.contains("nav-hidden");
+
+  let offsetPx = 16; // matches the old scroll-mt-4 default
+  if (!isSidebarMode && !isHidden && nav) {
+    const rect = nav.getBoundingClientRect();
+    // Only treat as obstructing if the nav is actually pinned at the top and
+    // spans most of the width. (Defensive — covers mobile/dropdown variations.)
+    if (rect.top <= 0 && rect.height > 0 && rect.width >= window.innerWidth * 0.5) {
+      offsetPx = Math.round(rect.height) + 8;
+    }
+  }
+  root.style.setProperty("--settings-scroll-mt", `${offsetPx}px`);
+}
+
+function initSettingsSidebar() {
+  const sidebar = document.getElementById("settings-sidebar");
+  if (!sidebar) return;
+  const links = Array.from(sidebar.querySelectorAll(".settings-nav-link"));
+
+  // Hide nav links and group labels whose target sections are admin-only /
+  // admin-or-operator when the current user isn't authorized. We hide rather
+  // than disable so the sidebar stays uncluttered for non-admins.
+  const gated = sidebar.querySelectorAll("[data-admin-only], [data-admin-or-operator]");
+  for (const el of gated) {
+    if (el.dataset.adminOnly !== undefined && !isAdmin(currentUser?.role)) {
+      el.classList.add("hidden");
+    }
+    if (el.dataset.adminOrOperator !== undefined && !canManageBuilds(currentUser?.role)) {
+      el.classList.add("hidden");
+    }
+  }
+
+  // Build the section→link map up front so click + observer share it.
+  const sectionMap = new Map();
+  // sectionsInOrder preserves document order for "last visible at page bottom"
+  // tie-breaking (see updateActive below).
+  const sectionsInOrder = [];
+  for (const link of links) {
+    const id = link.dataset.target;
+    const section = id ? document.getElementById(id) : null;
+    if (section) {
+      sectionMap.set(section, link);
+      sectionsInOrder.push(section);
+    }
+  }
+  if (sectionMap.size === 0) return;
+
+  function setActive(link) {
+    links.forEach((l) => l.classList.remove("active"));
+    if (link) link.classList.add("active");
+  }
+
+  function isAtPageBottom() {
+    return window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
+  }
+
+  // Click → smooth scroll to section. Mark the link active immediately so the
+  // bottom links (where scroll can't reach the section's top) still highlight.
+  sidebar.addEventListener("click", (event) => {
+    const link = event.target.closest(".settings-nav-link");
+    if (!link) return;
+    event.preventDefault();
+    const id = link.dataset.target;
+    if (!id) return;
+    const target = document.getElementById(id);
+    if (!target) return;
+    // Re-measure the topbar offset right before scrolling, so a layout shift
+    // (nav-hidden toggle, viewport resize, dropdown opened) doesn't leave the
+    // section partly hidden under the nav.
+    updateSettingsScrollOffset();
+    setActive(link);
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    history.replaceState(null, "", `#${id}`);
+  });
+
+  // Active-section highlight via IntersectionObserver + page-bottom override.
+  const visible = new Set();
+  function updateActive() {
+    // Special case: if the user has scrolled as far as the page allows, the
+    // last visible section becomes active (otherwise the topmost-visible
+    // heuristic would leave shorter trailing sections — like Custom CSS or
+    // Export / Import — unable to ever become active because the page can't
+    // scroll their headings to the top of the viewport).
+    if (isAtPageBottom() && visible.size > 0) {
+      let lastEl = null;
+      for (const section of sectionsInOrder) {
+        if (visible.has(section)) lastEl = section;
+      }
+      if (lastEl) {
+        setActive(sectionMap.get(lastEl));
+        return;
+      }
+    }
+    // Default: topmost visible section.
+    let topEl = null;
+    let topY = Infinity;
+    for (const el of visible) {
+      const y = el.getBoundingClientRect().top;
+      if (y < topY) { topY = y; topEl = el; }
+    }
+    if (topEl) setActive(sectionMap.get(topEl));
+  }
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) visible.add(e.target);
+        else visible.delete(e.target);
+      }
+      updateActive();
+    },
+    { rootMargin: "-10% 0px -70% 0px", threshold: 0 },
+  );
+  for (const section of sectionMap.keys()) observer.observe(section);
+
+  // Re-run the picker on raw scroll too, so the page-bottom override fires
+  // even when no IntersectionObserver entry has changed (last sections may
+  // already be inside `visible` and the rootMargin won't re-trigger).
+  let scrollRaf = 0;
+  window.addEventListener("scroll", () => {
+    if (scrollRaf) return;
+    scrollRaf = requestAnimationFrame(() => {
+      scrollRaf = 0;
+      updateActive();
+    });
+  }, { passive: true });
+}
+
 async function loadAppearanceSettings() {
   if (!currentUser) return;
 
@@ -1340,6 +1619,15 @@ async function init() {
       wipeOfflineSection.classList.remove("hidden");
     }
 
+    if (canManageBuilds(currentUser?.role)) {
+      if (buildsSection) buildsSection.classList.remove("hidden");
+      // Hide the "show all" toggle for non-admins
+      if (buildsShowAllWrap && !isAdmin(currentUser?.role)) {
+        buildsShowAllWrap.classList.add("hidden");
+      }
+      await loadBuilds();
+    }
+
     await loadSecurityPolicy();
     await loadTlsSettings();
     await loadAppearanceSettings();
@@ -1386,6 +1674,34 @@ async function init() {
     refreshBansBtn.addEventListener("click", loadBannedIps);
     bansTableBody.addEventListener("click", handleUnbanClick);
     if (wipeOfflineBtn) wipeOfflineBtn.addEventListener("click", wipeOfflineClients);
+
+    if (refreshBuildsBtn) refreshBuildsBtn.addEventListener("click", loadBuilds);
+    if (buildsTableBody) buildsTableBody.addEventListener("click", handleBuildBlockClick);
+    if (buildsShowAllInput) buildsShowAllInput.addEventListener("change", loadBuilds);
+
+    initSettingsSidebar();
+
+    // Compute the scroll offset now, then again after the nav has had a moment
+    // to settle (the adaptive nav controller adjusts mode async based on
+    // viewport width and content overflow), and on every resize.
+    updateSettingsScrollOffset();
+    setTimeout(updateSettingsScrollOffset, 0);
+    setTimeout(updateSettingsScrollOffset, 200);
+    let resizeTimer = 0;
+    window.addEventListener("resize", () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(updateSettingsScrollOffset, 100);
+    });
+
+    // Honor a ?#section-id deep-link on first load so we land on that section.
+    // Run AFTER the offset is set so the section lands under the topbar.
+    if (window.location.hash) {
+      const target = document.getElementById(window.location.hash.slice(1));
+      if (target) {
+        // Defer to the next frame so scroll-margin-top has been applied.
+        requestAnimationFrame(() => target.scrollIntoView({ behavior: "auto", block: "start" }));
+      }
+    }
 
     await loadSessions();
     if (refreshSessionsBtn) refreshSessionsBtn.addEventListener("click", loadSessions);

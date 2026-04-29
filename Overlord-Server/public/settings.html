@@ -9,236 +9,164 @@
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
     <link rel="stylesheet" href="/assets/main.css" />
     <link rel="stylesheet" href="/assets/custom.css" />
+    <style>
+      .settings-nav-link {
+        display: flex;
+        align-items: center;
+        gap: 0.625rem;
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.5rem;
+        color: rgb(203 213 225); /* slate-300 */
+        cursor: pointer;
+        transition: background-color 120ms, color 120ms;
+      }
+      .settings-nav-link:hover {
+        background-color: rgb(30 41 59 / 0.7); /* slate-800/70 */
+        color: rgb(241 245 249); /* slate-100 */
+      }
+      /* Active state pulls its color from --accent (set inline per link to
+         match the link's icon). Falls back to sky-400 if not set. */
+      .settings-nav-link.active {
+        background-color: rgb(var(--accent, 56 189 248) / 0.18);
+        color: rgb(241 245 249);
+        box-shadow:
+          inset 2px 0 0 0 rgb(var(--accent, 56 189 248)),
+          0 0 14px -2px rgb(var(--accent, 56 189 248) / 0.45);
+      }
+      .settings-nav-group-label {
+        display: block;
+        padding: 0.5rem 0.75rem 0.25rem;
+        font-size: 0.625rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: rgb(100 116 139); /* slate-500 */
+      }
+      /* Scroll offset for #section anchors. In topbar nav mode this is set to
+         the topbar's actual rendered height + a small buffer at runtime; in
+         sidebar mode it's just a small visual margin. The settings-section
+         class applies scroll-margin-top, which both `scrollIntoView` and
+         browser hash navigation honor. */
+      :root { --settings-scroll-mt: 1rem; }
+      .settings-section { scroll-margin-top: var(--settings-scroll-mt); }
+      /* Also pin the sticky sidebar below the topbar so it doesn't slide
+         under the nav when the page is scrolled. */
+      #settings-sidebar { top: var(--settings-scroll-mt); }
+    </style>
   </head>
   <body class="min-h-screen bg-slate-950 text-slate-100">
     <header id="top-nav"></header>
 
-    <main class="max-w-6xl w-full mx-auto px-4 py-8 space-y-6">
-      <div>
+    <main class="max-w-7xl w-full mx-auto px-4 py-8">
+      <div class="mb-6">
         <h1 class="text-2xl font-bold text-slate-100">Settings</h1>
         <p class="text-slate-400 text-sm">
-          Manage your account preferences and review banned IP addresses.
+          Manage your account preferences, operational tools, and admin configuration.
         </p>
       </div>
 
-      <section class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
+      <div class="flex flex-col lg:flex-row gap-6">
+
+        <!-- Sidebar nav -->
+        <aside class="lg:w-56 lg:flex-shrink-0">
+          <nav id="settings-sidebar"
+            class="lg:sticky bg-slate-900/60 border border-slate-800 rounded-xl p-2 space-y-0.5 text-sm">
+
+            <span class="settings-nav-group-label">Personal</span>
+            <a data-target="section-account"          class="settings-nav-link" style="--accent: 56 189 248"><i class="fa-solid fa-user w-4 text-sky-400"></i><span>Account</span></a>
+            <a data-target="section-sessions"         class="settings-nav-link" style="--accent: 52 211 153"><i class="fa-solid fa-desktop w-4 text-emerald-400"></i><span>Active Sessions</span></a>
+            <a data-target="section-prefs"            class="settings-nav-link" style="--accent: 167 139 250"><i class="fa-solid fa-sliders w-4 text-violet-400"></i><span>Dashboard Preferences</span></a>
+            <a data-target="telegram-settings"        class="settings-nav-link" style="--accent: 52 211 153"><i class="fa-solid fa-bell w-4 text-emerald-400"></i><span>Notification Delivery</span></a>
+            <a data-target="section-news"             class="settings-nav-link" style="--accent: 56 189 248"><i class="fa-brands fa-telegram w-4 text-sky-400"></i><span>News &amp; Updates</span></a>
+
+            <span class="settings-nav-group-label" data-admin-or-operator>Operations</span>
+            <a data-target="section-bans"             class="settings-nav-link" style="--accent: 248 113 113"><i class="fa-solid fa-ban w-4 text-red-400"></i><span>Banned IPs</span></a>
+            <a data-target="section-builds"           class="settings-nav-link" data-admin-or-operator style="--accent: 251 146 60"><i class="fa-solid fa-hammer w-4 text-orange-400"></i><span>Build IDs</span></a>
+            <a data-target="wipe-offline-section"     class="settings-nav-link" data-admin-or-operator style="--accent: 248 113 113"><i class="fa-solid fa-circle-minus w-4 text-red-400"></i><span>Wipe Offline Clients</span></a>
+
+            <span class="settings-nav-group-label" data-admin-only>Admin</span>
+            <a data-target="section-security"         class="settings-nav-link" data-admin-only style="--accent: 129 140 248"><i class="fa-solid fa-shield-halved w-4 text-indigo-400"></i><span>Security Policy</span></a>
+            <a data-target="section-tls"              class="settings-nav-link" data-admin-only style="--accent: 34 211 238"><i class="fa-solid fa-certificate w-4 text-cyan-400"></i><span>TLS Certificates</span></a>
+            <a data-target="chat-settings-section"    class="settings-nav-link" data-admin-only style="--accent: 56 189 248"><i class="fa-solid fa-comments w-4 text-sky-400"></i><span>Team Chat</span></a>
+            <a data-target="registration-section"     class="settings-nav-link" data-admin-only style="--accent: 52 211 153"><i class="fa-solid fa-user-plus w-4 text-emerald-400"></i><span>Registration</span></a>
+            <a data-target="build-rate-limit-section" class="settings-nav-link" data-admin-only style="--accent: 251 146 60"><i class="fa-solid fa-gauge-high w-4 text-orange-400"></i><span>Build Rate Limit</span></a>
+            <a data-target="section-appearance"       class="settings-nav-link" data-admin-only style="--accent: 232 121 249"><i class="fa-solid fa-paintbrush w-4 text-fuchsia-400"></i><span>Custom CSS</span></a>
+            <a data-target="export-import-section"    class="settings-nav-link" data-admin-only style="--accent: 251 191 36"><i class="fa-solid fa-file-export w-4 text-amber-400"></i><span>Export / Import</span></a>
+          </nav>
+        </aside>
+
+        <!-- Sections -->
+        <div class="flex-1 min-w-0 space-y-6">
+
+      <!-- ========== PERSONAL ========== -->
+
+      <!-- Account -->
+      <section id="section-account" class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 settings-section">
         <div class="flex items-center gap-3">
           <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-sky-500/10 border border-sky-500/30">
-            <i class="fa-brands fa-telegram text-sky-400"></i>
+            <i class="fa-solid fa-user text-sky-400"></i>
           </div>
           <div>
-            <h2 class="text-lg font-semibold">News &amp; Updates</h2>
-            <p class="text-sm text-slate-400">Stay up to date with the newest features, releases, and announcements.</p>
-          </div>
-        </div>
-        <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-4 flex flex-col sm:flex-row sm:items-center gap-4">
-          <div class="flex-1">
-            <p class="text-sm text-slate-300">
-              Follow the official Overlord Telegram channel for the latest updates, changelogs, and feature announcements.
-            </p>
-            <p class="text-xs text-slate-500 mt-1">Channel: <span class="text-slate-400 font-mono">@kunta</span></p>
-          </div>
-          <a
-            href="https://t.me/kunta"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 transition-colors text-white text-sm font-medium whitespace-nowrap"
-          >
-            <i class="fa-brands fa-telegram"></i>
-            Open on Telegram
-          </a>
-        </div>
-      </section>
-
-      <section id="export-import-section" class="hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
-        <div class="flex items-center gap-3">
-          <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-amber-500/10 border border-amber-500/30">
-            <i class="fa-solid fa-file-export text-amber-400"></i>
-          </div>
-          <div>
-            <h2 class="text-lg font-semibold">Export &amp; Import Settings</h2>
-            <p class="text-sm text-slate-400">Backup or restore your Overlord configuration (notifications, security, TLS, appearance, auth tokens).</p>
+            <h2 class="text-lg font-semibold">Account</h2>
+            <p class="text-sm text-slate-400">View your account info and update your password.</p>
           </div>
         </div>
 
-        <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-4 flex flex-col sm:flex-row sm:items-center gap-4">
-          <div class="flex-1 space-y-1">
-            <p class="text-sm text-slate-300">
-              <strong>Export</strong> &mdash; Downloads a JSON file with all current settings and auth tokens.
-            </p>
-            <p class="text-xs text-slate-500">Keep this file secure &mdash; it contains sensitive tokens.</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+          <div class="rounded-lg bg-slate-900 border border-slate-800 px-3 py-2">
+            <div class="text-slate-400">Username</div>
+            <div id="settings-username" class="font-medium">-</div>
+          </div>
+          <div class="rounded-lg bg-slate-900 border border-slate-800 px-3 py-2">
+            <div class="text-slate-400">Role</div>
+            <div id="settings-role" class="font-medium">-</div>
+          </div>
+        </div>
+
+        <form id="password-form" class="space-y-3 mt-2 pt-4 border-t border-slate-800">
+          <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 pb-1">Change Password</p>
+          <input
+            id="current-password"
+            type="password"
+            autocomplete="current-password"
+            placeholder="Current password"
+            class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+            required
+          />
+          <input
+            id="new-password"
+            type="password"
+            autocomplete="new-password"
+            minlength="6"
+            placeholder="New password (min 6 chars)"
+            class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+            required
+          />
+          <input
+            id="confirm-password"
+            type="password"
+            autocomplete="new-password"
+            minlength="6"
+            placeholder="Confirm new password"
+            class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+            required
+          />
+          <div class="pt-1">
+            <p id="password-policy-hint" class="text-xs text-slate-400 mb-3"></p>
           </div>
           <button
-            id="export-settings-btn"
-            type="button"
-            class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 transition-colors text-white text-sm font-medium whitespace-nowrap"
+            type="submit"
+            class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 transition-colors text-white text-sm font-medium"
           >
-            <i class="fa-solid fa-download"></i>
-            Export Settings
+            <i class="fa-solid fa-key"></i>Update Password
           </button>
-        </div>
+        </form>
 
-        <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-4 flex flex-col sm:flex-row sm:items-center gap-4">
-          <div class="flex-1 space-y-1">
-            <p class="text-sm text-slate-300">
-              <strong>Import</strong> &mdash; Restore settings from a previously exported JSON file.
-            </p>
-            <p class="text-xs text-slate-500">Auth token changes require a server restart. Environment variables will still take priority.</p>
-          </div>
-          <label
-            class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors text-white text-sm font-medium whitespace-nowrap cursor-pointer"
-          >
-            <i class="fa-solid fa-upload"></i>
-            Import Settings
-            <input id="import-settings-file" type="file" accept=".json,application/json" class="hidden" />
-          </label>
-        </div>
-
-        <p id="export-import-message" class="hidden text-sm rounded-lg px-3 py-2 border"></p>
-      </section>
-
-      <section id="wipe-offline-section" class="hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
-        <div class="flex items-center gap-3">
-          <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-red-500/10 border border-red-500/30">
-            <i class="fa-solid fa-circle-minus text-red-400"></i>
-          </div>
-          <div>
-            <h2 class="text-lg font-semibold">Wipe Offline Clients</h2>
-            <p class="text-sm text-slate-400">Permanently remove all offline clients from the dashboard in one click.</p>
-          </div>
-        </div>
-        <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-4 flex flex-col sm:flex-row sm:items-center gap-4">
-          <div class="flex-1">
-            <p class="text-sm text-slate-300">
-              Deletes every client currently marked as offline. If any of them reconnect later they will reappear automatically.
-            </p>
-          </div>
-          <button
-            id="wipe-offline-btn"
-            type="button"
-            class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-800/70 hover:bg-red-700 transition-colors text-red-100 border border-red-700 text-sm font-medium whitespace-nowrap"
-          >
-            <i class="fa-solid fa-circle-minus"></i>
-            Wipe Offline
-          </button>
-        </div>
-        <p id="wipe-offline-message" class="hidden text-sm rounded-lg px-3 py-2 border"></p>
-      </section>
-
-      <!-- Account + Banned IPs -->
-      <section class="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <!-- Account -->
-        <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
-          <div class="flex items-center gap-3">
-            <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-sky-500/10 border border-sky-500/30">
-              <i class="fa-solid fa-user text-sky-400"></i>
-            </div>
-            <div>
-              <h2 class="text-lg font-semibold">Account</h2>
-              <p class="text-sm text-slate-400">View your account info and update your password.</p>
-            </div>
-          </div>
-
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-            <div class="rounded-lg bg-slate-900 border border-slate-800 px-3 py-2">
-              <div class="text-slate-400">Username</div>
-              <div id="settings-username" class="font-medium">-</div>
-            </div>
-            <div class="rounded-lg bg-slate-900 border border-slate-800 px-3 py-2">
-              <div class="text-slate-400">Role</div>
-              <div id="settings-role" class="font-medium">-</div>
-            </div>
-          </div>
-
-          <form id="password-form" class="space-y-3 mt-2 pt-4 border-t border-slate-800">
-            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 pb-1">Change Password</p>
-            <input
-              id="current-password"
-              type="password"
-              autocomplete="current-password"
-              placeholder="Current password"
-              class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
-              required
-            />
-            <input
-              id="new-password"
-              type="password"
-              autocomplete="new-password"
-              minlength="6"
-              placeholder="New password (min 6 chars)"
-              class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
-              required
-            />
-            <input
-              id="confirm-password"
-              type="password"
-              autocomplete="new-password"
-              minlength="6"
-              placeholder="Confirm new password"
-              class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
-              required
-            />
-            <div class="pt-1">
-              <p id="password-policy-hint" class="text-xs text-slate-400 mb-3"></p>
-            </div>
-            <button
-              type="submit"
-              class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 transition-colors text-white text-sm font-medium"
-            >
-              <i class="fa-solid fa-key"></i>Update Password
-            </button>
-          </form>
-
-          <p id="settings-message" class="hidden text-sm rounded-lg px-3 py-2 border"></p>
-        </div>
-
-        <!-- Banned IPs -->
-        <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
-          <div class="flex items-center justify-between gap-3">
-            <div class="flex items-center gap-3">
-              <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-red-500/10 border border-red-500/30">
-                <i class="fa-solid fa-ban text-red-400"></i>
-              </div>
-              <div>
-                <h2 class="text-lg font-semibold">Banned IPs</h2>
-                <p class="text-sm text-slate-400">Unban blocked agent source IPs.</p>
-              </div>
-            </div>
-            <button
-              id="refresh-bans-btn"
-              class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm transition-colors"
-              type="button"
-            >
-              <i class="fa-solid fa-rotate"></i>Refresh
-            </button>
-          </div>
-
-          <div id="bans-permission-note" class="hidden rounded-lg border border-amber-800 bg-amber-900/20 text-amber-200 px-3 py-2 text-sm">
-            Your role does not allow IP unban actions.
-          </div>
-
-          <div class="overflow-x-auto border border-slate-800 rounded-lg">
-            <table class="w-full text-sm">
-              <thead class="bg-slate-800/60 text-slate-300">
-                <tr>
-                  <th class="text-left px-3 py-2">IP</th>
-                  <th class="text-left px-3 py-2">Reason</th>
-                  <th class="text-left px-3 py-2">Banned At</th>
-                  <th class="text-right px-3 py-2">Action</th>
-                </tr>
-              </thead>
-              <tbody id="bans-table-body" class="divide-y divide-slate-800">
-                <tr>
-                  <td colspan="4" class="px-3 py-6 text-center text-slate-400">Loading...</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <p id="settings-message" class="hidden text-sm rounded-lg px-3 py-2 border"></p>
       </section>
 
       <!-- Active Sessions -->
-      <section class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
+      <section id="section-sessions" class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 settings-section">
         <div class="flex items-center justify-between gap-3">
           <div class="flex items-center gap-3">
             <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
@@ -289,7 +217,7 @@
       </section>
 
       <!-- Dashboard Preferences -->
-      <section class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
+      <section id="section-prefs" class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 settings-section">
         <div class="flex items-center gap-3">
           <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-violet-500/10 border border-violet-500/30">
             <i class="fa-solid fa-sliders text-violet-400"></i>
@@ -367,7 +295,7 @@
       </section>
 
       <!-- Notification Delivery -->
-      <section id="telegram-settings" class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
+      <section id="telegram-settings" class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 settings-section">
         <div class="flex items-center gap-3">
           <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
             <i class="fa-solid fa-bell text-emerald-400"></i>
@@ -386,8 +314,169 @@
         </div>
       </section>
 
+      <!-- News & Updates -->
+      <section id="section-news" class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 settings-section">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-sky-500/10 border border-sky-500/30">
+            <i class="fa-brands fa-telegram text-sky-400"></i>
+          </div>
+          <div>
+            <h2 class="text-lg font-semibold">News &amp; Updates</h2>
+            <p class="text-sm text-slate-400">Stay up to date with the newest features, releases, and announcements.</p>
+          </div>
+        </div>
+        <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-4 flex flex-col sm:flex-row sm:items-center gap-4">
+          <div class="flex-1">
+            <p class="text-sm text-slate-300">
+              Follow the official Overlord Telegram channel for the latest updates, changelogs, and feature announcements.
+            </p>
+            <p class="text-xs text-slate-500 mt-1">Channel: <span class="text-slate-400 font-mono">@kunta</span></p>
+          </div>
+          <a
+            href="https://t.me/kunta"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 transition-colors text-white text-sm font-medium whitespace-nowrap"
+          >
+            <i class="fa-brands fa-telegram"></i>
+            Open on Telegram
+          </a>
+        </div>
+      </section>
+
+      <!-- ========== OPERATIONS ========== -->
+
+      <!-- Banned IPs -->
+      <section id="section-bans" class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 settings-section">
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex items-center gap-3">
+            <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-red-500/10 border border-red-500/30">
+              <i class="fa-solid fa-ban text-red-400"></i>
+            </div>
+            <div>
+              <h2 class="text-lg font-semibold">Banned IPs</h2>
+              <p class="text-sm text-slate-400">Unban blocked agent source IPs.</p>
+            </div>
+          </div>
+          <button
+            id="refresh-bans-btn"
+            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm transition-colors"
+            type="button"
+          >
+            <i class="fa-solid fa-rotate"></i>Refresh
+          </button>
+        </div>
+
+        <div id="bans-permission-note" class="hidden rounded-lg border border-amber-800 bg-amber-900/20 text-amber-200 px-3 py-2 text-sm">
+          Your role does not allow IP unban actions.
+        </div>
+
+        <div class="overflow-x-auto border border-slate-800 rounded-lg">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-800/60 text-slate-300">
+              <tr>
+                <th class="text-left px-3 py-2">IP</th>
+                <th class="text-left px-3 py-2">Reason</th>
+                <th class="text-left px-3 py-2">Banned At</th>
+                <th class="text-right px-3 py-2">Action</th>
+              </tr>
+            </thead>
+            <tbody id="bans-table-body" class="divide-y divide-slate-800">
+              <tr>
+                <td colspan="4" class="px-3 py-6 text-center text-slate-400">Loading...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Build IDs (operator/admin) -->
+      <section id="section-builds" class="hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 settings-section">
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex items-center gap-3">
+            <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-orange-500/10 border border-orange-500/30">
+              <i class="fa-solid fa-hammer text-orange-400"></i>
+            </div>
+            <div>
+              <h2 class="text-lg font-semibold">Build IDs</h2>
+              <p class="text-sm text-slate-400">Review your builds, see how many agents have claimed each, and block a build to immediately disconnect any agent that connects with its tag.</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="hidden lg:flex items-center gap-2 text-xs text-slate-400" id="builds-show-all-wrap">
+              <input id="builds-show-all" type="checkbox" class="h-3.5 w-3.5" />
+              <span>Show all users' builds</span>
+            </label>
+            <button
+              id="refresh-builds-btn"
+              class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm transition-colors"
+              type="button"
+            >
+              <i class="fa-solid fa-rotate"></i>Refresh
+            </button>
+          </div>
+        </div>
+
+        <p class="text-xs text-slate-500">
+          <strong>Claim count</strong> is the number of unique agent fingerprints that have ever connected using a build's tag. Each unique host produces one claim. A claim count higher than the number of machines you actually deployed to suggests the build tag may have leaked.
+        </p>
+
+        <div class="overflow-x-auto border border-slate-800 rounded-lg">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-800/60 text-slate-300">
+              <tr>
+                <th class="text-left px-3 py-2">Build ID</th>
+                <th class="text-left px-3 py-2">Tag</th>
+                <th class="text-left px-3 py-2">Status</th>
+                <th class="text-left px-3 py-2">Created</th>
+                <th class="text-right px-3 py-2">Claims</th>
+                <th class="text-right px-3 py-2">Action</th>
+              </tr>
+            </thead>
+            <tbody id="builds-table-body" class="divide-y divide-slate-800">
+              <tr>
+                <td colspan="6" class="px-3 py-6 text-center text-slate-400">Loading...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p id="builds-message" class="hidden text-sm rounded-lg px-3 py-2 border"></p>
+      </section>
+
+      <!-- Wipe Offline Clients -->
+      <section id="wipe-offline-section" class="hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 settings-section">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-red-500/10 border border-red-500/30">
+            <i class="fa-solid fa-circle-minus text-red-400"></i>
+          </div>
+          <div>
+            <h2 class="text-lg font-semibold">Wipe Offline Clients</h2>
+            <p class="text-sm text-slate-400">Permanently remove all offline clients from the dashboard in one click.</p>
+          </div>
+        </div>
+        <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-4 flex flex-col sm:flex-row sm:items-center gap-4">
+          <div class="flex-1">
+            <p class="text-sm text-slate-300">
+              Deletes every client currently marked as offline. If any of them reconnect later they will reappear automatically.
+            </p>
+          </div>
+          <button
+            id="wipe-offline-btn"
+            type="button"
+            class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-800/70 hover:bg-red-700 transition-colors text-red-100 border border-red-700 text-sm font-medium whitespace-nowrap"
+          >
+            <i class="fa-solid fa-circle-minus"></i>
+            Wipe Offline
+          </button>
+        </div>
+        <p id="wipe-offline-message" class="hidden text-sm rounded-lg px-3 py-2 border"></p>
+      </section>
+
+      <!-- ========== ADMIN ========== -->
+
       <!-- Security Policy -->
-      <section class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
+      <section id="section-security" class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 settings-section">
         <div class="flex items-center gap-3">
           <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-500/10 border border-indigo-500/30">
             <i class="fa-solid fa-shield-halved text-indigo-400"></i>
@@ -489,7 +578,7 @@
       </section>
 
       <!-- TLS Certificates -->
-      <section class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
+      <section id="section-tls" class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 settings-section">
         <div class="flex items-center gap-3">
           <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-cyan-500/10 border border-cyan-500/30">
             <i class="fa-solid fa-certificate text-cyan-400"></i>
@@ -591,7 +680,7 @@
       </section>
 
       <!-- Team Chat -->
-      <section id="chat-settings-section" class="hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
+      <section id="chat-settings-section" class="hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 settings-section">
         <div class="flex items-center gap-3">
           <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-sky-500/10 border border-sky-500/30">
             <i class="fa-solid fa-comments text-sky-400"></i>
@@ -626,46 +715,8 @@
         </form>
       </section>
 
-      <!-- Custom CSS -->
-      <section class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
-        <div class="flex items-center gap-3">
-          <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/30">
-            <i class="fa-solid fa-paintbrush text-fuchsia-400"></i>
-          </div>
-          <div>
-            <h2 class="text-lg font-semibold">Custom CSS</h2>
-            <p class="text-sm text-slate-400">Admin-only. Paste custom CSS to override the default theme across all pages.</p>
-          </div>
-        </div>
-
-        <form id="appearance-form" class="space-y-4">
-          <div id="appearance-permission-note" class="hidden rounded-lg border border-amber-800 bg-amber-900/20 text-amber-200 px-3 py-2 text-sm">
-            Only admins can update custom CSS.
-          </div>
-
-          <label class="block">
-            <textarea
-              id="appearance-custom-css"
-              rows="12"
-              spellcheck="false"
-              placeholder="/* Paste your custom CSS here */&#10;:root { --color-primary: #f59e0b; }"
-              class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono text-xs resize-y"
-            ></textarea>
-            <p class="text-xs text-slate-500 mt-1">Max 50 KB. Reload any open page after saving to see the new styles.</p>
-          </label>
-
-          <button
-            type="submit"
-            id="appearance-save-btn"
-            class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-fuchsia-700 hover:bg-fuchsia-600 transition-colors text-white text-sm font-medium"
-          >
-            <i class="fa-solid fa-paintbrush"></i>Save Custom CSS
-          </button>
-        </form>
-      </section>
-
       <!-- Registration Settings (admin only) -->
-      <section id="registration-section" class="hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
+      <section id="registration-section" class="hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 settings-section">
         <div class="flex items-center gap-3">
           <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
             <i class="fa-solid fa-user-plus text-emerald-400"></i>
@@ -766,7 +817,7 @@
       </section>
 
       <!-- Build Rate Limit (admin only) -->
-      <section id="build-rate-limit-section" class="hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
+      <section id="build-rate-limit-section" class="hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 settings-section">
         <div class="flex items-center gap-3">
           <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-orange-500/10 border border-orange-500/30">
             <i class="fa-solid fa-gauge-high text-orange-400"></i>
@@ -798,6 +849,97 @@
         </form>
         <p id="brl-settings-msg" class="hidden text-sm rounded-lg px-3 py-2 border"></p>
       </section>
+
+      <!-- Custom CSS -->
+      <section id="section-appearance" class="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 settings-section">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/30">
+            <i class="fa-solid fa-paintbrush text-fuchsia-400"></i>
+          </div>
+          <div>
+            <h2 class="text-lg font-semibold">Custom CSS</h2>
+            <p class="text-sm text-slate-400">Admin-only. Paste custom CSS to override the default theme across all pages.</p>
+          </div>
+        </div>
+
+        <form id="appearance-form" class="space-y-4">
+          <div id="appearance-permission-note" class="hidden rounded-lg border border-amber-800 bg-amber-900/20 text-amber-200 px-3 py-2 text-sm">
+            Only admins can update custom CSS.
+          </div>
+
+          <label class="block">
+            <textarea
+              id="appearance-custom-css"
+              rows="12"
+              spellcheck="false"
+              placeholder="/* Paste your custom CSS here */&#10;:root { --color-primary: #f59e0b; }"
+              class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono text-xs resize-y"
+            ></textarea>
+            <p class="text-xs text-slate-500 mt-1">Max 50 KB. Reload any open page after saving to see the new styles.</p>
+          </label>
+
+          <button
+            type="submit"
+            id="appearance-save-btn"
+            class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-fuchsia-700 hover:bg-fuchsia-600 transition-colors text-white text-sm font-medium"
+          >
+            <i class="fa-solid fa-paintbrush"></i>Save Custom CSS
+          </button>
+        </form>
+      </section>
+
+      <!-- Export & Import -->
+      <section id="export-import-section" class="hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 settings-section">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-amber-500/10 border border-amber-500/30">
+            <i class="fa-solid fa-file-export text-amber-400"></i>
+          </div>
+          <div>
+            <h2 class="text-lg font-semibold">Export &amp; Import Settings</h2>
+            <p class="text-sm text-slate-400">Backup or restore your Overlord configuration (notifications, security, TLS, appearance, auth tokens).</p>
+          </div>
+        </div>
+
+        <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-4 flex flex-col sm:flex-row sm:items-center gap-4">
+          <div class="flex-1 space-y-1">
+            <p class="text-sm text-slate-300">
+              <strong>Export</strong> &mdash; Downloads a JSON file with all current settings and auth tokens.
+            </p>
+            <p class="text-xs text-slate-500">Keep this file secure &mdash; it contains sensitive tokens.</p>
+          </div>
+          <button
+            id="export-settings-btn"
+            type="button"
+            class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 transition-colors text-white text-sm font-medium whitespace-nowrap"
+          >
+            <i class="fa-solid fa-download"></i>
+            Export Settings
+          </button>
+        </div>
+
+        <div class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-4 flex flex-col sm:flex-row sm:items-center gap-4">
+          <div class="flex-1 space-y-1">
+            <p class="text-sm text-slate-300">
+              <strong>Import</strong> &mdash; Restore settings from a previously exported JSON file.
+            </p>
+            <p class="text-xs text-slate-500">Auth token changes require a server restart. Environment variables will still take priority.</p>
+          </div>
+          <label
+            class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors text-white text-sm font-medium whitespace-nowrap cursor-pointer"
+          >
+            <i class="fa-solid fa-upload"></i>
+            Import Settings
+            <input id="import-settings-file" type="file" accept=".json,application/json" class="hidden" />
+          </label>
+        </div>
+
+        <p id="export-import-message" class="hidden text-sm rounded-lg px-3 py-2 border"></p>
+      </section>
+
+        </div>
+        <!-- /Sections -->
+      </div>
+      <!-- /flex wrapper -->
 
       <footer class="text-center text-sm text-slate-500 py-4 border-t border-slate-800 mt-4">
         <p>Created by KDot &mdash; <a href="https://t.me/kunta" target="_blank" rel="noopener noreferrer" class="text-sky-400 hover:text-sky-300 transition-colors"><i class="fa-brands fa-telegram"></i> t.me/kunta</a></p>

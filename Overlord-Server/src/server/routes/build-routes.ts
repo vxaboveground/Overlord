@@ -13,6 +13,9 @@ import {
   listBuildProfilesForUser,
   saveBuildProfileForUser,
   deleteBuildProfileForUser,
+  setBuildBlocked,
+  listClientIdsByBuildTag,
+  countBuildClaimsBatch,
 } from "../../db";
 import { encodeMessage } from "../../protocol";
 import { metrics } from "../../metrics";
@@ -386,7 +389,13 @@ export async function handleBuildRoutes(
       const builds = showAll
         ? getAllBuilds(undefined, "admin")
         : getAllBuilds(user.userId, user.role === "admin" ? "operator" : user.role);
-      return Response.json({ builds });
+
+      const claimCounts = countBuildClaimsBatch(builds.map((b) => b.id));
+      const enriched = builds.map((b) => ({
+        ...b,
+        claimCount: claimCounts.get(b.id) ?? 0,
+      }));
+      return Response.json({ builds: enriched });
     }
 
     if (req.method === "GET" && url.pathname === "/api/build/profiles") {
@@ -518,6 +527,66 @@ export async function handleBuildRoutes(
       return Response.json({ success: true });
     }
 
+    if (req.method === "POST" && url.pathname.match(/^\/api\/build\/(.+)\/block$/)) {
+      requirePermission(user, "clients:build");
+
+      const buildId = decodeURIComponent(url.pathname.split("/")[3]);
+      const build = getBuild(buildId);
+      if (!build) {
+        return new Response("Not Found", { status: 404 });
+      }
+      if (build.builtByUserId && build.builtByUserId !== user.userId && user.role !== "admin") {
+        return new Response("Forbidden", { status: 403 });
+      }
+
+      let body: any = {};
+      try {
+        body = await req.json();
+      } catch {
+        // empty body = default to block (true)
+      }
+      const blocked = body && typeof body.blocked === "boolean" ? body.blocked : true;
+
+      const ok = setBuildBlocked(buildId, blocked);
+      if (!ok) {
+        return Response.json({ error: "Build not found" }, { status: 404 });
+      }
+
+      let disconnected = 0;
+      if (blocked && build.buildTag) {
+        const clientIds = listClientIdsByBuildTag(build.buildTag);
+        for (const cid of clientIds) {
+          const target = clientManager.getClient(cid);
+          if (!target?.ws) continue;
+          try {
+            target.ws.send(
+              encodeMessage({
+                type: "command",
+                commandType: "disconnect",
+                id: uuidv4(),
+                payload: { reason: "build_blocked" },
+              }),
+            );
+          } catch {}
+          try { target.ws.close(4007, "build_blocked"); } catch {}
+          disconnected++;
+        }
+      }
+
+      const ip = server.requestIP(req)?.address || "unknown";
+      logAudit({
+        timestamp: Date.now(),
+        username: user.username,
+        ip,
+        action: AuditAction.COMMAND,
+        details: `${blocked ? "Blocked" : "Unblocked"} build ${buildId}${blocked && disconnected > 0 ? ` (kicked ${disconnected} live agents)` : ""}`,
+        success: true,
+      });
+
+      logger.info(`[build:block] Build ${buildId.substring(0, 8)} ${blocked ? "blocked" : "unblocked"} by ${user.username}${blocked && disconnected > 0 ? ` (${disconnected} live agents kicked)` : ""}`);
+      return Response.json({ success: true, blocked, disconnected });
+    }
+
     if (req.method === "GET" && url.pathname.match(/^\/api\/build\/(.+)\/stream$/)) {
       requirePermission(user, "clients:build");
 
@@ -625,9 +694,28 @@ export async function handleBuildRoutes(
         !fileName ||
         fileName.includes("\u0000") ||
         fileName.includes("/") ||
-        fileName.includes("\\")
+        fileName.includes("\\") ||
+        fileName.includes("\"") ||
+        fileName.includes("\r") ||
+        fileName.includes("\n") ||
+        fileName.includes(";")
       ) {
         return Response.json({ error: "File not found" }, { status: 404 });
+      }
+
+      const allBuilds = getAllBuilds(undefined, "admin");
+      const owningBuild = allBuilds.find((b) =>
+        Array.isArray(b.files) && b.files.some((f: any) => f && f.filename === fileName),
+      );
+      if (!owningBuild) {
+        return Response.json({ error: "File not found" }, { status: 404 });
+      }
+      if (
+        owningBuild.builtByUserId &&
+        owningBuild.builtByUserId !== user.userId &&
+        user.role !== "admin"
+      ) {
+        return new Response("Forbidden", { status: 403 });
       }
 
       const rootDir = resolveRuntimeRoot();

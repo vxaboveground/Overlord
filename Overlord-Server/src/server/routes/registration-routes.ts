@@ -65,11 +65,7 @@ type RegistrationRouteDeps = {
 };
 
 function getClientIp(req: Request, deps: RegistrationRouteDeps): string {
-  const fromDeps = deps.requestIP?.(req)?.address;
-  if (fromDeps) return fromDeps;
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-    || req.headers.get("x-real-ip")
-    || "unknown";
+  return deps.requestIP?.(req)?.address || "unknown";
 }
 
 export async function handleRegistrationRoutes(

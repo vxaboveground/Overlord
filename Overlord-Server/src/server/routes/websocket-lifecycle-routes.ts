@@ -103,7 +103,7 @@ type WsLifecycleDeps = {
   clearPendingNotificationScreenshots: (clientId: string) => void;
   clearClientPluginState: (clientId: string) => void;
   notifyRemoteDesktopStatus: (clientId: string, status: string, reason?: string) => void;
-  handleBuildTagConnection: (clientId: string, buildTag: string) => void;
+  handleBuildTagConnection: (clientId: string, buildTag: string, keyFingerprint: string) => void;
   notifyDashboard: () => void;
   notifyDashboardClientEvent: (
     event: "client_online" | "client_offline" | "client_purgatory",
@@ -302,6 +302,22 @@ export async function handleWebSocketMessage(
         const build = buildTag ? getBuildByTag(buildTag) : null;
         const builtByUserId = build?.builtByUserId;
 
+        if (buildTag && build?.blocked) {
+          logger.info(`[build-block] rejecting agent ${resolvedId} from blocked build ${build.id.substring(0, 8)}`);
+          try {
+            ws.send(
+              encodeMessage({
+                type: "command",
+                commandType: "disconnect",
+                id: crypto.randomUUID(),
+                payload: { reason: "build_blocked" },
+              }),
+            );
+          } catch {}
+          try { ws.close(4007, "build_blocked"); } catch {}
+          return;
+        }
+
         if (enrollmentStatus === "denied") {
           logger.info(`[purgatory] denied client ${resolvedId} tried to connect`);
           ws.send(encodeMessage({ type: "enrollment_status", status: "denied" }));
@@ -478,7 +494,7 @@ export async function handleWebSocketMessage(
           (ws as any).data.wasKnown = true;
 
           if (buildTag) {
-            deps.handleBuildTagConnection(infoObj.id, buildTag);
+            deps.handleBuildTagConnection(infoObj.id, buildTag, keyFingerprint);
           }
         }
         break;

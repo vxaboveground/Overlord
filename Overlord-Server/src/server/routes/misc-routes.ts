@@ -4,7 +4,7 @@ import { getConfig, updateSecurityConfig, updateTlsConfig, updateAppearanceConfi
 import { getClientMetricsSummary, getClientMetricsSummaryForUser } from "../../db";
 import { metrics } from "../../metrics";
 import { requirePermission } from "../../rbac";
-import { getUserTelegramChatId, setUserTelegramChatId, getUserClientAccessScope, listUserClientRuleIdsByAccess } from "../../users";
+import { getUserTelegramChatId, setUserTelegramChatId, getUserClientAccessScope, listUserClientRuleIdsByAccess, canUserAccessClient } from "../../users";
 import { runCertbotSetup } from "../certbot-setup";
 import {
   getActiveProxies,
@@ -351,7 +351,10 @@ export async function handleMiscRoutes(
     if (user.role === "viewer") {
       return new Response("Forbidden", { status: 403 });
     }
-    return Response.json({ proxies: getActiveProxies() }, { headers: deps.CORS_HEADERS });
+    const proxies = getActiveProxies().filter((p) =>
+      canUserAccessClient(user.userId, user.role, p.clientId),
+    );
+    return Response.json({ proxies }, { headers: deps.CORS_HEADERS });
   }
 
   if (req.method === "POST" && url.pathname === "/api/proxy/start") {
@@ -373,10 +376,22 @@ export async function handleMiscRoutes(
     if (!clientId) {
       return Response.json({ ok: false, message: "clientId is required" }, { status: 400 });
     }
+    if (!canUserAccessClient(user.userId, user.role, clientId)) {
+      return Response.json({ ok: false, message: "Forbidden: Client access denied" }, { status: 403 });
+    }
     if (port < 1 || port > 65535) {
       return Response.json({ ok: false, message: "port must be 1-65535" }, { status: 400 });
     }
     const result = startProxy(clientId, port);
+    logAudit({
+      timestamp: Date.now(),
+      username: user.username,
+      ip: deps.requestIP?.(req)?.address || "unknown",
+      action: AuditAction.COMMAND,
+      details: `Started SOCKS5 proxy on port ${port} for client ${clientId}`,
+      success: result.ok,
+      errorMessage: result.ok ? undefined : result.message,
+    });
     return Response.json(result, {
       status: result.ok ? 200 : 400,
       headers: deps.CORS_HEADERS,
@@ -401,7 +416,20 @@ export async function handleMiscRoutes(
     if (port < 1 || port > 65535) {
       return Response.json({ ok: false, message: "port must be 1-65535" }, { status: 400 });
     }
+    const owner = getActiveProxies().find((p) => p.port === port);
+    if (owner && !canUserAccessClient(user.userId, user.role, owner.clientId)) {
+      return Response.json({ ok: false, message: "Forbidden: Client access denied" }, { status: 403 });
+    }
     const result = stopProxy(port);
+    logAudit({
+      timestamp: Date.now(),
+      username: user.username,
+      ip: deps.requestIP?.(req)?.address || "unknown",
+      action: AuditAction.COMMAND,
+      details: `Stopped SOCKS5 proxy on port ${port}${owner ? ` (client ${owner.clientId})` : ""}`,
+      success: result.ok,
+      errorMessage: result.ok ? undefined : result.message,
+    });
     return Response.json(result, {
       status: result.ok ? 200 : 400,
       headers: deps.CORS_HEADERS,
@@ -577,6 +605,10 @@ export async function handleMiscRoutes(
   }
 
   if (req.method === "GET" && url.pathname === "/api/cert/download" && deps.tlsCertPath) {
+    const user = await authenticateRequest(req);
+    if (!user) {
+      return new Response("Unauthorized", { status: 401 });
+    }
     try {
       const file = Bun.file(deps.tlsCertPath);
       if (await file.exists()) {
