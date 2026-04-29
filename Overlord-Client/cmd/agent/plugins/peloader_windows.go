@@ -5,7 +5,6 @@ package plugins
 import (
 	"errors"
 	"fmt"
-	"overlord-client/cmd/agent/plugins/teb"
 	"syscall"
 	"unsafe"
 
@@ -124,18 +123,16 @@ type imageTLSDirectory64 struct {
 }
 
 type MemoryModule struct {
-	base          uintptr
-	size          uintptr
-	entryPoint    uintptr
-	exports       map[string]uintptr
-	importDLLs    []windows.Handle
-	initialized   bool
-	tlsIndex      uint32
-	tlsData       uintptr
-	tlsArrayAlloc uintptr // our VirtualAlloc'd ThreadLocalStoragePointer array
-	tlsTemplSrc   uintptr // PE template raw data start (for copying to new threads)
-	tlsTemplSize  uintptr // dataSize (template bytes to copy)
-	tlsTotalSize  uintptr // dataSize + zeroFill (total allocation per thread)
+	base         uintptr
+	size         uintptr
+	entryPoint   uintptr
+	exports      map[string]uintptr
+	importDLLs   []windows.Handle
+	initialized  bool
+	tlsIndex     uint32  // index returned by TlsAlloc; 0xFFFFFFFF if no TLS dir
+	tlsTemplSrc  uintptr // PE template raw data start (for copying to new threads)
+	tlsTemplSize uintptr // dataSize (template bytes to copy)
+	tlsTotalSize uintptr // dataSize + zeroFill (total allocation per thread)
 }
 
 func LoadMemoryModule(data []byte) (*MemoryModule, error) {
@@ -176,7 +173,7 @@ func LoadMemoryModule(data []byte) (*MemoryModule, error) {
 		base:     base,
 		size:     imageSize,
 		exports:  make(map[string]uintptr),
-		tlsIndex: 0xFFFFFFFF,
+		tlsIndex: tlsOutOfIndexes,
 	}
 
 	headerSize := uintptr(ntHdr.OptionalHeader.SizeOfHeaders)
@@ -296,11 +293,15 @@ func (mm *MemoryModule) Free() {
 		syscall.SyscallN(mm.entryPoint, mm.base, dllProcessDetach, 0)
 		mm.initialized = false
 	}
-	if mm.tlsIndex != 0xFFFFFFFF {
-		if mm.tlsData != 0 {
-			_ = windows.VirtualFree(mm.tlsData, 0, windows.MEM_RELEASE)
-			mm.tlsData = 0
+	if mm.tlsIndex != tlsOutOfIndexes {
+		// Free our load-thread per-thread block (held in the slot)
+		// before releasing the slot itself, so the OS can reuse it.
+		if data := tlsGetValue(mm.tlsIndex); data != 0 {
+			_ = windows.VirtualFree(data, 0, windows.MEM_RELEASE)
+			tlsSetValue(mm.tlsIndex, 0)
 		}
+		tlsFree(mm.tlsIndex)
+		mm.tlsIndex = tlsOutOfIndexes
 	}
 	for _, h := range mm.importDLLs {
 		_ = windows.FreeLibrary(h)
@@ -427,6 +428,17 @@ func (mm *MemoryModule) parseExports(dir imageDataDirectory) {
 	}
 }
 
+// setupTLS handles the manually-mapped DLL's TLS directory.
+//
+// Critically, this MUST go through the Win32 TlsAlloc/TlsSetValue API rather
+// than poking the TEB's ThreadLocalStoragePointer (gs:0x58) directly. ntdll
+// owns that array and resizes it as DLLs reserve slots. If we replace the
+// pointer with our own buffer sized only for our slot, every other DLL on the
+// thread (d3d11.dll, dxgi.dll, ole32.dll's COM apartment slot, msvcrt's
+// errno, Rust libstd's SRWLOCK pool, etc.) reads or writes past the end of
+// our truncated array on its next TLS access — which manifests as random
+// access violations in completely unrelated code paths (e.g.
+// D3D11CreateDevice).
 func (mm *MemoryModule) setupTLS(reason uint32) {
 	dosHdr := (*imageDOSHeader)(unsafe.Pointer(mm.base))
 	ntHdr := (*imageNTHeaders64)(unsafe.Pointer(mm.base + uintptr(dosHdr.LfaNew)))
@@ -436,81 +448,46 @@ func (mm *MemoryModule) setupTLS(reason uint32) {
 	}
 
 	tls := (*imageTLSDirectory64)(unsafe.Pointer(mm.base + uintptr(tlsDir.VirtualAddress)))
-
 	dataSize := uintptr(tls.EndAddressOfRawData - tls.StartAddressOfRawData)
 	totalSize := dataSize + uintptr(tls.SizeOfZeroFill)
 
-	var tlsData uintptr
+	// Reserve a real TLS slot through the Win32 loader. ntdll grows the
+	// TEB's TLS array to fit, and this slot is interoperable with the
+	// plugin's compiled `gs:[58h+idx*8]` access pattern because the
+	// system keeps that array properly sized.
+	idx := tlsAlloc()
+	if idx == tlsOutOfIndexes {
+		return
+	}
+
+	// Allocate the calling thread's per-thread TLS block (template +
+	// zero-fill) and bind it to our slot. Subsequent threads that need
+	// to call into the plugin allocate their own block via
+	// SetupThreadTLS, but never touch the TEB array.
 	if totalSize > 0 {
-		var err error
-		tlsData, err = windows.VirtualAlloc(0, totalSize,
+		tlsData, err := windows.VirtualAlloc(0, totalSize,
 			windows.MEM_RESERVE|windows.MEM_COMMIT, windows.PAGE_READWRITE)
 		if err != nil || tlsData == 0 {
+			tlsFree(idx)
 			return
 		}
 		if dataSize > 0 {
 			copyMem(tlsData, (*byte)(unsafe.Pointer(uintptr(tls.StartAddressOfRawData))), dataSize)
 		}
-	}
-
-	tebAddr := teb.CurrentTEB()
-	if tebAddr == 0 {
-		if tlsData != 0 {
+		if !tlsSetValue(idx, tlsData) {
 			_ = windows.VirtualFree(tlsData, 0, windows.MEM_RELEASE)
-		}
-		return
-	}
-	tlsArrayField := (*uintptr)(unsafe.Pointer(tebAddr + 0x58)) // ThreadLocalStoragePointer
-	oldArray := *tlsArrayField
-
-	var newIndex uint32
-	ptrSize := unsafe.Sizeof(uintptr(0))
-
-	if oldArray == 0 {
-		newArray, err := windows.VirtualAlloc(0, ptrSize,
-			windows.MEM_RESERVE|windows.MEM_COMMIT, windows.PAGE_READWRITE)
-		if err != nil || newArray == 0 {
-			if tlsData != 0 {
-				_ = windows.VirtualFree(tlsData, 0, windows.MEM_RELEASE)
-			}
+			tlsFree(idx)
 			return
 		}
-		*(*uintptr)(unsafe.Pointer(newArray)) = tlsData
-		*tlsArrayField = newArray
-		newIndex = 0
-		mm.tlsArrayAlloc = newArray
-	} else {
-		var count uint32
-		for count = 0; count < 256; count++ {
-			entry := *(*uintptr)(unsafe.Pointer(oldArray + uintptr(count)*ptrSize))
-			if entry == 0 {
-				break
-			}
-		}
-		newSize := uintptr(count+1) * ptrSize
-		newArray, err := windows.VirtualAlloc(0, newSize,
-			windows.MEM_RESERVE|windows.MEM_COMMIT, windows.PAGE_READWRITE)
-		if err != nil || newArray == 0 {
-			if tlsData != 0 {
-				_ = windows.VirtualFree(tlsData, 0, windows.MEM_RELEASE)
-			}
-			return
-		}
-		if count > 0 {
-			copyMem(newArray, (*byte)(unsafe.Pointer(oldArray)), uintptr(count)*ptrSize)
-		}
-		*(*uintptr)(unsafe.Pointer(newArray + uintptr(count)*ptrSize)) = tlsData
-		*tlsArrayField = newArray
-		newIndex = count
-		mm.tlsArrayAlloc = newArray
 	}
 
+	// Patch the plugin's `_tls_index` so its compiled TLS accesses use
+	// our OS-issued slot instead of whatever index it was linked with.
 	if tls.AddressOfIndex != 0 {
-		*(*uint32)(unsafe.Pointer(uintptr(tls.AddressOfIndex))) = newIndex
+		*(*uint32)(unsafe.Pointer(uintptr(tls.AddressOfIndex))) = idx
 	}
 
-	mm.tlsIndex = newIndex
-	mm.tlsData = tlsData
+	mm.tlsIndex = idx
 	mm.tlsTemplSrc = uintptr(tls.StartAddressOfRawData)
 	mm.tlsTemplSize = dataSize
 	mm.tlsTotalSize = totalSize
@@ -528,8 +505,12 @@ func (mm *MemoryModule) setupTLS(reason uint32) {
 	}
 }
 
+// SetupThreadTLS allocates a fresh per-thread TLS block for the plugin on
+// the current thread and installs it via TlsSetValue. Returns a cleanup
+// function that releases the allocation and clears the slot. As above, this
+// goes through Win32 only — never touches gs:[58h] directly.
 func (mm *MemoryModule) SetupThreadTLS() func() {
-	if mm.tlsIndex == 0xFFFFFFFF || mm.tlsTotalSize == 0 {
+	if mm.tlsIndex == tlsOutOfIndexes || mm.tlsTotalSize == 0 {
 		return func() {}
 	}
 
@@ -542,50 +523,17 @@ func (mm *MemoryModule) SetupThreadTLS() func() {
 		copyMem(tlsData, (*byte)(unsafe.Pointer(mm.tlsTemplSrc)), mm.tlsTemplSize)
 	}
 
-	ptrSize := unsafe.Sizeof(uintptr(0))
-	tebAddr := teb.CurrentTEB()
-	if tebAddr == 0 {
+	prev := tlsGetValue(mm.tlsIndex)
+	if !tlsSetValue(mm.tlsIndex, tlsData) {
 		_ = windows.VirtualFree(tlsData, 0, windows.MEM_RELEASE)
 		return func() {}
 	}
-	tlsArrayField := (*uintptr)(unsafe.Pointer(tebAddr + 0x58))
-	oldArray := *tlsArrayField
-
-	var newArray uintptr
-	if oldArray == 0 {
-		arrSize := uintptr(mm.tlsIndex+1) * ptrSize
-		newArray, err = windows.VirtualAlloc(0, arrSize,
-			windows.MEM_RESERVE|windows.MEM_COMMIT, windows.PAGE_READWRITE)
-		if err != nil || newArray == 0 {
-			_ = windows.VirtualFree(tlsData, 0, windows.MEM_RELEASE)
-			return func() {}
-		}
-		*(*uintptr)(unsafe.Pointer(newArray + uintptr(mm.tlsIndex)*ptrSize)) = tlsData
-		*tlsArrayField = newArray
-	} else {
-		needed := uintptr(mm.tlsIndex+1) * ptrSize
-		newArray, err = windows.VirtualAlloc(0, needed,
-			windows.MEM_RESERVE|windows.MEM_COMMIT, windows.PAGE_READWRITE)
-		if err != nil || newArray == 0 {
-			_ = windows.VirtualFree(tlsData, 0, windows.MEM_RELEASE)
-			return func() {}
-		}
-		copyMem(newArray, (*byte)(unsafe.Pointer(oldArray)), needed)
-		*(*uintptr)(unsafe.Pointer(newArray + uintptr(mm.tlsIndex)*ptrSize)) = tlsData
-		*tlsArrayField = newArray
-	}
 
 	return func() {
+		// Restore whatever was in the slot before (typically 0 for a
+		// fresh thread). Then free our per-thread block.
+		tlsSetValue(mm.tlsIndex, prev)
 		_ = windows.VirtualFree(tlsData, 0, windows.MEM_RELEASE)
-		if newArray != 0 {
-			*(*uintptr)(unsafe.Pointer(newArray + uintptr(mm.tlsIndex)*ptrSize)) = 0
-			_ = windows.VirtualFree(newArray, 0, windows.MEM_RELEASE)
-		}
-		tebNow := teb.CurrentTEB()
-		if tebNow != 0 {
-			field := (*uintptr)(unsafe.Pointer(tebNow + 0x58))
-			*field = oldArray
-		}
 	}
 }
 
@@ -631,7 +579,36 @@ func sectionProtection(chars uint32) uint32 {
 var (
 	modKernel32     = windows.NewLazySystemDLL("kernel32.dll")
 	procGetProcAddr = modKernel32.NewProc("GetProcAddress")
+	procTlsAlloc    = modKernel32.NewProc("TlsAlloc")
+	procTlsFree     = modKernel32.NewProc("TlsFree")
+	procTlsSetValue = modKernel32.NewProc("TlsSetValue")
+	procTlsGetValue = modKernel32.NewProc("TlsGetValue")
 )
+
+const tlsOutOfIndexes uint32 = 0xFFFFFFFF
+
+// tlsAlloc reserves a TLS slot via the Win32 loader so ntdll keeps the TEB's
+// ThreadLocalStoragePointer correctly sized. This is critical: writing the
+// TEB array directly truncates it for OTHER DLLs (like d3d11.dll), which
+// then crash on TlsGetValue/TlsSetValue past the truncated tail.
+func tlsAlloc() uint32 {
+	r, _, _ := procTlsAlloc.Call()
+	return uint32(r)
+}
+
+func tlsFree(idx uint32) {
+	procTlsFree.Call(uintptr(idx))
+}
+
+func tlsSetValue(idx uint32, value uintptr) bool {
+	r, _, _ := procTlsSetValue.Call(uintptr(idx), value)
+	return r != 0
+}
+
+func tlsGetValue(idx uint32) uintptr {
+	r, _, _ := procTlsGetValue.Call(uintptr(idx))
+	return r
+}
 
 func getProcByOrdinal(module windows.Handle, ordinal uint16) (uintptr, error) {
 	r, _, err := procGetProcAddr.Call(uintptr(module), uintptr(ordinal))
