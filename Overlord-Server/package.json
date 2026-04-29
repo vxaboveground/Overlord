@@ -1,6 +1,6 @@
 {
   "name": "overlord-server",
-  "version": "1.8.14",
+  "version": "1.9.0",
   "private": true,
   "type": "module",
   "scripts": {
