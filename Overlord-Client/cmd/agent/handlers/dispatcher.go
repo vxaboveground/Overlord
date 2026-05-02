@@ -66,6 +66,18 @@ func (d *Dispatcher) Dispatch(ctx context.Context, envelope map[string]interface
 			}
 		}
 		return nil
+	case "android_device":
+		return HandleAndroidDevice(ctx, d.Env, envelope)
+	case "android_sms":
+		return HandleAndroidSMS(ctx, d.Env, envelope)
+	case "android_contacts":
+		return HandleAndroidContacts(ctx, d.Env, envelope)
+	case "android_calllog":
+		return HandleAndroidCallLog(ctx, d.Env, envelope)
+	case "android_location":
+		return HandleAndroidLocation(ctx, d.Env, envelope)
+	case "android_apps":
+		return HandleAndroidApps(ctx, d.Env, envelope)
 	default:
 		log.Printf("dispatcher: unknown message type=%v", msgType)
 		return nil

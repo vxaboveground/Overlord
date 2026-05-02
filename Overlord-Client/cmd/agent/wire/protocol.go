@@ -273,3 +273,166 @@ type DisconnectInfo struct {
 	Reason string `msgpack:"reason"`           // "normal", "panic", "crash", "network", "timeout"
 	Detail string `msgpack:"detail,omitempty"` // error message
 }
+
+// Android-specific protocol types
+
+type AndroidWiFiAP struct {
+	BSSID        string `msgpack:"bssid,omitempty"`
+	SSID         string `msgpack:"ssid,omitempty"`
+	Frequency    int    `msgpack:"frequency,omitempty"`
+	Level        int    `msgpack:"level,omitempty"`
+	Capabilities string `msgpack:"capabilities,omitempty"`
+}
+
+type AndroidDeviceInfo struct {
+	Type          string  `msgpack:"type"`
+	Model         string  `msgpack:"model"`
+	Manufacturer  string  `msgpack:"manufacturer"`
+	AndroidVer    string  `msgpack:"androidVer"`
+	SDK           int     `msgpack:"sdk"`
+	BuildFP       string  `msgpack:"buildFP"`
+	Brand         string  `msgpack:"brand,omitempty"`
+	Device        string  `msgpack:"device,omitempty"`
+	DisplayID     string  `msgpack:"displayID,omitempty"`
+	BatteryLevel  int     `msgpack:"batteryLevel,omitempty"`
+	BatteryStatus string  `msgpack:"batteryStatus,omitempty"`
+	BatteryHealth string  `msgpack:"batteryHealth,omitempty"`
+	BatteryTemp   float64 `msgpack:"batteryTemp,omitempty"`
+	TotalStorage  int64   `msgpack:"totalStorage,omitempty"`
+	FreeStorage   int64   `msgpack:"freeStorage,omitempty"`
+	TotalRAM      int64   `msgpack:"totalRAM,omitempty"`
+	AvailableRAM  int64   `msgpack:"availableRAM,omitempty"`
+	CPUInfo       string  `msgpack:"cpuInfo,omitempty"`
+	CPUUsage      float64 `msgpack:"cpuUsage,omitempty"`
+	SecurityPatch string  `msgpack:"securityPatch,omitempty"`
+	BuildTime     string  `msgpack:"buildTime,omitempty"`
+	Serial        string  `msgpack:"serial,omitempty"`
+	ScreenSize    string  `msgpack:"screenSize,omitempty"`
+	ScreenDPI     int     `msgpack:"screenDPI,omitempty"`
+	Uptime        int64   `msgpack:"uptime,omitempty"`
+	WiFiSSID      string  `msgpack:"wifiSSID,omitempty"`
+	WiFiBSSID     string  `msgpack:"wifiBSSID,omitempty"`
+	WiFiSpeed     int     `msgpack:"wifiSpeed,omitempty"`
+}
+
+type AndroidSMSMessage struct {
+	ID               string `msgpack:"id,omitempty"`
+	Address          string `msgpack:"address"`
+	Body             string `msgpack:"body,omitempty"`
+	Date             int64  `msgpack:"date"`
+	ThreadID         int64  `msgpack:"threadId,omitempty"`
+	DateSent         int64  `msgpack:"dateSent,omitempty"`
+	DateReceived     int64  `msgpack:"dateReceived,omitempty"`
+	Read             bool   `msgpack:"read,omitempty"`
+	Status           string `msgpack:"status,omitempty"`
+	Folder           string `msgpack:"folder,omitempty"`
+	Seen             bool   `msgpack:"seen,omitempty"`
+	Locked           bool   `msgpack:"locked,omitempty"`
+	ErrorCode        int    `msgpack:"errorCode,omitempty"`
+	ServiceCenter    string `msgpack:"serviceCenter,omitempty"`
+	Subject          string `msgpack:"subject,omitempty"`
+	Person           string `msgpack:"person,omitempty"`
+	Protocol         int    `msgpack:"protocol,omitempty"`
+	ReplyPathPresent bool   `msgpack:"replyPathPresent,omitempty"`
+	SubID            int    `msgpack:"subId,omitempty"`
+}
+
+type AndroidSMSResult struct {
+	Type          string              `msgpack:"type"`
+	CommandID     string              `msgpack:"commandId,omitempty"`
+	Messages      []AndroidSMSMessage `msgpack:"messages,omitempty"`
+	Error         string              `msgpack:"error,omitempty"`
+	TotalCount    int                 `msgpack:"totalCount,omitempty"`
+	FolderSummary map[string]int      `msgpack:"folderSummary,omitempty"`
+}
+
+type AndroidContact struct {
+	Name             string `msgpack:"name"`
+	Number           string `msgpack:"number"`
+	ContactID        int64  `msgpack:"contactId,omitempty"`
+	NormalizedNumber string `msgpack:"normalizedNumber,omitempty"`
+	Type             string `msgpack:"type,omitempty"`
+	TimesContacted   int    `msgpack:"timesContacted,omitempty"`
+	Starred          bool   `msgpack:"starred,omitempty"`
+	PhotoURI         string `msgpack:"photoUri,omitempty"`
+	LastContacted    int64  `msgpack:"lastContacted,omitempty"`
+	CustomRingtone   string `msgpack:"customRingtone,omitempty"`
+	SendToVoicemail  bool   `msgpack:"sendToVoicemail,omitempty"`
+}
+
+type AndroidContactsResult struct {
+	Type      string           `msgpack:"type"`
+	CommandID string           `msgpack:"commandId,omitempty"`
+	Contacts  []AndroidContact `msgpack:"contacts,omitempty"`
+	Error     string           `msgpack:"error,omitempty"`
+}
+
+type AndroidCallLogEntry struct {
+	Number            string `msgpack:"number"`
+	Duration          int64  `msgpack:"duration"`
+	Date              int64  `msgpack:"date"`
+	Type              string `msgpack:"type,omitempty"`
+	Name              string `msgpack:"name,omitempty"`
+	CachedNameLabel   string `msgpack:"cachedNameLabel,omitempty"`
+	CachedNumberType  string `msgpack:"cachedNumberType,omitempty"`
+	CachedNumberLabel string `msgpack:"cachedNumberLabel,omitempty"`
+	GeocodedLocation  string `msgpack:"geocodedLocation,omitempty"`
+	CountryISO        string `msgpack:"countryIso,omitempty"`
+	VoicemailURI      string `msgpack:"voicemailUri,omitempty"`
+	Presentation      int    `msgpack:"presentation,omitempty"`
+	Features          int    `msgpack:"features,omitempty"`
+	DataUsage         int64  `msgpack:"dataUsage,omitempty"`
+	TranslatedNumber  string `msgpack:"translatedNumber,omitempty"`
+	MatchedNumber     string `msgpack:"matchedNumber,omitempty"`
+	New               bool   `msgpack:"new,omitempty"`
+	AccountID         int    `msgpack:"accountId,omitempty"`
+}
+
+type AndroidCallLogResult struct {
+	Type      string                `msgpack:"type"`
+	CommandID string                `msgpack:"commandId,omitempty"`
+	Calls     []AndroidCallLogEntry `msgpack:"calls,omitempty"`
+	Error     string                `msgpack:"error,omitempty"`
+}
+
+type AndroidLocation struct {
+	Type                 string        `msgpack:"type"`
+	CommandID            string        `msgpack:"commandId,omitempty"`
+	Lat                  float64       `msgpack:"lat,omitempty"`
+	Lon                  float64       `msgpack:"lon,omitempty"`
+	Accuracy             float64       `msgpack:"accuracy,omitempty"`
+	Provider             string        `msgpack:"provider,omitempty"`
+	Altitude             float64       `msgpack:"altitude,omitempty"`
+	Bearing              float64       `msgpack:"bearing,omitempty"`
+	Speed                float64       `msgpack:"speed,omitempty"`
+	AltitudeAccuracy     float64       `msgpack:"altitudeAccuracy,omitempty"`
+	Time                 int64         `msgpack:"time,omitempty"`
+	ElapsedRealtimeNanos int64         `msgpack:"elapsedRealtimeNanos,omitempty"`
+	WiFiAPS              []AndroidWiFiAP `msgpack:"wifiAps,omitempty"`
+	Error                string        `msgpack:"error,omitempty"`
+}
+
+type AndroidApp struct {
+	PackageName      string `msgpack:"packageName"`
+	Name             string `msgpack:"name,omitempty"`
+	VersionName      string `msgpack:"versionName,omitempty"`
+	VersionCode      int    `msgpack:"versionCode,omitempty"`
+	InstallTime      int64  `msgpack:"installTime,omitempty"`
+	UpdateTime       int64  `msgpack:"updateTime,omitempty"`
+	FirstInstallTime int64  `msgpack:"firstInstallTime,omitempty"`
+	UID              int    `msgpack:"uid,omitempty"`
+	DataSize         int64  `msgpack:"dataSize,omitempty"`
+	CacheSize        int64  `msgpack:"cacheSize,omitempty"`
+	ApkSize          int64  `msgpack:"apkSize,omitempty"`
+	Enabled          bool   `msgpack:"enabled,omitempty"`
+	SystemApp        bool   `msgpack:"systemApp,omitempty"`
+	ActivityCount    int    `msgpack:"activityCount,omitempty"`
+	LastUsedTime     int64  `msgpack:"lastUsedTime,omitempty"`
+}
+
+type AndroidAppListResult struct {
+	Type      string        `msgpack:"type"`
+	CommandID string        `msgpack:"commandId,omitempty"`
+	Apps      []AndroidApp  `msgpack:"apps,omitempty"`
+	Error     string        `msgpack:"error,omitempty"`
+}

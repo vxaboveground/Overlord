@@ -99,6 +99,7 @@ function detectClientPlatform(clientId) {
   if (os.includes("windows")) return "windows";
   if (os.includes("darwin") || os.includes("mac")) return "mac";
   if (os.includes("linux")) return "linux";
+  if (os.includes("android")) return "android";
   return "unknown";
 }
 
@@ -211,6 +212,13 @@ function applyMenuSupportRules(clientId) {
   if (elevateBtn) {
     elevateBtn.style.display = platform === "mac" ? "" : "none";
     if (platform === "mac") setAvailability(elevateBtn, isOnline, "Client is offline");
+  }
+
+  const androidGroupBtn = menu.querySelector('[data-group-toggle="android"]');
+  if (androidGroupBtn) {
+    const isAndroid = platform === "android";
+    androidGroupBtn.style.display = isAndroid ? "" : "none";
+    if (isAndroid) setAvailability(androidGroupBtn, isOnline, "Client is offline");
   }
 
   setAvailability(menu.querySelector('[data-open="console"]'), isOnline, "Client is offline");
@@ -1280,6 +1288,12 @@ menu.addEventListener("click", async (e) => {
 
   if (open === "voice") {
     window.open(`/voice?clientId=${contextCard}`, "_blank", "noopener");
+    closeMenu(clearContext);
+    return;
+  }
+
+  if (open === "android") {
+    window.open(`/android?clientId=${contextCard}`, "_blank", "noopener");
     closeMenu(clearContext);
     return;
   }
