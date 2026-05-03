@@ -8,6 +8,10 @@
 
 Hello, I made this project for fun.
 
+It is written using a combination of Typescript + Node.JS for the server and GOLang for the client. <br> 
+Connections are done via encrypted websockets to connect to the server from the client. <br>
+You need to use docker to get this to run easier/for quicker deployment. <br>
+
 ---
 
 - [Quick Start (Docker)](#quick-start-docker)
@@ -23,6 +27,10 @@ Hello, I made this project for fun.
 If you just want it running fast, use this.
 
 > **⚠️ The compose file below is for Linux ONLY.** If you are on **Windows** or **macOS**, use `docker-compose.windows.yml` instead. See [Docker Install By OS](#docker-install-by-os) for the correct commands.
+
+<details>
+
+<summary>Installation instructions for Linux</summary>
 
 1. Create a `docker-compose.yml` file and paste this:
 
@@ -114,10 +122,15 @@ Keep that file private and backed up.
 
 Default bootstrap login is `admin` / `admin` unless you set `OVERLORD_USER` and `OVERLORD_PASS`.
 
+</details>
+
 ## Docker Install By OS
 
 ### Windows
 
+<details>
+  <summary>Installation instructions for Windows</summary>
+  <br>
 Install Docker Desktop (includes Docker Compose):
 
 - https://docs.docker.com/desktop/setup/install/windows-install/
@@ -217,7 +230,14 @@ docker --version
 docker compose version
 ```
 
+</details>
+
 ### macOS
+
+
+<details>
+  <summary>Installation instructions for Mac</summary>
+  <br>
 
 Install Docker Desktop:
 
@@ -250,16 +270,28 @@ To rebuild after an update:
 docker compose -f docker-compose.windows.yml up --build -d
 ```
 
+</details>
+
 ## No Docker (.bat / .sh)
 
-If you do not want Docker, use the included scripts.
+<details>
+  <summary>If you do not want Docker, use the included scripts.</summary>
+  <br>
 
 Prerequisites for local (non-Docker) runs:
 
 - Bun in PATH
 - Go 1.21+ in PATH
 
+</details>
+
+<hr>
+
 ### Windows
+
+<details>
+  <summary>Script instructions for Windows</summary>
+  <br>
 
 Development mode (starts server + client):
 
@@ -273,13 +305,21 @@ Production mode (build + run server executable):
 start-prod.bat
 ```
 
-Build client binaries:
+Build client binaries (adds client builds to the build queue):
 
 ```bat
 build-clients.bat
 ```
 
+</details>
+
+<hr>
+
 ### Linux / macOS
+
+<details>
+  <summary>Installation instructions for Linux / Mac</summary>
+  <br>
 
 Make scripts executable once:
 
@@ -311,6 +351,8 @@ Production mode:
 ./start-prod.sh
 ```
 
+</details>
+
 ## Production Package Scripts
 
 Build a production-ready package where the server can still build client binaries at runtime.
@@ -334,6 +376,10 @@ Package output:
 
 ## Docker Notes (TLS, reverse proxy, cache)
 
+<p>Here we will store some notes for you to read depending on what it is. Configs, work arounds etc.</p>
+
+<hr>
+
 ### BuildKit cache for faster rebuilds
 
 `docker-compose.yml` includes `build.cache_from` and `build.cache_to` using `.docker-cache/buildx`.
@@ -344,6 +390,8 @@ Rebuild:
 docker compose up --build -d
 ```
 
+<hr>
+
 ### Runtime client build cache
 
 The compose setup uses a persistent volume for runtime client builds:
@@ -352,34 +400,40 @@ The compose setup uses a persistent volume for runtime client builds:
 - mount: `/app/client-build-cache`
 - env: `OVERLORD_CLIENT_BUILD_CACHE_DIR` (default `/app/client-build-cache`)
 
+<hr>
+
 ### Certbot TLS
 
 To use certbot certificates in production Docker:
 
-- Set `OVERLORD_TLS_CERTBOT_ENABLED=true`
-- Set `OVERLORD_TLS_CERTBOT_DOMAIN=your-domain.com`
+#### Set:        
+    OVERLORD_TLS_CERTBOT_ENABLED=true
+#### Set:       
+    OVERLORD_TLS_CERTBOT_DOMAIN=your-domain.com
+    
 - Mount letsencrypt into container read-only (example: `/etc/letsencrypt:/etc/letsencrypt:ro`)
 
-Default cert paths:
+#### Default cert paths:       
+    cert: /etc/letsencrypt/live/<domain>/fullchain.pem     
+    key: /etc/letsencrypt/live/<domain>/privkey.pem      
+    ca: /etc/letsencrypt/live/<domain>/chain.pem
 
-- cert: `/etc/letsencrypt/live/<domain>/fullchain.pem`
-- key: `/etc/letsencrypt/live/<domain>/privkey.pem`
-- ca: `/etc/letsencrypt/live/<domain>/chain.pem`
+#### Override with:       
+    OVERLORD_TLS_CERTBOT_LIVE_PATH       
+    OVERLORD_TLS_CERTBOT_CERT_FILE
+    OVERLORD_TLS_CERTBOT_KEY_FILE
+    OVERLORD_TLS_CERTBOT_CA_FILE
 
-Override with:
-
-- `OVERLORD_TLS_CERTBOT_LIVE_PATH`
-- `OVERLORD_TLS_CERTBOT_CERT_FILE`
-- `OVERLORD_TLS_CERTBOT_KEY_FILE`
-- `OVERLORD_TLS_CERTBOT_CA_FILE`
+<hr>
 
 ### Reverse proxy TLS offload (Render, etc.)
 
-If your platform terminates TLS before traffic reaches Overlord, set:
-
-- `OVERLORD_TLS_OFFLOAD=true`
-- `OVERLORD_HEALTHCHECK_URL=http://localhost:5173/health`
-- `OVERLORD_PUBLISH_HOST=127.0.0.1` (recommended for local proxies like ngrok)
+#### If your platform terminates TLS before traffic reaches Overlord, set:
+ 
+     OVERLORD_TLS_OFFLOAD=true 
+     OVERLORD_HEALTHCHECK_URL=http://localhost:5173/health
+     OVERLORD_PUBLISH_HOST=127.0.0.1
+ (recommended for local proxies like ngrok)
 
 When enabled:
 
@@ -387,6 +441,8 @@ When enabled:
 - external URL remains `https://...` through your platform proxy
 - health checks should use `http://localhost:$PORT/health` inside the container
 - do not expose internal container HTTP port directly to the internet
+
+<hr> 
 
 For ngrok/local reverse proxy use, a common setup is:
 
@@ -401,6 +457,8 @@ Then point ngrok at local HTTP:
 ```sh
 ngrok http http://127.0.0.1:5173
 ```
+
+<hr>
 
 Notes:
 
