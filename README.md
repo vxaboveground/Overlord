@@ -8,7 +8,7 @@
 
 Hello, I made this project for fun.
 
-It is written using a combination of Typescript + Node.JS for tue server and GOLang for the client. <br> 
+It is written using a combination of Typescript + Node.JS for the server and GOLang for the client. <br> 
 Connections are done via encrypted websockets to connect to the server from the client. <br>
 You need to use docker to get this to run easier/for quicker deployment. <br>
 
