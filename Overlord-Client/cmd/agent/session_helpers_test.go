@@ -69,8 +69,8 @@ func TestReconnectDelay_Custom(t *testing.T) {
 func TestReconnectDelay_Invalid(t *testing.T) {
 	withEnv("OVERLORD_RECONNECT_DELAY_MS", "bad", func() {
 		delay := reconnectDelay()
-		if delay < 10*time.Second || delay > 30*time.Second {
-			t.Fatalf("expected 10-30s, got %s", delay)
+		if delay < 1*time.Second || delay > 3*time.Second {
+			t.Fatalf("expected 1-3s, got %s", delay)
 		}
 	})
 }

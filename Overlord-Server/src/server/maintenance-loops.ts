@@ -24,16 +24,20 @@ export function startMaintenanceLoops(params: StartMaintenanceParams): void {
     });
   }, 5000);
 
+  const livenessTimeoutMs = Math.max(
+    params.heartbeatIntervalMs * 4 + params.disconnectTimeoutMs,
+    60_000,
+  );
+
   setInterval(() => {
     const now = Date.now();
     for (const [id, info] of params.getClients().entries()) {
       if (info.role !== "client") continue;
-      if (
-        info.lastPingNonce !== undefined &&
-        info.lastPingSent &&
-        now - info.lastPingSent > params.heartbeatIntervalMs + params.disconnectTimeoutMs
-      ) {
-        logger.warn(`[ping] no pong from ${id} within timeout; closing socket`);
+      const lastActivity = info.lastSeen || 0;
+      if (lastActivity && now - lastActivity > livenessTimeoutMs) {
+        logger.warn(
+          `[ping] no activity from ${id} for ${now - lastActivity}ms; closing socket`,
+        );
         try {
           info.ws.close(4001, "ping timeout");
         } catch (err) {

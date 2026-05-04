@@ -9,6 +9,7 @@ export type ClientInfo = {
   ws: any;
   lastPingSent?: number;
   lastPingNonce?: number;
+  lastPongAt?: number;
   online?: boolean;
   hwid?: string;
   ip?: string;

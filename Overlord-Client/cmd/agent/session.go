@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -69,12 +70,10 @@ func runClient(cfg config.Config) {
 		}
 	}
 
-	tlsMinVersion := uint16(tls.VersionTLS12)
-	transport := createHTTPTransport(cfg, tlsMinVersion)
+	transport := createHTTPTransport(cfg)
 	currentIndex := cfg.ServerIndex
 	consecutiveFailures := 0
-	// idek how tf to fix this. sometimes the client just says fuck you and downgrades then stops connections.
-	allowTLSDowngrade := false
+	var loggedTLS bool
 	var lastDisconnect time.Time
 	var lastSolRefresh time.Time
 	solInitialWait := 2 * time.Minute
@@ -98,9 +97,9 @@ func runClient(cfg config.Config) {
 		}
 		log.Printf("connecting to %s%s (TLS verify: %v)", currentServer, serverInfo, !cfg.TLSInsecureSkipVerify)
 
-		conn, _, err := websocket.Dial(ctx, url, opts)
+		conn, resp, err := websocket.Dial(ctx, url, opts)
 		if err != nil {
-			log.Printf("dial failed: %v (retrying in %s)", err, backoff)
+			log.Printf("dial failed [%s]: %v (retrying in %s)", classifyDialError(err), err, backoff)
 			consecutiveFailures++
 			if lastDisconnect.IsZero() {
 				lastDisconnect = time.Now()
@@ -135,17 +134,21 @@ func runClient(cfg config.Config) {
 		lastDisconnect = time.Time{} // reset — we're connected
 		log.Printf("connected successfully to %s%s", currentServer, serverInfo)
 
+		if !loggedTLS && resp != nil && resp.TLS != nil {
+			log.Printf(
+				"[TLS] handshake ok: version=%s cipher=%s server=%s",
+				tls.VersionName(resp.TLS.Version),
+				tls.CipherSuiteName(resp.TLS.CipherSuite),
+				resp.TLS.ServerName,
+			)
+			loggedTLS = true
+		}
+
 		conn.SetReadLimit(8 * 1024 * 1024)
 
 		var sessionErr error
 		if err := runSession(ctx, cancel, conn, cfg); err != nil {
 			sessionErr = err
-			if allowTLSDowngrade && isTLSVersionError(err) {
-				log.Printf("[TLS] remote rejected TLS version; downgrading to TLS 1.0 for compatibility")
-				tlsMinVersion = uint16(tls.VersionTLS10)
-				transport = createHTTPTransport(cfg, tlsMinVersion)
-				allowTLSDowngrade = false
-			}
 			log.Printf("session ended: %v (retrying in %s)", err, backoff)
 			lastDisconnect = time.Now()
 
@@ -322,10 +325,10 @@ func equalStringSlices(a, b []string) bool {
 	return true
 }
 
-func createHTTPTransport(cfg config.Config, minVersion uint16) *http.Transport {
+func createHTTPTransport(cfg config.Config) *http.Transport {
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: cfg.TLSInsecureSkipVerify,
-		MinVersion:         minVersion,
+		MinVersion:         tls.VersionTLS12,
 	}
 
 	if cfg.TLSCAPath != "" {
@@ -359,16 +362,49 @@ func createHTTPTransport(cfg config.Config, minVersion uint16) *http.Transport {
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = tlsConfig
+	transport.DialContext = (&net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 15 * time.Second,
+	}).DialContext
 	return transport
 }
 
-func isTLSVersionError(err error) bool {
+func classifyDialError(err error) string {
 	if err == nil {
-		return false
+		return ""
 	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "protocol version not supported") ||
-		strings.Contains(msg, "tls: protocol version not supported")
+	switch {
+	case strings.Contains(msg, "x509:"),
+		strings.Contains(msg, "certificate signed by"),
+		strings.Contains(msg, "certificate has expired"),
+		strings.Contains(msg, "certificate is not valid"),
+		strings.Contains(msg, "unknown authority"):
+		return "TLS:cert"
+	case strings.Contains(msg, "protocol version"),
+		strings.Contains(msg, "tls: no application protocol"):
+		return "TLS:version"
+	case strings.Contains(msg, "no cipher suite"),
+		strings.Contains(msg, "handshake failure"):
+		return "TLS:cipher"
+	case strings.Contains(msg, "tls:"),
+		strings.Contains(msg, "remote error: tls"):
+		return "TLS"
+	case strings.Contains(msg, "no such host"):
+		return "DNS"
+	case strings.Contains(msg, "connection refused"):
+		return "refused"
+	case strings.Contains(msg, "i/o timeout"),
+		strings.Contains(msg, "context deadline exceeded"):
+		return "timeout"
+	case strings.Contains(msg, "no route to host"),
+		strings.Contains(msg, "network is unreachable"):
+		return "unreachable"
+	case strings.Contains(msg, "expected handshake response status code"),
+		strings.Contains(msg, "unexpected http response"):
+		return "http"
+	}
+	return "network"
 }
 
 func computeBaseBackoff() time.Duration {
@@ -380,12 +416,12 @@ func computeBaseBackoff() time.Duration {
 func reconnectDelay() time.Duration {
 	raw := strings.TrimSpace(os.Getenv("OVERLORD_RECONNECT_DELAY_MS"))
 	if raw == "" {
-		return randomReconnectDelay(10*time.Second, 30*time.Second)
+		return randomReconnectDelay(1*time.Second, 3*time.Second)
 	}
 	ms, err := strconv.Atoi(raw)
 	if err != nil || ms < 0 {
-		log.Printf("[reconnect] invalid OVERLORD_RECONNECT_DELAY_MS=%q, using 10-30s", raw)
-		return randomReconnectDelay(10*time.Second, 30*time.Second)
+		log.Printf("[reconnect] invalid OVERLORD_RECONNECT_DELAY_MS=%q, using 1-3s", raw)
+		return randomReconnectDelay(1*time.Second, 3*time.Second)
 	}
 	if ms == 0 {
 		return 0
@@ -699,9 +735,9 @@ func runSession(ctx context.Context, cancel context.CancelFunc, conn *websocket.
 			}
 		})
 		goSafe("pong watchdog", cancel, func() {
-			grace := interval + (10 * time.Second)
-			if grace < 20*time.Second {
-				grace = 20 * time.Second
+			grace := interval*3 + (30 * time.Second)
+			if grace < 90*time.Second {
+				grace = 90 * time.Second
 			}
 			ticker := time.NewTicker(interval)
 			defer ticker.Stop()

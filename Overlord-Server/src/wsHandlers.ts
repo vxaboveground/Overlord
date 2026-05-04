@@ -207,11 +207,7 @@ export function handlePing(info: ClientInfo, payload: WireMessage, ws: any) {
 
 export function sendPingRequest(info: ClientInfo, ws: any, reason: string) {
   const now = Date.now();
-  if (
-    info.lastPingNonce !== undefined &&
-    info.lastPingSent &&
-    now-info.lastPingSent < MAX_PING_RTT_MS
-  ) {
+  if (info.lastPingSent && now - info.lastPingSent < 1_000) {
     return;
   }
   const nonce = now + Math.floor(Math.random() * 1000);
@@ -245,6 +241,7 @@ export function handlePong(info: ClientInfo, payload: WireMessage) {
   const nowTs = Date.now();
 
   info.lastSeen = nowTs;
+  info.lastPongAt = nowTs;
   info.online = true;
   info.lastPingNonce = undefined;
 
