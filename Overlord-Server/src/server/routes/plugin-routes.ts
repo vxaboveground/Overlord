@@ -5,7 +5,7 @@ import AdmZip from "adm-zip";
 import { v4 as uuidv4 } from "uuid";
 import { authenticateRequest } from "../../auth";
 import { requirePermission } from "../../rbac";
-import { canUserAccessClient } from "../../users";
+import { canUserAccessClient, canUserAccessPlugin } from "../../users";
 import * as clientManager from "../../clientManager";
 import { metrics } from "../../metrics";
 import { encodeMessage, type PluginSignatureInfo } from "../../protocol";
@@ -123,20 +123,23 @@ export async function handlePluginRoutes(
   }
 
   if (req.method === "GET" && url.pathname === "/api/plugins") {
-    if (!(await authenticateRequest(req))) {
+    const user = await authenticateRequest(req);
+    if (!user) {
       return new Response("Unauthorized", { status: 401 });
     }
     const plugins = await deps.listPluginManifests();
-    const enriched = plugins.map((p) => ({
-      ...p,
-      enabled: deps.pluginState.enabled[p.id] !== false,
-      lastError: deps.pluginState.lastError[p.id] || "",
-      autoLoad: deps.pluginState.autoLoad[p.id] === true,
-      autoStartEvents: deps.pluginState.autoStartEvents[p.id] || [],
-      signature: p.signature || { signed: false, trusted: false, valid: false },
-      hasServer: p.hasServer === true || deps.pluginRuntime.hasServerCode(p.id),
-      serverRunning: deps.pluginRuntime.isRunning(p.id),
-    }));
+    const enriched = plugins
+      .filter((p) => canUserAccessPlugin(user.userId, user.role, p.id))
+      .map((p) => ({
+        ...p,
+        enabled: deps.pluginState.enabled[p.id] !== false,
+        lastError: deps.pluginState.lastError[p.id] || "",
+        autoLoad: deps.pluginState.autoLoad[p.id] === true,
+        autoStartEvents: deps.pluginState.autoStartEvents[p.id] || [],
+        signature: p.signature || { signed: false, trusted: false, valid: false },
+        hasServer: p.hasServer === true || deps.pluginRuntime.hasServerCode(p.id),
+        serverRunning: deps.pluginRuntime.isRunning(p.id),
+      }));
     return Response.json({ plugins: enriched });
   }
 
@@ -205,14 +208,16 @@ export async function handlePluginRoutes(
     }
     const loaded = deps.pluginLoadedByClient.get(clientId) || new Set<string>();
     const manifests = await deps.listPluginManifests();
-    const plugins = manifests.map((manifest) => ({
-      id: manifest.id,
-      name: manifest.name || manifest.id,
-      loaded: loaded.has(manifest.id),
-      enabled: deps.pluginState.enabled[manifest.id] !== false,
-      lastError: deps.pluginState.lastError[manifest.id] || "",
-      signature: manifest.signature || { signed: false, trusted: false, valid: false },
-    }));
+    const plugins = manifests
+      .filter((manifest) => canUserAccessPlugin(user.userId, user.role, manifest.id))
+      .map((manifest) => ({
+        id: manifest.id,
+        name: manifest.name || manifest.id,
+        loaded: loaded.has(manifest.id),
+        enabled: deps.pluginState.enabled[manifest.id] !== false,
+        lastError: deps.pluginState.lastError[manifest.id] || "",
+        signature: manifest.signature || { signed: false, trusted: false, valid: false },
+      }));
     return Response.json({ plugins });
   }
 
@@ -453,6 +458,9 @@ export async function handlePluginRoutes(
     try { requirePermission(user, "clients:control"); } catch (e) { if (e instanceof Response) return e; return new Response("Forbidden", { status: 403 }); }
     let pluginId = "";
     try { pluginId = deps.sanitizePluginId(pluginDataListMatch[1]); } catch { return new Response("Invalid plugin id", { status: 400 }); }
+    if (!canUserAccessPlugin(user.userId, user.role, pluginId)) {
+      return new Response("Forbidden: You do not have access to this plugin", { status: 403 });
+    }
     const dataDir = path.join(deps.PLUGIN_ROOT, pluginId, "data");
     await fs.mkdir(dataDir, { recursive: true });
     async function walkDir(dir: string, base: string): Promise<{ path: string; size: number; isDir: boolean }[]> {
@@ -482,6 +490,9 @@ export async function handlePluginRoutes(
     try { requirePermission(user, "clients:control"); } catch (e) { if (e instanceof Response) return e; return new Response("Forbidden", { status: 403 }); }
     let pluginId = "";
     try { pluginId = deps.sanitizePluginId(pluginDataReadMatch[1]); } catch { return new Response("Invalid plugin id", { status: 400 }); }
+    if (!canUserAccessPlugin(user.userId, user.role, pluginId)) {
+      return new Response("Forbidden: You do not have access to this plugin", { status: 403 });
+    }
     let relPath = pluginDataReadMatch[2];
     try { relPath = decodeURIComponent(relPath); } catch { return new Response("Bad request", { status: 400 }); }
     if (relPath.includes("\u0000")) return new Response("Bad request", { status: 400 });
@@ -504,6 +515,9 @@ export async function handlePluginRoutes(
     try { requirePermission(user, "clients:control"); } catch (e) { if (e instanceof Response) return e; return new Response("Forbidden", { status: 403 }); }
     let pluginId = "";
     try { pluginId = deps.sanitizePluginId(pluginDataWriteMatch[1]); } catch { return new Response("Invalid plugin id", { status: 400 }); }
+    if (!canUserAccessPlugin(user.userId, user.role, pluginId)) {
+      return new Response("Forbidden: You do not have access to this plugin", { status: 403 });
+    }
     let relPath = pluginDataWriteMatch[2];
     try { relPath = decodeURIComponent(relPath); } catch { return new Response("Bad request", { status: 400 }); }
     if (relPath.includes("\u0000") || relPath.endsWith("/") || relPath.endsWith(path.sep)) {
@@ -542,6 +556,9 @@ export async function handlePluginRoutes(
     try { requirePermission(user, "clients:control"); } catch (e) { if (e instanceof Response) return e; return new Response("Forbidden", { status: 403 }); }
     let pluginId = "";
     try { pluginId = deps.sanitizePluginId(pluginDataDeleteMatch[1]); } catch { return new Response("Invalid plugin id", { status: 400 }); }
+    if (!canUserAccessPlugin(user.userId, user.role, pluginId)) {
+      return new Response("Forbidden: You do not have access to this plugin", { status: 403 });
+    }
     let relPath = pluginDataDeleteMatch[2];
     try { relPath = decodeURIComponent(relPath); } catch { return new Response("Bad request", { status: 400 }); }
     if (relPath.includes("\u0000")) return new Response("Bad request", { status: 400 });
@@ -575,6 +592,9 @@ export async function handlePluginRoutes(
     }
     let pluginId = "";
     try { pluginId = deps.sanitizePluginId(pluginExecMatch[1]); } catch { return new Response("Invalid plugin id", { status: 400 }); }
+    if (!canUserAccessPlugin(user.userId, user.role, pluginId)) {
+      return new Response("Forbidden: You do not have access to this plugin", { status: 403 });
+    }
     let body: any = {};
     try { body = await req.json(); } catch { return new Response("Bad request", { status: 400 }); }
     const filePath = typeof body.file === "string" ? body.file : "";
@@ -715,6 +735,9 @@ export async function handlePluginRoutes(
       return new Response("Forbidden: You do not have access to this client", { status: 403 });
     }
     const pluginId = pluginLoadMatch[2];
+    if (!canUserAccessPlugin(user.userId, user.role, pluginId)) {
+      return new Response("Forbidden: You do not have access to this plugin", { status: 403 });
+    }
     const target = clientManager.getClient(targetId);
     if (!target) return new Response("Not found", { status: 404 });
     if (deps.isPluginLoaded(targetId, pluginId)) {
@@ -772,6 +795,9 @@ export async function handlePluginRoutes(
       return new Response("Forbidden: You do not have access to this client", { status: 403 });
     }
     const pluginId = pluginEventsPollMatch[2];
+    if (!canUserAccessPlugin(user.userId, user.role, pluginId)) {
+      return new Response("Forbidden: You do not have access to this plugin", { status: 403 });
+    }
     const events = deps.drainPluginUIEvents(targetId, pluginId);
     return Response.json({ events });
   }
@@ -792,6 +818,9 @@ export async function handlePluginRoutes(
       return new Response("Forbidden: You do not have access to this client", { status: 403 });
     }
     const pluginId = pluginEventMatch[2];
+    if (!canUserAccessPlugin(user.userId, user.role, pluginId)) {
+      return new Response("Forbidden: You do not have access to this plugin", { status: 403 });
+    }
     const target = clientManager.getClient(targetId);
     if (!target) return new Response("Not found", { status: 404 });
     if (deps.pluginState.enabled[pluginId] === false) {
@@ -854,6 +883,9 @@ export async function handlePluginRoutes(
       return new Response("Forbidden: You do not have access to this client", { status: 403 });
     }
     const pluginId = pluginUnloadMatch[2];
+    if (!canUserAccessPlugin(user.userId, user.role, pluginId)) {
+      return new Response("Forbidden: You do not have access to this plugin", { status: 403 });
+    }
     const target = clientManager.getClient(targetId);
     if (!target) return new Response("Not found", { status: 404 });
 
@@ -887,6 +919,10 @@ export async function handlePluginRoutes(
     let pluginId = "";
     try { pluginId = deps.sanitizePluginId(pluginRpcMatch[1]); } catch {
       return new Response("Invalid plugin id", { status: 400 });
+    }
+
+    if (!canUserAccessPlugin(user.userId, user.role, pluginId)) {
+      return new Response("Forbidden: You do not have access to this plugin", { status: 403 });
     }
 
     if (deps.pluginState.enabled[pluginId] === false) {
@@ -935,6 +971,10 @@ export async function handlePluginRoutes(
     let pluginId = "";
     try { pluginId = deps.sanitizePluginId(pluginStreamMatch[1]); } catch {
       return new Response("Invalid plugin id", { status: 400 });
+    }
+
+    if (!canUserAccessPlugin(user.userId, user.role, pluginId)) {
+      return new Response("Forbidden: You do not have access to this plugin", { status: 403 });
     }
 
     if (deps.pluginState.enabled[pluginId] === false) {
@@ -998,6 +1038,10 @@ export async function handlePluginRoutes(
       return new Response("Invalid plugin id", { status: 400 });
     }
 
+    if (!canUserAccessPlugin(user.userId, user.role, pluginId)) {
+      return new Response("Forbidden: You do not have access to this plugin", { status: 403 });
+    }
+
     const htmlFile = path.join(deps.PLUGIN_ROOT, pluginId, "assets", `${pluginId}.html`);
     const file = Bun.file(htmlFile);
     if (!(await file.exists())) {
@@ -1031,6 +1075,10 @@ export async function handlePluginRoutes(
       pluginId = deps.sanitizePluginId(pluginPageMatch[1]);
     } catch {
       return new Response("Invalid plugin id", { status: 400 });
+    }
+
+    if (!canUserAccessPlugin(user.userId, user.role, pluginId)) {
+      return new Response("Forbidden: You do not have access to this plugin", { status: 403 });
     }
 
     const clientId = url.searchParams.get("clientId") || "";
@@ -1106,6 +1154,9 @@ export async function handlePluginRoutes(
     }
 
     const [, pluginId, assetPath] = pluginAssetMatch;
+    if (!canUserAccessPlugin(user.userId, user.role, pluginId)) {
+      return new Response("Forbidden: You do not have access to this plugin", { status: 403 });
+    }
     let decodedPath = assetPath;
     try {
       decodedPath = decodeURIComponent(assetPath);

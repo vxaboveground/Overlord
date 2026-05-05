@@ -210,7 +210,7 @@ function renderUsers() {
               <i class="fa-solid fa-user-shield"></i>
             </button>
             ${user.role === "operator" ? `
-            <button 
+            <button
               class="user-action-btn px-3 py-1.5 text-sm bg-amber-900/30 hover:bg-amber-900/50 text-amber-300 rounded border border-amber-800 transition-colors"
               data-action="feature-permissions"
               data-user-id="${user.id}"
@@ -218,6 +218,17 @@ function renderUsers() {
               title="Feature Permissions"
             >
               <i class="fa-solid fa-sliders"></i>
+            </button>
+            ` : ''}
+            ${user.role !== "admin" ? `
+            <button
+              class="user-action-btn px-3 py-1.5 text-sm bg-emerald-900/30 hover:bg-emerald-900/50 text-emerald-300 rounded border border-emerald-800 transition-colors"
+              data-action="plugin-access"
+              data-user-id="${user.id}"
+              data-username="${escapeHtml(user.username)}"
+              title="Plugin Access"
+            >
+              <i class="fa-solid fa-puzzle-piece"></i>
             </button>
             ` : ''}
             <button 
@@ -311,6 +322,9 @@ function attachActionListeners() {
         break;
       case "feature-permissions":
         configureFeaturePermissions(userId, username);
+        break;
+      case "plugin-access":
+        configurePluginAccess(userId, username);
         break;
       case "view-sessions":
         viewUserSessions(userId, username);
@@ -588,6 +602,133 @@ window.configureFeaturePermissions = async function (userId, username) {
   } catch (err) {
     console.error("Feature permissions error:", err);
     alert("Failed to load feature permissions");
+  }
+};
+
+window.configurePluginAccess = async function (userId, username) {
+  try {
+    const [accessRes, pluginsRes] = await Promise.all([
+      fetch(`/api/users/${userId}/plugin-access`),
+      fetch("/api/plugins"),
+    ]);
+    if (!accessRes.ok) throw new Error("Failed to load plugin access");
+
+    const accessData = await accessRes.json();
+    const currentScope = accessData.scope || "none";
+    const allowedIds = new Set((accessData.rules || []).map(r => r.pluginId));
+
+    let allPlugins = [];
+    if (pluginsRes.ok) {
+      const pluginsData = await pluginsRes.json();
+      allPlugins = pluginsData.plugins || [];
+    }
+
+    let modal = document.getElementById("plugin-access-modal");
+    if (modal) modal.remove();
+
+    modal = document.createElement("div");
+    modal.id = "plugin-access-modal";
+    modal.className = "fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4";
+
+    const scopeOptions = [
+      { value: "none", label: "No Access", desc: "User cannot access any plugins" },
+      { value: "allowlist", label: "Selected Plugins", desc: "User can only access checked plugins" },
+      { value: "all", label: "All Plugins", desc: "User can access all plugins" },
+    ];
+
+    modal.innerHTML = `
+      <div class="bg-slate-900 border border-slate-700 rounded-xl max-w-md w-full p-6 shadow-2xl max-h-[85vh] flex flex-col">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-xl font-bold text-slate-100">Plugin Access</h3>
+          <button id="close-plugin-modal" class="text-slate-400 hover:text-slate-200 transition-colors">
+            <i class="fa-solid fa-times text-xl"></i>
+          </button>
+        </div>
+        <p class="text-sm text-slate-400 mb-4">
+          Manage plugin access for <span class="text-slate-200 font-medium">${escapeHtml(username)}</span>.
+        </p>
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-slate-300 mb-2">Access Mode</label>
+          <select id="plugin-scope-select" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+            ${scopeOptions.map(o => `<option value="${o.value}" ${o.value === currentScope ? "selected" : ""}>${o.label}</option>`).join("")}
+          </select>
+          <p id="plugin-scope-desc" class="text-xs text-slate-500 mt-1">${scopeOptions.find(o => o.value === currentScope)?.desc || ""}</p>
+        </div>
+        <div id="plugin-list-section" class="${currentScope !== "allowlist" ? "hidden" : ""} flex-1 overflow-y-auto mb-4">
+          <label class="block text-sm font-medium text-slate-300 mb-2">Select Plugins</label>
+          <div class="space-y-2" id="plugin-toggles">
+            ${allPlugins.length === 0
+              ? '<p class="text-sm text-slate-500 italic">No plugins installed</p>'
+              : allPlugins.map(p => `
+                <label class="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg border border-slate-700 hover:border-slate-600 cursor-pointer transition-colors">
+                  <div class="flex items-center gap-3">
+                    <i class="fa-solid fa-puzzle-piece text-slate-400 w-5 text-center"></i>
+                    <span class="text-slate-200 font-medium">${escapeHtml(p.name || p.id)}</span>
+                    <span class="text-xs text-slate-500">${escapeHtml(p.id)}</span>
+                  </div>
+                  <input type="checkbox" data-plugin-id="${escapeHtml(p.id)}" ${allowedIds.has(p.id) ? "checked" : ""}
+                    class="w-5 h-5 rounded bg-slate-700 border-slate-600 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-0 cursor-pointer" />
+                </label>`).join("")}
+          </div>
+        </div>
+        <div class="flex gap-3">
+          <button id="cancel-plugin-access" class="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition-colors font-medium">
+            Cancel
+          </button>
+          <button id="save-plugin-access" class="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors font-medium">
+            <i class="fa-solid fa-check mr-2"></i>Save
+          </button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+
+    const scopeSelect = document.getElementById("plugin-scope-select");
+    const scopeDesc = document.getElementById("plugin-scope-desc");
+    const listSection = document.getElementById("plugin-list-section");
+
+    scopeSelect.addEventListener("change", () => {
+      const val = scopeSelect.value;
+      const opt = scopeOptions.find(o => o.value === val);
+      scopeDesc.textContent = opt?.desc || "";
+      if (val === "allowlist") {
+        listSection.classList.remove("hidden");
+      } else {
+        listSection.classList.add("hidden");
+      }
+    });
+
+    document.getElementById("close-plugin-modal").addEventListener("click", () => modal.remove());
+    document.getElementById("cancel-plugin-access").addEventListener("click", () => modal.remove());
+    modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+
+    document.getElementById("save-plugin-access").addEventListener("click", async () => {
+      const scope = scopeSelect.value;
+      const pluginIds = [];
+      if (scope === "allowlist") {
+        modal.querySelectorAll("[data-plugin-id]").forEach(cb => {
+          if (cb.checked) pluginIds.push(cb.dataset.pluginId);
+        });
+      }
+
+      try {
+        const saveRes = await fetch(`/api/users/${userId}/plugin-access`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scope, pluginIds }),
+        });
+        if (!saveRes.ok) {
+          const err = await saveRes.json().catch(() => ({}));
+          throw new Error(err.error || "Failed to save");
+        }
+        modal.remove();
+        if (window.showToast) window.showToast("Plugin access updated", "success");
+      } catch (err) {
+        alert("Failed to save plugin access: " + err.message);
+      }
+    });
+  } catch (err) {
+    console.error("Plugin access error:", err);
+    alert("Failed to load plugin access settings");
   }
 };
 

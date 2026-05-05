@@ -11,6 +11,7 @@ const db = new Database(dbPath);
 export type UserRole = "admin" | "operator" | "viewer";
 export type ClientAccessScope = "none" | "allowlist" | "denylist" | "all";
 export type ClientAccessRuleKind = "allow" | "deny";
+export type PluginAccessScope = "none" | "allowlist" | "all";
 
 export interface User {
   id: number;
@@ -22,6 +23,7 @@ export interface User {
   created_by: string | null;
   must_change_password: number;
   client_scope: ClientAccessScope;
+  plugin_scope: PluginAccessScope;
   can_build: number;
   can_upload_files: number;
   telegram_chat_id: string | null;
@@ -35,6 +37,7 @@ export interface UserInfo {
   last_login: number | null;
   created_by: string | null;
   client_scope: ClientAccessScope;
+  plugin_scope: PluginAccessScope;
   can_build: number;
   can_upload_files: number;
   telegram_chat_id: string | null;
@@ -44,6 +47,11 @@ export interface UserClientAccessRule {
   userId: number;
   clientId: string;
   access: ClientAccessRuleKind;
+}
+
+export interface UserPluginAccessRule {
+  userId: number;
+  pluginId: string;
 }
 
 type UserAccessCacheEntry = {
@@ -93,6 +101,19 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   )
 `);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS user_plugin_access_rules (
+    user_id INTEGER NOT NULL,
+    plugin_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, plugin_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  )
+`);
+db.exec(
+  `CREATE INDEX IF NOT EXISTS idx_user_plugin_access_rules_user ON user_plugin_access_rules(user_id)`,
+);
 
 try {
   db.exec(
@@ -220,6 +241,22 @@ try {
   }
 }
 
+try {
+  db.exec(
+    `ALTER TABLE users ADD COLUMN plugin_scope TEXT NOT NULL DEFAULT 'none' CHECK(plugin_scope IN ('none', 'allowlist', 'all'))`,
+  );
+  logger.info("[users] Added plugin_scope column to existing database");
+  try {
+    db.exec(`UPDATE users SET plugin_scope='all' WHERE role='admin'`);
+  } catch (err: any) {
+    logger.error("[users] Failed to backfill admin plugin_scope:", err);
+  }
+} catch (err: any) {
+  if (!err.message?.includes("duplicate column name")) {
+    logger.error("[users] Migration error:", err);
+  }
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS registration_keys (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -267,8 +304,8 @@ if (userCount.count === 0) {
   });
 
   db.prepare(
-    "INSERT INTO users (username, password_hash, role, created_at, created_by, must_change_password, client_scope, can_build, can_upload_files) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-  ).run(initialUsername, defaultPassword, "admin", Date.now(), "system", 1, "all", 1, 1);
+    "INSERT INTO users (username, password_hash, role, created_at, created_by, must_change_password, client_scope, plugin_scope, can_build, can_upload_files) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(initialUsername, defaultPassword, "admin", Date.now(), "system", 1, "all", "all", 1, 1);
 
   const createdUser = db
     .prepare("SELECT * FROM users WHERE username = ?")
@@ -301,7 +338,7 @@ export function getUserByUsername(username: string): User | null {
 export function listUsers(): UserInfo[] {
   const users = db
     .prepare(
-      "SELECT id, username, role, created_at, last_login, created_by, client_scope, can_build, can_upload_files, telegram_chat_id FROM users ORDER BY created_at DESC",
+      "SELECT id, username, role, created_at, last_login, created_by, client_scope, plugin_scope, can_build, can_upload_files, telegram_chat_id FROM users ORDER BY created_at DESC",
     )
     .all() as UserInfo[];
   return users;
@@ -452,6 +489,152 @@ export function canUserAccessClient(
     return !access.deny.has(clientId);
   }
   return false;
+}
+
+type PluginAccessCacheEntry = {
+  scope: PluginAccessScope;
+  allowed: Set<string>;
+};
+
+const pluginAccessCache = new Map<number, PluginAccessCacheEntry>();
+
+function invalidatePluginAccessCache(userId?: number): void {
+  if (userId === undefined) {
+    pluginAccessCache.clear();
+    return;
+  }
+  pluginAccessCache.delete(userId);
+}
+
+function getPluginAccessCacheEntry(userId: number): PluginAccessCacheEntry {
+  const cached = pluginAccessCache.get(userId);
+  if (cached) return cached;
+
+  const row = db
+    .prepare("SELECT plugin_scope FROM users WHERE id = ?")
+    .get(userId) as { plugin_scope?: PluginAccessScope } | undefined;
+  const rules = db
+    .prepare("SELECT plugin_id as pluginId FROM user_plugin_access_rules WHERE user_id = ?")
+    .all(userId) as Array<{ pluginId: string }>;
+
+  const entry: PluginAccessCacheEntry = {
+    scope: row?.plugin_scope || "none",
+    allowed: new Set<string>(),
+  };
+
+  for (const rule of rules) {
+    entry.allowed.add(rule.pluginId);
+  }
+
+  pluginAccessCache.set(userId, entry);
+  return entry;
+}
+
+export function getUserPluginAccessScope(userId: number): PluginAccessScope {
+  return getPluginAccessCacheEntry(userId).scope;
+}
+
+export function listUserPluginAccessRules(userId: number): UserPluginAccessRule[] {
+  return db
+    .prepare(
+      "SELECT user_id as userId, plugin_id as pluginId FROM user_plugin_access_rules WHERE user_id = ? ORDER BY plugin_id ASC",
+    )
+    .all(userId) as UserPluginAccessRule[];
+}
+
+export function canUserAccessPlugin(
+  userId: number,
+  role: UserRole,
+  pluginId: string,
+): boolean {
+  if (role === "admin") return true;
+
+  const access = getPluginAccessCacheEntry(userId);
+  if (access.scope === "none") return false;
+  if (access.scope === "all") return true;
+  if (access.scope === "allowlist") return access.allowed.has(pluginId);
+  return false;
+}
+
+export function setUserPluginAccessScope(
+  userId: number,
+  scope: PluginAccessScope,
+): { success: boolean; error?: string } {
+  if (!["none", "allowlist", "all"].includes(scope)) {
+    return { success: false, error: "Invalid plugin access scope" };
+  }
+
+  try {
+    db.prepare("UPDATE users SET plugin_scope = ? WHERE id = ?").run(scope, userId);
+    invalidatePluginAccessCache(userId);
+    return { success: true };
+  } catch (err: any) {
+    logger.error("[users] setUserPluginAccessScope error:", err);
+    return { success: false, error: err.message || "Failed to update plugin access scope" };
+  }
+}
+
+export function setUserPluginAccessRule(
+  userId: number,
+  pluginId: string,
+): { success: boolean; error?: string } {
+  const normalizedPluginId = (pluginId || "").trim();
+  if (!normalizedPluginId) {
+    return { success: false, error: "pluginId is required" };
+  }
+
+  try {
+    db.prepare(
+      "INSERT OR REPLACE INTO user_plugin_access_rules (user_id, plugin_id, created_at) VALUES (?, ?, ?)",
+    ).run(userId, normalizedPluginId, Date.now());
+    invalidatePluginAccessCache(userId);
+    return { success: true };
+  } catch (err: any) {
+    logger.error("[users] setUserPluginAccessRule error:", err);
+    return { success: false, error: err.message || "Failed to update plugin access rule" };
+  }
+}
+
+export function removeUserPluginAccessRule(
+  userId: number,
+  pluginId: string,
+): { success: boolean; error?: string } {
+  try {
+    db.prepare("DELETE FROM user_plugin_access_rules WHERE user_id = ? AND plugin_id = ?").run(
+      userId,
+      pluginId,
+    );
+    invalidatePluginAccessCache(userId);
+    return { success: true };
+  } catch (err: any) {
+    logger.error("[users] removeUserPluginAccessRule error:", err);
+    return { success: false, error: err.message || "Failed to remove plugin access rule" };
+  }
+}
+
+export function setUserPluginAccessRulesBulk(
+  userId: number,
+  pluginIds: string[],
+): { success: boolean; error?: string } {
+  try {
+    const tx = db.transaction(() => {
+      db.prepare("DELETE FROM user_plugin_access_rules WHERE user_id = ?").run(userId);
+      const stmt = db.prepare(
+        "INSERT INTO user_plugin_access_rules (user_id, plugin_id, created_at) VALUES (?, ?, ?)",
+      );
+      const now = Date.now();
+      for (const pid of pluginIds) {
+        const normalized = (pid || "").trim();
+        if (normalized) stmt.run(userId, normalized, now);
+      }
+    });
+    tx();
+    invalidatePluginAccessCache(userId);
+    return { success: true };
+  } catch (err: any) {
+    logger.error("[users] setUserPluginAccessRulesBulk error:", err);
+    return { success: false, error: err.message || "Failed to update plugin access rules" };
+  }
 }
 
 export type FeatureName =
@@ -647,9 +830,9 @@ export async function createUser(
 
     const result = db
       .prepare(
-        "INSERT INTO users (username, password_hash, role, created_at, created_by, client_scope, can_build, can_upload_files) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO users (username, password_hash, role, created_at, created_by, client_scope, plugin_scope, can_build, can_upload_files) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
-      .run(username, passwordHash, role, Date.now(), createdBy, role === "admin" ? "all" : "none", role === "admin" || role === "operator" ? 1 : 0, role === "admin" ? 1 : 0);
+      .run(username, passwordHash, role, Date.now(), createdBy, role === "admin" ? "all" : "none", role === "admin" ? "all" : "none", role === "admin" || role === "operator" ? 1 : 0, role === "admin" ? 1 : 0);
 
     invalidateNotificationDeliveryCache();
 
@@ -694,12 +877,15 @@ export function updateUserRole(
 ): { success: boolean; error?: string } {
   try {
     const nextScope: ClientAccessScope = newRole === "admin" ? "all" : "none";
-    db.prepare("UPDATE users SET role = ?, client_scope = ? WHERE id = ?").run(
+    const nextPluginScope: PluginAccessScope = newRole === "admin" ? "all" : "none";
+    db.prepare("UPDATE users SET role = ?, client_scope = ?, plugin_scope = ? WHERE id = ?").run(
       newRole,
       nextScope,
+      nextPluginScope,
       userId,
     );
     invalidateUserAccessCache(userId);
+    invalidatePluginAccessCache(userId);
     invalidateNotificationDeliveryCache();
     return { success: true };
   } catch (err: any) {
@@ -724,6 +910,7 @@ export function deleteUser(userId: number): {
   try {
     db.prepare("DELETE FROM users WHERE id = ?").run(userId);
     invalidateUserAccessCache(userId);
+    invalidatePluginAccessCache(userId);
     invalidateNotificationDeliveryCache();
     return { success: true };
   } catch (err: any) {

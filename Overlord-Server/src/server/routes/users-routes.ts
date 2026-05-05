@@ -11,14 +11,17 @@ import {
   type ClientAccessRuleKind,
   type ClientAccessScope,
   type FeatureName,
+  type PluginAccessScope,
   ALL_FEATURES,
   createUser,
   deleteUser,
   getUserById,
   getUserClientAccessScope,
   getUserFeaturePermissions,
+  getUserPluginAccessScope,
   listUsers,
   listUserClientAccessRules,
+  listUserPluginAccessRules,
   removeUserClientAccessRule,
   setUserClientAccessRule,
   setUserClientAccessScope,
@@ -26,6 +29,8 @@ import {
   setUserCanUploadFiles,
   setUserFeaturePermissions,
   resetUserFeaturePermissions,
+  setUserPluginAccessScope,
+  setUserPluginAccessRulesBulk,
   updateUserPassword,
   updateUserRole,
 } from "../../users";
@@ -492,6 +497,71 @@ export async function handleUsersRoutes(
       });
 
       return Response.json({ success: true });
+    }
+
+    if (req.method === "GET" && url.pathname.match(/^\/api\/users\/\d+\/plugin-access$/)) {
+      const authedUser = requirePermission(user, "users:manage");
+      const userId = parseInt(url.pathname.split("/")[3]);
+      const targetUser = getUserById(userId);
+      if (!targetUser) {
+        return Response.json({ error: "User not found" }, { status: 404 });
+      }
+
+      const scope = getUserPluginAccessScope(userId);
+      const rules = listUserPluginAccessRules(userId);
+
+      const ip = server.requestIP(req)?.address || "unknown";
+      logAudit({
+        timestamp: Date.now(),
+        username: authedUser.username,
+        ip,
+        action: AuditAction.COMMAND,
+        details: `Viewed plugin access policy for user: ${targetUser.username}`,
+        success: true,
+      });
+
+      return Response.json({ scope, rules });
+    }
+
+    if (req.method === "PUT" && url.pathname.match(/^\/api\/users\/\d+\/plugin-access$/)) {
+      const authedUser = requirePermission(user, "users:manage");
+      const userId = parseInt(url.pathname.split("/")[3]);
+      const targetUser = getUserById(userId);
+      if (!targetUser) {
+        return Response.json({ error: "User not found" }, { status: 404 });
+      }
+
+      const body = await req.json();
+      const scope = body?.scope as PluginAccessScope;
+      const pluginIds = Array.isArray(body?.pluginIds) ? body.pluginIds.filter((id: any) => typeof id === "string" && id.trim()) : undefined;
+
+      const scopeResult = setUserPluginAccessScope(userId, scope);
+      if (!scopeResult.success) {
+        return Response.json({ error: scopeResult.error }, { status: 400 });
+      }
+
+      if (scope === "allowlist" && pluginIds !== undefined) {
+        const rulesResult = setUserPluginAccessRulesBulk(userId, pluginIds);
+        if (!rulesResult.success) {
+          return Response.json({ error: rulesResult.error }, { status: 400 });
+        }
+      }
+
+      const ip = server.requestIP(req)?.address || "unknown";
+      logAudit({
+        timestamp: Date.now(),
+        username: authedUser.username,
+        ip,
+        action: AuditAction.COMMAND,
+        details: `Updated plugin access for ${targetUser.username}: scope=${scope}${pluginIds ? `, plugins=[${pluginIds.join(",")}]` : ""}`,
+        success: true,
+      });
+
+      return Response.json({
+        success: true,
+        scope,
+        rules: listUserPluginAccessRules(userId),
+      });
     }
 
     return new Response("Not found", { status: 404 });
