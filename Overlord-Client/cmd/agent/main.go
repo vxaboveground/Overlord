@@ -42,6 +42,7 @@ func main() {
 		return
 	}
 	defer releaseMutex()
+	mutex.SetGlobalRelease(releaseMutex)
 
 	for {
 		func() {

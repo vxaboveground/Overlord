@@ -3,9 +3,31 @@ package mutex
 import (
 	"fmt"
 	"strings"
+	"sync"
 )
 
 const maxMutexLength = 64
+
+var (
+	globalRelease func()
+	globalMu      sync.Mutex
+)
+
+func SetGlobalRelease(fn func()) {
+	globalMu.Lock()
+	globalRelease = fn
+	globalMu.Unlock()
+}
+
+func ReleaseGlobal() {
+	globalMu.Lock()
+	fn := globalRelease
+	globalRelease = nil
+	globalMu.Unlock()
+	if fn != nil {
+		fn()
+	}
+}
 
 func sanitizeName(name string) (string, error) {
 	trimmed := strings.TrimSpace(name)
