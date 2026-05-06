@@ -23,6 +23,7 @@ export type Hello = {
   host: string;
   os: string;
   arch: string;
+  hostArch?: string;
   version: string;
   user: string;
   monitors: number;

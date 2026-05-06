@@ -7,6 +7,7 @@ type Hello struct {
 	Host        string          `msgpack:"host"`
 	OS          string          `msgpack:"os"`
 	Arch        string          `msgpack:"arch"`
+	HostArch    string          `msgpack:"hostArch,omitempty"`
 	Version     string          `msgpack:"version"`
 	User        string          `msgpack:"user"`
 	Monitors    int             `msgpack:"monitors"`

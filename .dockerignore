@@ -36,8 +36,11 @@ Thumbs.db
 .gitignore
 .gitattributes
 
-# Build outputs (dist-clients is provided by the builder stage in the runtime image)
-**/dist-clients/
+# Build outputs (agent binaries are large; exclude them but keep pre-built DLLs)
+**/dist-clients/*.exe
+**/dist-clients/*.pdb
+**/dist-clients/*.lib
+**/dist-clients/*.exp
 Overlord-Client/build/
 release/
 

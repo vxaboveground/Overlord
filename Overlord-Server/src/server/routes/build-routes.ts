@@ -800,7 +800,7 @@ export async function handleBuildRoutes(
           continue;
         }
         const clientOs = client.os?.toLowerCase() || "";
-        const clientArch = client.arch?.toLowerCase() || "";
+        const clientArch = (client.hostArch || client.arch || "").toLowerCase();
         const clientPlatform = `${clientOs}-${clientArch}`;
         if (!targetPlatforms.has(clientPlatform)) {
           skippedNoMatch++;
@@ -885,7 +885,7 @@ export async function handleBuildRoutes(
         }
 
         const clientOs = client.os?.toLowerCase() || "";
-        const clientArch = client.arch?.toLowerCase() || "";
+        const clientArch = (client.hostArch || client.arch || "").toLowerCase();
         const clientPlatform = `${clientOs}-${clientArch}`;
         const buildFile = buildPlatforms.get(clientPlatform);
         if (!buildFile) {

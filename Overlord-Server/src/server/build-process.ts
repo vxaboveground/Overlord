@@ -190,20 +190,23 @@ export async function startBuildProcess(
       logger.error(`[build:${buildId.substring(0, 8)}] ERROR: ${data.error}`);
     }
 
-    build.controllers.forEach((controller) => {
+    const alive: ReadableStreamDefaultController[] = [];
+    for (const controller of build.controllers) {
       try {
         controller.enqueue(encoded);
-      } catch (err) {
-        logger.error("[build] Failed to send to stream:", err);
+        alive.push(controller);
+      } catch {
       }
-    });
+    }
+    build.controllers.length = 0;
+    build.controllers.push(...alive);
 
     if (data.type === "complete") {
-      build.controllers.forEach((controller) => {
+      for (const controller of build.controllers) {
         try {
           controller.close();
         } catch {}
-      });
+      }
       build.controllers.length = 0;
     }
   };

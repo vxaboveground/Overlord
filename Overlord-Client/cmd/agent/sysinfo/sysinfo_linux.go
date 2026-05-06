@@ -5,7 +5,9 @@ package sysinfo
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
+	"syscall"
 )
 
 func collectPlatform() Info {
@@ -96,4 +98,29 @@ func totalRAM() string {
 		}
 	}
 	return "unknown"
+}
+
+func HostArch() string {
+	var utsname syscall.Utsname
+	if err := syscall.Uname(&utsname); err == nil {
+		buf := make([]byte, 0, len(utsname.Machine))
+		for _, c := range utsname.Machine {
+			if c == 0 {
+				break
+			}
+			buf = append(buf, byte(c))
+		}
+		machine := string(buf)
+		switch machine {
+		case "x86_64":
+			return "amd64"
+		case "aarch64":
+			return "arm64"
+		case "armv7l":
+			return "armv7"
+		case "i686", "i386":
+			return "386"
+		}
+	}
+	return runtime.GOARCH
 }

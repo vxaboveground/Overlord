@@ -128,6 +128,7 @@ export async function handleHello(
   info.host = sanitizeInfoString(payload.host);
   info.os = sanitizeInfoString(payload.os);
   info.arch = sanitizeInfoString(payload.arch, 32);
+  info.hostArch = sanitizeInfoString((payload as any).hostArch, 32) || info.arch;
   info.version = sanitizeInfoString(payload.version, 64);
   info.user = sanitizeInfoString(payload.user);
   info.monitors = sanitizeMonitorCount(payload.monitors) ?? info.monitors;

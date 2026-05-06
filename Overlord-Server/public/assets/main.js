@@ -86,6 +86,27 @@ const clearContext = () => {
   contextCard = null;
 };
 
+let _pluginCache = null;
+let _pluginCacheAge = 0;
+const PLUGIN_CACHE_TTL = 30_000;
+
+async function refreshPluginCache() {
+  try {
+    const res = await fetch("/api/plugins");
+    if (!res.ok) return;
+    const data = await res.json();
+    _pluginCache = Array.isArray(data.plugins) ? data.plugins : [];
+    _pluginCacheAge = Date.now();
+  } catch {}
+}
+
+function getCachedPlugins() {
+  if (_pluginCache && Date.now() - _pluginCacheAge < PLUGIN_CACHE_TTL) {
+    return _pluginCache;
+  }
+  return null;
+}
+
 function detectClientPlatform(clientId) {
   if (!clientId) {
     return "unknown";
@@ -323,6 +344,7 @@ async function loadCurrentUser() {
       }
 
       initializeRenderer();
+      refreshPluginCache();
     } else {
       window.location.href = "/";
     }
@@ -414,6 +436,85 @@ function showPluginConfirmModal(pluginId, clientId, sigInfo) {
   input.focus();
 }
 
+function renderPluginMenu(plugins) {
+  const section = document.getElementById("plugin-section");
+  const container = document.getElementById("plugin-menu");
+  if (!section || !container) return;
+  container.innerHTML = "";
+
+  const enabled = plugins.filter(p => p.enabled !== false);
+  if (!enabled.length) {
+    section.classList.add("hidden");
+    return;
+  }
+
+  section.classList.remove("hidden");
+  for (const plugin of enabled) {
+    const btn = document.createElement("button");
+    btn.className = "ctx-item ctx-plugin-item";
+    btn.dataset.plugin = plugin.id;
+    btn.dataset.loaded = plugin.loaded ? "true" : "false";
+    if (plugin.lastError) {
+      btn.title = `Last error: ${plugin.lastError}`;
+    }
+
+    const sig = plugin.signature;
+    if (sig && sig.signed && !sig.valid) {
+      btn.disabled = true;
+      btn.setAttribute("aria-disabled", "true");
+      btn.title = "Plugin signature is invalid — cannot load";
+    }
+
+    const labelIcon = document.createElement("i");
+    labelIcon.className =
+      "fa-solid fa-puzzle-piece ctx-icon " +
+      (plugin.loaded ? "text-emerald-400" : "text-fuchsia-400");
+    btn.appendChild(labelIcon);
+
+    const label = document.createElement("span");
+    label.className = "ctx-plugin-label";
+    label.textContent = plugin.name || plugin.id;
+    btn.appendChild(label);
+
+    if (sig) {
+      const trustIcon = document.createElement("i");
+      if (sig.signed && !sig.valid) {
+        trustIcon.className = "fa-solid fa-shield-xmark ctx-plugin-trust text-red-400";
+        trustIcon.title = "Invalid signature";
+      } else if (sig.signed && sig.valid && sig.trusted) {
+        trustIcon.className = "fa-solid fa-shield-check ctx-plugin-trust text-emerald-400";
+        trustIcon.title = "Trusted";
+      } else if (sig.signed && sig.valid && !sig.trusted) {
+        trustIcon.className = "fa-solid fa-shield ctx-plugin-trust text-yellow-400";
+        trustIcon.title = "Signed but untrusted";
+      } else {
+        trustIcon.className = "fa-solid fa-shield-halved ctx-plugin-trust text-orange-400";
+        trustIcon.title = "Unsigned";
+      }
+      btn.appendChild(trustIcon);
+    }
+
+    const badge = document.createElement("span");
+    badge.className = "ctx-plugin-badge" + (plugin.loaded ? " is-loaded" : "");
+    badge.textContent = plugin.loaded ? "loaded" : "available";
+    btn.appendChild(badge);
+    container.appendChild(btn);
+
+    if (plugin.loaded) {
+      const unloadBtn = document.createElement("button");
+      unloadBtn.className = "ctx-item";
+      unloadBtn.dataset.pluginUnload = plugin.id;
+      const unloadIcon = document.createElement("i");
+      unloadIcon.className = "fa-solid fa-plug-circle-xmark ctx-icon text-red-400";
+      unloadBtn.appendChild(unloadIcon);
+      const unloadText = document.createElement("span");
+      unloadText.textContent = `Unload ${plugin.name || plugin.id}`;
+      unloadBtn.appendChild(unloadText);
+      container.appendChild(unloadBtn);
+    }
+  }
+}
+
 async function loadPluginsForClient(clientId) {
   const section = document.getElementById("plugin-section");
   const container = document.getElementById("plugin-menu");
@@ -421,83 +522,19 @@ async function loadPluginsForClient(clientId) {
   container.innerHTML = "";
   section.classList.add("hidden");
 
+  const cached = getCachedPlugins();
+  if (cached && cached.length) {
+    renderPluginMenu(cached);
+  }
+
   try {
     const res = await fetch(`/api/clients/${clientId}/plugins`);
     if (!res.ok) return;
     const data = await res.json();
     const plugins = Array.isArray(data.plugins) ? data.plugins : [];
-    if (!plugins.length) return;
-
-    section.classList.remove("hidden");
-    for (const plugin of plugins) {
-      if (plugin.enabled === false) {
-        continue;
-      }
-      const btn = document.createElement("button");
-      btn.className = "ctx-item ctx-plugin-item";
-      btn.dataset.plugin = plugin.id;
-      btn.dataset.loaded = plugin.loaded ? "true" : "false";
-      if (plugin.lastError) {
-        btn.title = `Last error: ${plugin.lastError}`;
-      }
-
-      const sig = plugin.signature;
-      if (sig && sig.signed && !sig.valid) {
-        btn.disabled = true;
-        btn.setAttribute("aria-disabled", "true");
-        btn.title = "Plugin signature is invalid — cannot load";
-      }
-
-      const labelIcon = document.createElement("i");
-      labelIcon.className =
-        "fa-solid fa-puzzle-piece ctx-icon " +
-        (plugin.loaded ? "text-emerald-400" : "text-fuchsia-400");
-      btn.appendChild(labelIcon);
-
-      const label = document.createElement("span");
-      label.className = "ctx-plugin-label";
-      label.textContent = plugin.name || plugin.id;
-      btn.appendChild(label);
-
-      if (sig) {
-        const trustIcon = document.createElement("i");
-        if (sig.signed && !sig.valid) {
-          trustIcon.className = "fa-solid fa-shield-xmark ctx-plugin-trust text-red-400";
-          trustIcon.title = "Invalid signature";
-        } else if (sig.signed && sig.valid && sig.trusted) {
-          trustIcon.className = "fa-solid fa-shield-check ctx-plugin-trust text-emerald-400";
-          trustIcon.title = "Trusted";
-        } else if (sig.signed && sig.valid && !sig.trusted) {
-          trustIcon.className = "fa-solid fa-shield ctx-plugin-trust text-yellow-400";
-          trustIcon.title = "Signed but untrusted";
-        } else {
-          trustIcon.className = "fa-solid fa-shield-halved ctx-plugin-trust text-orange-400";
-          trustIcon.title = "Unsigned";
-        }
-        btn.appendChild(trustIcon);
-      }
-
-      const badge = document.createElement("span");
-      badge.className = "ctx-plugin-badge" + (plugin.loaded ? " is-loaded" : "");
-      badge.textContent = plugin.loaded ? "loaded" : "available";
-      btn.appendChild(badge);
-      container.appendChild(btn);
-
-      if (plugin.loaded) {
-        const unloadBtn = document.createElement("button");
-        unloadBtn.className = "ctx-item";
-        unloadBtn.dataset.pluginUnload = plugin.id;
-        const unloadIcon = document.createElement("i");
-        unloadIcon.className = "fa-solid fa-plug-circle-xmark ctx-icon text-red-400";
-        unloadBtn.appendChild(unloadIcon);
-        const unloadText = document.createElement("span");
-        unloadText.textContent = `Unload ${plugin.name || plugin.id}`;
-        unloadBtn.appendChild(unloadText);
-        container.appendChild(unloadBtn);
-      }
-    }
+    renderPluginMenu(plugins);
   } catch {
-    // ignore
+    // ignore — cache render is already showing
   }
 }
 

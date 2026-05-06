@@ -16,6 +16,7 @@ export type ClientInfo = {
   host?: string;
   os?: string;
   arch?: string;
+  hostArch?: string;
   version?: string;
   user?: string;
   nickname?: string;

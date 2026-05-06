@@ -4,6 +4,8 @@ package sysinfo
 
 import (
 	"fmt"
+	"os"
+	"runtime"
 	"strings"
 	"unsafe"
 
@@ -111,4 +113,26 @@ func totalRAM() string {
 	}
 	mb := float64(ms.TotalPhys) / (1024 * 1024)
 	return fmt.Sprintf("%.0f MB", mb)
+}
+
+func HostArch() string {
+	if arch := os.Getenv("PROCESSOR_ARCHITEW6432"); arch != "" {
+		switch strings.ToLower(arch) {
+		case "amd64":
+			return "amd64"
+		case "arm64":
+			return "arm64"
+		}
+	}
+	if arch := os.Getenv("PROCESSOR_ARCHITECTURE"); arch != "" {
+		switch strings.ToLower(arch) {
+		case "amd64":
+			return "amd64"
+		case "arm64":
+			return "arm64"
+		case "x86":
+			return "386"
+		}
+	}
+	return runtime.GOARCH
 }
