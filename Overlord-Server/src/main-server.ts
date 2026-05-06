@@ -302,24 +302,25 @@ const storeNotificationScreenshotForPending = (
 
 pruneOldNotifications();
 setInterval(pruneOldNotifications, 60 * 60 * 1000);
+
+const toDeliveryTarget = (u: any): UserDeliveryTarget => ({
+  userId: u.id,
+  username: u.username,
+  webhookEnabled: u.webhook_enabled === 1,
+  webhookUrl: u.webhook_url || "",
+  webhookTemplate: u.webhook_template,
+  telegramEnabled: u.telegram_enabled === 1,
+  telegramBotToken: u.telegram_bot_token || "",
+  telegramChatId: u.telegram_chat_id || "",
+  telegramTemplate: u.telegram_template,
+  clientEventWebhook: u.client_event_webhook === 1,
+  clientEventTelegram: u.client_event_telegram === 1,
+  clientEventPush: u.client_event_push === 1,
+});
+
 const deliverNotificationWithScreenshotForRecord = (record: NotificationRecord) => {
-  const getUserDeliveryTargets = (clientId: string): UserDeliveryTarget[] => {
-    return getUsersForNotificationDeliveryByClient(clientId)
-      .map((u) => ({
-        userId: u.id,
-        username: u.username,
-        webhookEnabled: u.webhook_enabled === 1,
-        webhookUrl: u.webhook_url || "",
-        webhookTemplate: u.webhook_template,
-        telegramEnabled: u.telegram_enabled === 1,
-        telegramBotToken: u.telegram_bot_token || "",
-        telegramChatId: u.telegram_chat_id || "",
-        telegramTemplate: u.telegram_template,
-        clientEventWebhook: u.client_event_webhook === 1,
-        clientEventTelegram: u.client_event_telegram === 1,
-        clientEventPush: u.client_event_push === 1,
-      }));
-  };
+  const getUserDeliveryTargets = (clientId: string): UserDeliveryTarget[] =>
+    getUsersForNotificationDeliveryByClient(clientId).map(toDeliveryTarget);
   return deliverNotificationWithScreenshot(record, getUserDeliveryTargets);
 };
 
@@ -338,26 +339,12 @@ const notificationPluginHandlers = createNotificationPluginHandlers({
   forwardPluginEventToRuntime: (clientId, pluginId, event, payload) =>
     pluginRuntime.dispatchClientEvent(clientId, pluginId, event, payload),
   getDeliveryTargetsForClientEvent: (event: string, clientId: string): UserDeliveryTarget[] => {
-    const mapRow = (u: any): UserDeliveryTarget => ({
-      userId: u.id,
-      username: u.username,
-      webhookEnabled: u.webhook_enabled === 1,
-      webhookUrl: u.webhook_url || "",
-      webhookTemplate: u.webhook_template,
-      telegramEnabled: u.telegram_enabled === 1,
-      telegramBotToken: u.telegram_bot_token || "",
-      telegramChatId: u.telegram_chat_id || "",
-      telegramTemplate: u.telegram_template,
-      clientEventWebhook: u.client_event_webhook === 1,
-      clientEventTelegram: u.client_event_telegram === 1,
-      clientEventPush: u.client_event_push === 1,
-    });
     if (event === "client_purgatory") {
       return getUsersForNotificationDelivery()
         .filter((u) => u.role === "admin" || u.role === "operator")
-        .map(mapRow);
+        .map(toDeliveryTarget);
     }
-    return getUsersForNotificationDeliveryByClient(clientId).map(mapRow);
+    return getUsersForNotificationDeliveryByClient(clientId).map(toDeliveryTarget);
   },
   savePluginState,
 });
@@ -709,28 +696,29 @@ async function startServer() {
     fetch: createHttpFetchHandler({
       metrics,
       CORS_HEADERS,
-      handleRegistrationRoutes,
-      handleAuthRoutes,
-      handleNotificationsConfigRoutes,
-      handleAutoScriptsRoutes,
-      handleSavedScriptsRoutes,
-      handleAutoDeployRoutes,
-      handleEnrollmentRoutes,
-      handleChatRoutes,
-      handleSolRoutes,
-      handleUsersRoutes,
-      handleBuildRoutes,
-      handleDeployRoutes,
-      handleWinRERoutes,
-      handleFileDownloadRoutes,
-      handlePluginRoutes,
-      handleFileShareRoutes,
-      handleMiscRoutes,
-      handleAssetsRoutes,
-      handlePageRoutes,
-      handleClientRoutes,
-      handleWsUpgradeRoutes,
-      routeDeps,
+      routes: [
+        (req, url) => handleRegistrationRoutes(req, url, routeDeps.registration),
+        (req, url, srv) => handleAuthRoutes(req, url, srv as any),
+        (req, url, srv) => handleNotificationsConfigRoutes(req, url, srv as any, routeDeps.notificationsConfig),
+        (req, url) => handleAutoScriptsRoutes(req, url),
+        (req, url) => handleSavedScriptsRoutes(req, url),
+        (req, url) => handleAutoDeployRoutes(req, url, routeDeps.autoDeploy),
+        (req, url) => handleEnrollmentRoutes(req, url),
+        (req, url) => handleChatRoutes(req, url),
+        (req, url) => handleSolRoutes(req, url),
+        (req, url, srv) => handleUsersRoutes(req, url, srv as any),
+        (req, url, srv) => handleBuildRoutes(req, url, srv as any, routeDeps.build),
+        (req, url, srv) => handleDeployRoutes(req, url, srv as any, routeDeps.deploy),
+        (req, url, srv) => handleWinRERoutes(req, url, srv as any, routeDeps.winre),
+        (req, url, srv) => handleFileDownloadRoutes(req, url, srv as any, routeDeps.fileDownload),
+        (req, url) => handlePluginRoutes(req, url, routeDeps.plugin),
+        (req, url) => handleFileShareRoutes(req, url, routeDeps.fileShare),
+        (req, url) => handleMiscRoutes(req, url, routeDeps.misc),
+        (req, url) => handleAssetsRoutes(req, url, routeDeps.assets),
+        (req, url) => handlePageRoutes(req, url, routeDeps.page),
+        (req, url, srv) => handleClientRoutes(req, url, srv as any, routeDeps.client),
+        (req, url, srv) => handleWsUpgradeRoutes(req, url, srv as any, routeDeps.wsUpgrade),
+      ],
     }),
     websocket: createWebSocketRuntime({
       maxClientPayloadBytes: MAX_WS_MESSAGE_BYTES_CLIENT,
@@ -804,19 +792,14 @@ async function startServer() {
 startServer();
 
 
-process.on("SIGINT", () => {
+function gracefulShutdown() {
   logger.info("\n[server] Shutting down gracefully...");
   void pluginRuntime.shutdownAll();
   flushAuditLogsSync();
   process.exit(0);
-});
-
-process.on("SIGTERM", () => {
-  logger.info("\n[server] Shutting down gracefully...");
-  void pluginRuntime.shutdownAll();
-  flushAuditLogsSync();
-  process.exit(0);
-});
+}
+process.on("SIGINT", gracefulShutdown);
+process.on("SIGTERM", gracefulShutdown);
 
 process.on("uncaughtException", (err) => {
   logger.error("[server] uncaught exception:", err);

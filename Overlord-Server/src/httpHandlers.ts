@@ -42,78 +42,48 @@ export function handleClientsRequest(req: Request): Response {
   return Response.json({ ...result, items }, { headers: CORS_HEADERS });
 }
 
+const SIMPLE_COMMANDS = new Set([
+  "desktop_start", "desktop_stop", "disconnect", "reconnect",
+]);
+const PAYLOAD_COMMANDS: Record<string, Record<string, unknown>> = {
+  desktop_select_display: { display: 0 },
+  desktop_enable_mouse:   { enabled: true },
+  desktop_enable_keyboard:{ enabled: true },
+};
+const FILE_COMMANDS = new Set([
+  "file_list", "file_download", "file_delete", "file_mkdir", "file_zip",
+]);
+
+const OK = () => Response.json({ ok: true });
+
 export function handleCommand(target: ClientInfo, action: string, req: Request) {
   console.log(`[command] action=${action} clientId=${target.id}`);
-  
-  
   metrics.recordCommand(action);
-  
+
   if (action === "ping") {
     const nonce = Date.now() + Math.floor(Math.random() * 1000);
     target.lastPingSent = Date.now();
     target.lastPingNonce = nonce;
     target.ws.send(encodeMessage({ type: "ping", ts: nonce }));
-    return Response.json({ ok: true });
+    return OK();
   }
-  if (action === "desktop_start") {
-    target.ws.send(encodeMessage({ type: "command", commandType: "desktop_start" as any, id: uuidv4() }));
-    return Response.json({ ok: true });
+
+  if (SIMPLE_COMMANDS.has(action)) {
+    target.ws.send(encodeMessage({ type: "command", commandType: action as any, id: uuidv4() }));
+    return OK();
   }
-  if (action === "desktop_stop") {
-    target.ws.send(encodeMessage({ type: "command", commandType: "desktop_stop" as any, id: uuidv4() }));
-    return Response.json({ ok: true });
+
+  if (action in PAYLOAD_COMMANDS) {
+    target.ws.send(encodeMessage({ type: "command", commandType: action as any, id: uuidv4(), payload: PAYLOAD_COMMANDS[action] }));
+    return OK();
   }
-  if (action === "desktop_select_display") {
-    
-    target.ws.send(encodeMessage({ type: "command", commandType: "desktop_select_display" as any, id: uuidv4(), payload: { display: 0 } }));
-    return Response.json({ ok: true });
+
+  if (FILE_COMMANDS.has(action)) {
+    const path = new URL(req.url).searchParams.get("path") || "";
+    target.ws.send(encodeMessage({ type: "command", commandType: action as any, id: uuidv4(), payload: { path } }));
+    return OK();
   }
-  if (action === "desktop_enable_mouse") {
-    target.ws.send(encodeMessage({ type: "command", commandType: "desktop_enable_mouse" as any, id: uuidv4(), payload: { enabled: true } }));
-    return Response.json({ ok: true });
-  }
-  if (action === "desktop_enable_keyboard") {
-    target.ws.send(encodeMessage({ type: "command", commandType: "desktop_enable_keyboard" as any, id: uuidv4(), payload: { enabled: true } }));
-    return Response.json({ ok: true });
-  }
-  if (action === "disconnect") {
-    target.ws.send(encodeMessage({ type: "command", commandType: "disconnect", id: uuidv4() }));
-    return Response.json({ ok: true });
-  }
-  if (action === "reconnect") {
-    target.ws.send(encodeMessage({ type: "command", commandType: "reconnect", id: uuidv4() }));
-    return Response.json({ ok: true });
-  }
-  if (action === "file_list") {
-    const url = new URL(req.url);
-    const path = url.searchParams.get("path") || "";
-    target.ws.send(encodeMessage({ type: "command", commandType: "file_list", id: uuidv4(), payload: { path } }));
-    return Response.json({ ok: true });
-  }
-  if (action === "file_download") {
-    const url = new URL(req.url);
-    const path = url.searchParams.get("path") || "";
-    target.ws.send(encodeMessage({ type: "command", commandType: "file_download", id: uuidv4(), payload: { path } }));
-    return Response.json({ ok: true });
-  }
-  if (action === "file_delete") {
-    const url = new URL(req.url);
-    const path = url.searchParams.get("path") || "";
-    target.ws.send(encodeMessage({ type: "command", commandType: "file_delete", id: uuidv4(), payload: { path } }));
-    return Response.json({ ok: true });
-  }
-  if (action === "file_mkdir") {
-    const url = new URL(req.url);
-    const path = url.searchParams.get("path") || "";
-    target.ws.send(encodeMessage({ type: "command", commandType: "file_mkdir", id: uuidv4(), payload: { path } }));
-    return Response.json({ ok: true });
-  }
-  if (action === "file_zip") {
-    const url = new URL(req.url);
-    const path = url.searchParams.get("path") || "";
-    target.ws.send(encodeMessage({ type: "command", commandType: "file_zip", id: uuidv4(), payload: { path } }));
-    return Response.json({ ok: true });
-  }
+
   return new Response("Bad request", { status: 400 });
 }
 

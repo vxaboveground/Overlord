@@ -15,14 +15,20 @@ export function securePluginHeaders() {
   };
 }
 
-export function mimeType(path: string) {
-  if (path.endsWith(".html")) return "text/html; charset=utf-8";
-  if (path.endsWith(".css")) return "text/css; charset=utf-8";
-  if (path.endsWith(".js")) return "text/javascript; charset=utf-8";
-  if (path.endsWith(".json")) return "application/json";
-  if (path.endsWith(".png")) return "image/png";
-  if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
-  if (path.endsWith(".webp")) return "image/webp";
-  if (path.endsWith(".gif")) return "image/gif";
+const MIME_TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+};
+
+export function mimeType(filePath: string) {
+  const dot = filePath.lastIndexOf(".");
+  if (dot !== -1) return MIME_TYPES[filePath.slice(dot).toLowerCase()] ?? "application/octet-stream";
   return "application/octet-stream";
 }
