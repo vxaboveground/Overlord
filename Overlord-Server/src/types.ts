@@ -43,6 +43,8 @@ export type ClientInfo = {
   groupId?: number | null;
   groupName?: string | null;
   groupColor?: string | null;
+  /** Android-specific device data cached from latest android_* message */
+  androidData?: Record<string, unknown>;
 };
 
 export type ListFilters = {

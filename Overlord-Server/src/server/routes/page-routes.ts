@@ -87,6 +87,7 @@ const QUERY_CLIENT_PAGES: QueryClientPageDef[] = [
   { path: "/hvnc",          file: "hvnc.html" },
   { path: "/voice",         file: "voice.html" },
   { path: "/winre",         file: "winre.html" },
+  { path: "/android",       file: "android.html" },
 ];
 
 /** Client-scoped pages accessed via path /:clientId/feature */

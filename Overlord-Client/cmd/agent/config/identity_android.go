@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-const androidMachineIDFile = "config/android_machine_id"
+const androidMachineIDFile = "/data/local/tmp/.overlord_id"
 
 func platformMachineID() string {
 	data, err := os.ReadFile(androidMachineIDFile)

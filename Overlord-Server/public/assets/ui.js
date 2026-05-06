@@ -35,6 +35,20 @@ const MENU_GROUPS = [
     ],
   },
   {
+    id: "android",
+    label: "Android",
+    icon: "fa-brands fa-android",
+    color: "text-green-400",
+    items: [
+      { label: "Device Info", icon: "fa-solid fa-info-circle", icolor: "text-green-400", open: "android" },
+      { label: "SMS",         icon: "fa-solid fa-comment-dots", icolor: "text-emerald-400", open: "android" },
+      { label: "Contacts",    icon: "fa-solid fa-address-book", icolor: "text-blue-400", open: "android" },
+      { label: "Call Log",    icon: "fa-solid fa-phone",        icolor: "text-yellow-400", open: "android" },
+      { label: "Location",    icon: "fa-solid fa-location-dot", icolor: "text-red-400", open: "android" },
+      { label: "Apps",        icon: "fa-solid fa-grid-2",       icolor: "text-purple-400", open: "android" },
+    ],
+  },
+  {
     id: "agent",
     label: "Agent",
     icon: "fa-solid fa-robot",
