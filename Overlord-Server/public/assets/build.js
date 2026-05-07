@@ -25,6 +25,17 @@ const profileDeleteBtn = document.getElementById("profile-delete-btn");
 const profileExportBtn = document.getElementById("profile-export-btn");
 const profileImportBtn = document.getElementById("profile-import-btn");
 const profileImportFile = document.getElementById("profile-import-file");
+const persistenceCheckbox = document.querySelector('input[name="enable-persistence"]');
+const persistenceMethodContainer = document.getElementById("persistence-method-container");
+const persistenceEmptyState = document.getElementById("persistence-empty-state");
+const persistenceWindowsSettings = document.getElementById("persistence-windows-settings");
+const persistenceLinuxSettings = document.getElementById("persistence-linux-settings");
+const persistenceMacSettings = document.getElementById("persistence-macos-settings");
+const persistenceStartupNameContainer = document.getElementById("persistence-startup-name-container");
+const startupNameMacosHint = document.getElementById("startup-name-macos-hint");
+const startupNameDefaultHint = document.getElementById("startup-name-default-hint");
+const startupNameError = document.getElementById("startup-name-error");
+const platformInputs = document.querySelectorAll('input[name="platform"]');
 
 let currentServerVersion = null;
 let currentUserRole = null;
@@ -521,18 +532,6 @@ if (solMemoCheckbox && solSettings) {
     }
   });
 }
-
-const persistenceCheckbox = document.querySelector('input[name="enable-persistence"]');
-const persistenceMethodContainer = document.getElementById("persistence-method-container");
-const persistenceEmptyState = document.getElementById("persistence-empty-state");
-const persistenceWindowsSettings = document.getElementById("persistence-windows-settings");
-const persistenceLinuxSettings = document.getElementById("persistence-linux-settings");
-const persistenceMacSettings = document.getElementById("persistence-macos-settings");
-const persistenceStartupNameContainer = document.getElementById("persistence-startup-name-container");
-const startupNameMacosHint = document.getElementById("startup-name-macos-hint");
-const startupNameDefaultHint = document.getElementById("startup-name-default-hint");
-const startupNameError = document.getElementById("startup-name-error");
-const platformInputs = document.querySelectorAll('input[name="platform"]');
 
 function getSelectedPlatformFamilies() {
   const selectedPlatforms = Array.from(
