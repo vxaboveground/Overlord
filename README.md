@@ -1,10 +1,8 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/vxaboveground/Overlord/refs/heads/main/Overlord-Server/public/assets/overlord.png" alt="Overlord" />
+  <img src="https://raw.githubusercontent.com/vxaboveground/Overlord/refs/heads/main/Overlord-Server/public/assets/overlord.png" alt="Overlord" width="500" />
 </p>
 
 # Overlord
-
-# [TELEGRAM SERVER JOIN NOW NO EXCUSES WE GIVE SUPPORT AND IT'S FUN](https://t.me/WindowsBatch)
 
 Hello, I made this project for fun.
 
@@ -13,7 +11,9 @@ Connections are done via encrypted websockets to connect to the server from the 
 You need to use docker to get this to run easier/for quicker deployment. <br>
 
 ---
-
+##### ***Please, READ THIS BEFORE JOINING THE TELEGRAM FOR SUPPORT***
+- [Somaliware (telegram channel)](https://t.me/WindowsBatch)
+- [FAQ](https://github.com/vxaboveground/Overlord/FAQ/README.md) # faq section for less bloat here :D
 - [Quick Start (Docker)](#quick-start-docker)
 - [Docker Install By OS](#docker-install-by-os)
 - [No Docker (.bat / .sh)](#no-docker-bat--sh)
