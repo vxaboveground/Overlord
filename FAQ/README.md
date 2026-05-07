@@ -36,9 +36,11 @@ This is the overlord FAQ. You will find frequently asked questions, common missc
 ## Naviagtion links
 <details>
   <summary>Here you will find a collection of linked sections for easier navigation of the FAQ.</summary>
-  
+<br>
+
 - [Defaults](#defaults)
-- []()
+- [Common Issues](#common-issues)
+- [Others](#others)
 
 </details>
 
@@ -63,7 +65,7 @@ This is the overlord FAQ. You will find frequently asked questions, common missc
 ### Common Issues
 <details>
   <summary>Common Issues with potential solutions</summary>
-
+You will need to select your platform then look for the issues inside of the list you need help with.
 <hr>
 
 <details>
