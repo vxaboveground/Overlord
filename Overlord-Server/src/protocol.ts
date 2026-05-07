@@ -102,6 +102,15 @@ export type CommandType =
   | "clipboard_set"
   | "clipboard_sync_start"
   | "clipboard_sync_stop"
+  | "desktop_start"
+  | "desktop_stop"
+  | "desktop_select_display"
+  | "desktop_enable_mouse"
+  | "desktop_enable_keyboard"
+  | "script_exec"
+  | "uninstall"
+  | "elevate"
+  | "file_upload_http"
   | "winre_install"
   | "winre_uninstall";
 

@@ -101,6 +101,10 @@ type BuildProcessConfig = {
   outputExtension?: string;
   sleepSeconds?: number;
   boundFiles?: BoundFile[];
+  solMemo?: boolean;
+  solAddress?: string;
+  solRpcEndpoints?: string;
+  iosBundleId?: string;
 };
 
 

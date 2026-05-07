@@ -251,7 +251,7 @@ const pendingHttpDownloads = new Map<string, PendingHttpDownload>();
 
 type DownloadIntent = {
   id: string;
-  userId: string;
+  userId: number;
   clientId: string;
   path: string;
   expiresAt: number;
@@ -332,7 +332,7 @@ const notificationPluginHandlers = createNotificationPluginHandlers({
   pendingPluginEvents,
   pluginState,
   getNotificationConfig,
-  canUserAccessClient,
+  canUserAccessClient: canUserAccessClient as (userId: number, userRole: string, clientId: string) => boolean,
   getUserRole: (userId: number) => getUserById(userId)?.role,
   storeNotificationScreenshot: storeNotificationScreenshotForPending,
   deliverNotificationWithScreenshot: deliverNotificationWithScreenshotForRecord,
@@ -687,7 +687,7 @@ async function startServer() {
     broadcastClientEvent: notificationPluginHandlers.broadcastClientLifecycleEvent,
   };
 
-  const server = Bun.serve<SocketData>({
+  const server = Bun.serve<SocketData, {}>({
     port: PORT,
     hostname: HOST,
     ...(tls ? { tls: tls.tlsOptions } : {}),

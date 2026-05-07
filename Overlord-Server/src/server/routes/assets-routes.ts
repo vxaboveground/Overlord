@@ -42,7 +42,7 @@ async function compressedResponse(
   headers: Record<string, string>,
 ): Promise<Response> {
   if (!isCompressible(headers["Content-Type"] ?? "") || !acceptsGzip(req) || body.byteLength < 1024) {
-    return new Response(body, { headers });
+    return new Response(body as BodyInit, { headers });
   }
   const compressed = Bun.gzipSync(new Uint8Array(body instanceof ArrayBuffer ? body : body));
   return new Response(compressed, {

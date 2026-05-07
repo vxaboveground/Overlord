@@ -1,4 +1,5 @@
 import Database from "bun:sqlite";
+import type { Statement } from "bun:sqlite";
 import { ClientInfo, ListFilters, ListResult, ClientRole } from "./types";
 import { getThumbnail } from "./thumbnails";
 import { resolve } from "path";
@@ -6,7 +7,13 @@ import { ensureDataDir } from "./paths";
 
 const dataDir = ensureDataDir();
 const dbPath = resolve(dataDir, "overlord.db");
-const db = new Database(dbPath);
+
+interface TypedDatabase extends Omit<Database, "run" | "query" | "prepare"> {
+  run(sql: string, ...params: any[]): import("bun:sqlite").Changes;
+  query<T = any>(sql: string): Statement<T>;
+  prepare<T = any>(sql: string): Statement<T>;
+}
+const db: TypedDatabase = new Database(dbPath) as any;
 console.log(`[db] Using database at: ${dbPath}`);
 
 db.run(`
@@ -593,12 +600,14 @@ export function deleteExpiredSharedFiles(): string[] {
   return paths;
 }
 
+export type ClientDbRow = Omit<Partial<ClientInfo>, "online"> & {
+  id: string;
+  lastSeen?: number;
+  online?: number;
+};
+
 export function upsertClientRow(
-  partial: Partial<ClientInfo> & {
-    id: string;
-    lastSeen?: number;
-    online?: number;
-  },
+  partial: ClientDbRow,
 ) {
   const now = partial.lastSeen ?? Date.now();
   db.run(

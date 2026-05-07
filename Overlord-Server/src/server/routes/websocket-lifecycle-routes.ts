@@ -1,6 +1,6 @@
 import type { ServerWebSocket } from "bun";
 import { v4 as uuidv4 } from "uuid";
-let _geoip: typeof import("geoip-lite") extends { default: infer D } ? D : never;
+let _geoip: typeof import("geoip-lite");
 async function getGeoip() {
   if (!_geoip) {
     _geoip = (await import("geoip-lite")).default;
@@ -12,7 +12,7 @@ import * as clientManager from "../../clientManager";
 import { clientExists, setOnlineState, upsertClientRow, getClientEnrollmentStatus, setClientEnrollmentStatus, lookupClientByPublicKey, getClientPublicKeyById, getBuildByTag } from "../../db";
 import { logger } from "../../logger";
 import { metrics } from "../../metrics";
-import { decodeMessage, encodeMessage, type WireMessage } from "../../protocol";
+import { decodeMessage, encodeMessage, type WireMessage, type Hello, type Ping } from "../../protocol";
 import * as sessionManager from "../../sessions/sessionManager";
 import type { SocketData } from "../../sessions/types";
 import type { ClientInfo } from "../../types";
@@ -515,7 +515,7 @@ export async function handleWebSocketMessage(
           logger.warn(`[purgatory] failed to send hello_ack to ${resolvedId}: ${sendErr}`);
         }
 
-        await handleHello(infoObj, payload, ws, ip);
+        await handleHello(infoObj, payload as Hello, ws, ip);
         clientManager.addClient(infoObj.id, infoObj);
 
         const reconnectedWithinGrace = cancelPendingOffline(infoObj.id);
@@ -565,7 +565,7 @@ export async function handleWebSocketMessage(
         break;
       }
       case "ping":
-        handlePing(client, payload, ws);
+        handlePing(client, payload as Ping, ws);
         break;
       case "pong":
         handlePong(client, payload);

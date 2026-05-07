@@ -1,7 +1,7 @@
-let _sharp: (typeof import("sharp") extends { default: infer D } ? D : never) | null = null;
+let _sharp: any = null;
 let _sharpLoadAttempted = false;
 
-async function getSharp(): Promise<typeof import("sharp") extends { default: infer D } ? D : never> {
+async function getSharp(): Promise<any> {
   if (_sharp) return _sharp;
   if (_sharpLoadAttempted) throw new Error("sharp module unavailable");
   _sharpLoadAttempted = true;

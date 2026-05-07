@@ -61,7 +61,7 @@ export type ListFilters = {
   groupFilter?: string;
 };
 
-export type ListItem = ClientInfo & {
+export type ListItem = Omit<ClientInfo, 'ws'> & {
   online: boolean;
   thumbnail: string | null;
 };

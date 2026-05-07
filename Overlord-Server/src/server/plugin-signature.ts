@@ -18,7 +18,7 @@ export async function computeContentDigest(zip: InstanceType<typeof AdmZip>): Pr
     if (entry.entryName === "signature.json") continue;
 
     const data = entry.getData();
-    const hashBuf = await crypto.subtle.digest("SHA-256", data);
+    const hashBuf = await crypto.subtle.digest("SHA-256", new Uint8Array(data));
     const hash = Buffer.from(hashBuf).toString("hex");
     fileHashes.push({ name: entry.entryName, hash });
   }
@@ -30,7 +30,7 @@ export async function computeContentDigest(zip: InstanceType<typeof AdmZip>): Pr
 export function extractSignatureFromZip(
   zip: InstanceType<typeof AdmZip>,
 ): { algorithm: string; publicKey: string; signature: string } | null {
-  const entry = zip.getEntry("signature.json");
+  const entry = (zip as any).getEntry("signature.json");
   if (!entry) return null;
 
   try {

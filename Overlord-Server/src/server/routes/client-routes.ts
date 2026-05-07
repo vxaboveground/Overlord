@@ -43,12 +43,14 @@ type PendingScript = {
   resolve: (result: any) => void;
   reject: (error: any) => void;
   timeout: NodeJS.Timeout;
+  clientId: string;
 };
 
 type PendingCommandReply = {
   resolve: (result: { ok: boolean; message?: string }) => void;
   reject: (error: Error) => void;
   timeout: NodeJS.Timeout;
+  clientId: string;
 };
 
 type ClientRouteDeps = {

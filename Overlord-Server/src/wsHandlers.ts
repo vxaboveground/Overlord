@@ -1,7 +1,6 @@
-import { encodeMessage, decodeMessage, WireMessage } from "./protocol";
-import { Buffer } from "node:buffer";
+import { encodeMessage, type Hello, type Ping, type WireMessage } from "./protocol";
 
-let _geoip: typeof import("geoip-lite") extends { default: infer D } ? D : never;
+let _geoip: typeof import("geoip-lite");
 async function getGeoip() {
   if (!_geoip) {
     _geoip = (await import("geoip-lite")).default;
@@ -15,7 +14,7 @@ import {
   generateThumbnail,
   setLatestFrame,
 } from "./thumbnails";
-import { upsertClientRow } from "./db";
+import { upsertClientRow, type ClientDbRow } from "./db";
 import { metrics } from "./metrics";
 
 /** Strip control chars and clamp length on client-supplied info strings. */
@@ -58,22 +57,9 @@ function sanitizeJsonField(
 const MAX_PING_RTT_MS = 15_000;
 const CLIENT_DB_SYNC_INTERVAL_MS = Number(process.env.OVERLORD_CLIENT_DB_SYNC_MS || 5000);
 const lastClientDbSync = new Map<string, number>();
-const pendingClientDbUpdates = new Map<
-  string,
-  Partial<ClientInfo> & {
-    id: string;
-    lastSeen?: number;
-    online?: number;
-  }
->();
+const pendingClientDbUpdates = new Map<string, ClientDbRow>();
 
-function queueClientDbUpdate(
-  partial: Partial<ClientInfo> & {
-    id: string;
-    lastSeen?: number;
-    online?: number;
-  },
-): void {
+function queueClientDbUpdate(partial: ClientDbRow): void {
   const existing = pendingClientDbUpdates.get(partial.id);
   if (!existing) {
     pendingClientDbUpdates.set(partial.id, { ...partial });
@@ -117,7 +103,7 @@ export function clearClientSyncState(clientId: string): void {
 
 export async function handleHello(
   info: ClientInfo,
-  payload: WireMessage,
+  payload: Hello,
   ws: any,
   ip?: string,
 ) {
@@ -189,7 +175,7 @@ export async function handleHello(
 
 }
 
-export function handlePing(info: ClientInfo, payload: WireMessage, ws: any) {
+export function handlePing(info: ClientInfo, payload: Ping, ws: any) {
   //console.log(`[ping] from client=${info.id} ts=${payload.ts ?? ""}`);
   const now = Date.now();
   info.lastSeen = now;

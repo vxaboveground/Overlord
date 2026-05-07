@@ -1,5 +1,6 @@
 import { authenticateRequest } from "../../auth";
 import { AuditAction, getAuditLogs, logAudit } from "../../auditLog";
+import { logger } from "../../logger";
 import { getConfig, updateSecurityConfig, updateTlsConfig, updateAppearanceConfig, updateChatConfig, getExportableConfig, importFullConfig, updateRegistrationConfig, updateBuildRateLimitConfig } from "../../config";
 import { getClientMetricsSummary, getClientMetricsSummaryForUser } from "../../db";
 import { metrics } from "../../metrics";

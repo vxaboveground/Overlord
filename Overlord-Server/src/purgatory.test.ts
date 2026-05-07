@@ -15,7 +15,7 @@ async function generateKeypair() {
 }
 
 async function sign(privateKey: CryptoKey, data: Uint8Array): Promise<string> {
-  const sig = await crypto.subtle.sign("Ed25519", privateKey, data);
+  const sig = await crypto.subtle.sign("Ed25519", privateKey, data as any);
   return Buffer.from(sig).toString("base64");
 }
 
@@ -39,8 +39,6 @@ function computeKeyFingerprint(publicKeyBase64: string): string {
 
 function createMockWs(overrides: Partial<{ clientId: string; role: string; ip: string; enrollmentNonce: string }> = {}) {
   const sent: Uint8Array[] = [];
-  let closedCode: number | null = null;
-  let closedReason: string | null = null;
   return {
     data: {
       clientId: overrides.clientId ?? "test-client-1",
@@ -50,8 +48,8 @@ function createMockWs(overrides: Partial<{ clientId: string; role: string; ip: s
       sessionId: "sess-1",
     },
     sent,
-    closedCode,
-    closedReason,
+    closedCode: null as number | null,
+    closedReason: null as string | null,
     send(msg: Uint8Array) { sent.push(msg); },
     close(code: number, reason: string) { this.closedCode = code; this.closedReason = reason; },
     decodeSent(index: number) { return decodeMessage(sent[index]) as any; },

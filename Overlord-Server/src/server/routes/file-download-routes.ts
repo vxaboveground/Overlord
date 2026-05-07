@@ -36,7 +36,7 @@ type PendingHttpDownload = {
 
 type DownloadIntent = {
   id: string;
-  userId: string;
+  userId: number;
   clientId: string;
   path: string;
   expiresAt: number;
@@ -45,7 +45,7 @@ type DownloadIntent = {
 
 type UploadIntent = {
   id: string;
-  userId: string;
+  userId: number;
   clientId: string;
   path: string;
   fileName: string;
