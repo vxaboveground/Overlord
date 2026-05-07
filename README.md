@@ -13,7 +13,8 @@ You need to use docker to get this to run easier/for quicker deployment. <br>
 ---
 ##### ***Please, READ THIS BEFORE JOINING THE TELEGRAM FOR SUPPORT***
 - [Somaliware (telegram channel)](https://t.me/WindowsBatch)
-- [FAQ](https://github.com/vxaboveground/Overlord/FAQ/README.md) # faq section for less bloat here :D
+- [Plugins (telegram channel)](https://t.me/OverlordPluginz)
+- [FAQ](https://github.com/vxaboveground/Overlord/FAQ/README.md) | *faq section for less bloat here :D*
 - [Quick Start (Docker)](#quick-start-docker)
 - [Docker Install By OS](#docker-install-by-os)
 - [No Docker (.bat / .sh)](#no-docker-bat--sh)
