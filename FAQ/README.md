@@ -115,10 +115,9 @@ You will need to select your platform then look for the issues inside of the lis
 
 <hr>
 
-*(Other default settings should be set here if are not conceptualised by edjits)*
 </details> <!-- end of common issues -->
 
-<hr>
+<hr> <!-- external seperator -->
 
 
 # Others
