@@ -47,7 +47,7 @@ This is the overlord FAQ. You will find frequently asked questions, common missc
 <hr>
 
 ### Defaults
-<details>
+<details> <!-- defaults start -->
   <summary>Default settings/configuration for overlord</summary>
 
 ### Default settings below
@@ -58,21 +58,34 @@ This is the overlord FAQ. You will find frequently asked questions, common missc
       
 
 *(Other default settings should be set here if are not conceptualised by edjits)*
-</details>
+</details> <!-- defaults end -->
 
 <hr>
 
 ### Common Issues
-<details>
+<details> <!-- common issues start -->
   <summary>Common Issues with potential solutions</summary>
 You will need to select your platform then look for the issues inside of the list you need help with.
 <hr>
 
 <details>
+  <summary>My clients dont connect after updating</summary>
+  This is likely due to an update to how the networking/connecting works. These changes can cause instability or break connections with outdated clients.<br>
+  It is recommended you download the latest version of docker, keep the current version running (cli <> ser commuinication) then updating the clients to work with the latest<br>
+  Once verified all is ported over and working/stable, shutdown the old server and keep the newest one update and migrate other things if needed. 
+
+</details> 
+
+#### ***Below content is useless and is going to be replaced as currently is a template.***
+
+<hr><br>
+
+<details> <!-- win start -->
   <summary>Windows</summary>
 
   <hr>
-  <details>
+  
+  <details> <!-- issue 1 -->
     <summary>Issue template 1</summary>
 
 
@@ -82,27 +95,28 @@ You will need to select your platform then look for the issues inside of the lis
    ##### My issue
       fuck your issue.
     
-  </details> <!-- issue 1 template end -->
+  </details> <!-- issue 1 end -->
+  
   <hr> <!-- seperator for issues -->
 
-</details> <!-- parent -->
+</details> <!-- common issues end -->
 
 <hr>
 
-<details>
+<details> <!-- mac start -->
   <summary>Mac</summary>
-</details>
+</details> <!-- mac end -->
 
 <hr>
 
-<details>
+<details> <!-- linux start -->
   <summary>Linux</summary>
-</details>
+</details> <!-- linux end -->
 
 <hr>
 
 *(Other default settings should be set here if are not conceptualised by edjits)*
-</details>
+</details> <!-- end of common issues -->
 
 <hr>
 
