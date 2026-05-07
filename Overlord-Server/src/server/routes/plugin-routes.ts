@@ -1058,8 +1058,13 @@ export async function handlePluginRoutes(
       injected = raw.replace(headMatch[0], `${headMatch[0]}\n    ${baseTag}`);
     }
 
+    const etag = `"${file.size.toString(36)}-${file.lastModified.toString(36)}"`;
+    if (req.headers.get("if-none-match") === etag) {
+      return new Response(null, { status: 304 });
+    }
+
     return new Response(injected, {
-      headers: deps.secureHeaders("text/html; charset=utf-8"),
+      headers: { ...deps.secureHeaders("text/html; charset=utf-8"), "Cache-Control": "no-cache", ETag: etag },
     });
   }
 
@@ -1089,10 +1094,19 @@ export async function handlePluginRoutes(
 
     const htmlFile = path.join(deps.PLUGIN_ROOT, pluginId, "assets", `${pluginId}.html`);
     const file = Bun.file(htmlFile);
+    const htmlExists = await file.exists();
+
+    const etag = htmlExists
+      ? `"page-${file.size.toString(36)}-${file.lastModified.toString(36)}"`
+      : `"page-empty"`;
+    if (req.headers.get("if-none-match") === etag) {
+      return new Response(null, { status: 304 });
+    }
+
     let pluginBody = "";
     let pluginHeadExtras = "";
 
-    if (await file.exists()) {
+    if (htmlExists) {
       const raw = await file.text();
 
       const bodyMatch = raw.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
@@ -1143,7 +1157,9 @@ export async function handlePluginRoutes(
   </body>
 </html>`;
 
-    return new Response(html, { headers: deps.secureHeaders("text/html; charset=utf-8") });
+    return new Response(html, {
+      headers: { ...deps.secureHeaders("text/html; charset=utf-8"), "Cache-Control": "no-cache", ETag: etag },
+    });
   }
 
   const pluginAssetMatch = url.pathname.match(/^\/plugins\/([^/]+)\/assets\/(.+)$/);
@@ -1180,7 +1196,13 @@ export async function handlePluginRoutes(
 
     const file = Bun.file(resolvedPath);
     if (await file.exists()) {
-      return new Response(file, { headers: deps.secureHeaders(deps.mimeType(assetPath)) });
+      const etag = `"${file.size.toString(36)}-${file.lastModified.toString(36)}"`;
+      if (req.headers.get("if-none-match") === etag) {
+        return new Response(null, { status: 304 });
+      }
+      return new Response(file, {
+        headers: { ...deps.secureHeaders(deps.mimeType(assetPath)), "Cache-Control": "no-cache", ETag: etag },
+      });
     }
     return new Response("Not found", { status: 404 });
   }
