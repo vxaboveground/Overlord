@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/vxaboveground/Overlord/refs/heads/main/Overlord-Server/public/assets/overlord.png" alt="Overlord" width="500" />
+  <img src="https://raw.githubusercontent.com/vxaboveground/Overlord/refs/heads/main/Overlord-Server/public/assets/overlord.png" alt="Overlord" width="280" />
 </p>
 
 # Overlord
@@ -34,7 +34,6 @@ Other:
 - [Production Package Scripts](#production-package-scripts)
 - [Docker Notes (TLS, reverse proxy, cache)](#docker-notes-tls-reverse-proxy-cache)
 
----
 ---
 
 ## Quick Start (Docker)
@@ -425,6 +424,3 @@ When enabled:
 
 - Keep `HOST=0.0.0.0` inside the container. Limit exposure with `OVERLORD_PUBLISH_HOST`, not the bind host.
 - If your `.env` secret/password contains `$`, escape it as `$$` to avoid Docker Compose variable-expansion warnings.
-
-- Keep `HOST=0.0.0.0` inside the container. Limiting exposure should be done with publish binding (`OVERLORD_PUBLISH_HOST`), not server bind host.
-- If your `.env` secret/password includes `$`, escape as `$$` to avoid Docker Compose variable-expansion warnings.
