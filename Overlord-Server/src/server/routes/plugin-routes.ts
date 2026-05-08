@@ -12,7 +12,7 @@ import { encodeMessage, type PluginSignatureInfo } from "../../protocol";
 import { getConfig, updatePluginsConfig } from "../../config";
 import { getOrVerifySignature, BUILTIN_TRUSTED_KEYS } from "../plugin-signature";
 import type { PluginRuntime } from "../plugin-runtime/runtime";
-import { getPluginPull, deletePluginPull } from "../plugin-state-bundle";
+import { getPluginPull, deletePluginPull, detectPluginIdFromZip } from "../plugin-state-bundle";
 import { isAuthorizedAgentRequest } from "../agent-auth";
 import { logger } from "../../logger";
 
@@ -253,21 +253,14 @@ export async function handlePluginRoutes(
       return new Response("Plugin zip exceeds size limit", { status: 413 });
     }
 
-    const base = path.basename(filename, path.extname(filename));
-    let pluginId = "";
-    try {
-      pluginId = deps.sanitizePluginId(base);
-    } catch {
-      return new Response("Invalid plugin name", { status: 400 });
-    }
-
     const data = new Uint8Array(await file.arrayBuffer());
     if (data.byteLength > MAX_PLUGIN_ZIP_BYTES) {
       return new Response("Plugin zip exceeds size limit", { status: 413 });
     }
 
+    let probe: AdmZip;
     try {
-      const probe = new AdmZip(Buffer.from(data));
+      probe = new AdmZip(Buffer.from(data));
       let totalUncompressed = 0;
       for (const entry of probe.getEntries() as any[]) {
         const sz = Number(entry?.header?.size ?? 0);
@@ -281,6 +274,15 @@ export async function handlePluginRoutes(
       }
     } catch {
       return new Response("Invalid plugin zip", { status: 400 });
+    }
+
+    const internalId = detectPluginIdFromZip(probe);
+    const idCandidate = internalId || path.basename(filename, path.extname(filename));
+    let pluginId = "";
+    try {
+      pluginId = deps.sanitizePluginId(idCandidate);
+    } catch {
+      return new Response("Invalid plugin name", { status: 400 });
     }
 
     await fs.mkdir(deps.PLUGIN_ROOT, { recursive: true });

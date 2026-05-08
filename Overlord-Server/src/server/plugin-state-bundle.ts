@@ -398,6 +398,29 @@ export async function dispatchAutoLoadPlugins(
   }
 }
 
+export function detectPluginIdFromZip(zip: AdmZip): string | null {
+  const entries = zip.getEntries();
+  for (const entry of entries) {
+    if (entry.isDirectory) continue;
+    const base = path.basename(entry.entryName);
+    if (base.toLowerCase().endsWith(".html")) {
+      return base.slice(0, -5);
+    }
+  }
+  for (const entry of entries) {
+    if (entry.isDirectory) continue;
+    const base = path.basename(entry.entryName);
+    if (base.toLowerCase() === "config.json") {
+      try {
+        const cfg = JSON.parse(entry.getData().toString("utf-8"));
+        if (typeof cfg?.id === "string" && cfg.id.length > 0) return cfg.id;
+      } catch {}
+      break;
+    }
+  }
+  return null;
+}
+
 function derivePlatformKey(filename: string): string {
   const match = filename.match(/-(linux|darwin|windows|freebsd)-(amd64|arm64|arm|386)\.(so|dll|dylib)$/i);
   if (match) {
