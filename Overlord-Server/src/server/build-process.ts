@@ -676,6 +676,20 @@ func runBoundFiles() {
         });
       }
 
+      if (
+        effectiveOs === "darwin" &&
+        !isIosTarget &&
+        process.platform !== "darwin" &&
+        env.CGO_ENABLED === "1"
+      ) {
+        env.CGO_ENABLED = "0";
+        sendToStream({
+          type: "output",
+          text: "WARNING: Cross-compiling to darwin from a non-macOS host requires an osxcross/macOS SDK toolchain, which is not bundled. Forcing CGO disabled for this target. Build natively on macOS for full CGO support.\n",
+          level: "warn",
+        });
+      }
+
       if (env.CGO_ENABLED === "1") {
         let cc: string | undefined;
         let cxx: string | undefined;
