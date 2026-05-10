@@ -20,6 +20,11 @@ static int sp_memfd_create(void) {
 	return (int)syscall(SYS_memfd_create, "plugin", MFD_CLOEXEC);
 }
 
+// No CLOEXEC — the fd must survive fexecve/exec into the shim process.
+static int sp_memfd_create_nocloe(void) {
+	return (int)syscall(SYS_memfd_create, "ph", 0);
+}
+
 static int sp_write_all(int fd, const void* buf, size_t len) {
 	const char* p = (const char*)buf;
 	while (len > 0) {
@@ -75,13 +80,12 @@ func loadNativePluginSubproc(soData []byte) (NativePlugin, error) {
 	}
 
 	// Write the shim binary to a memfd WITHOUT close-on-exec so it survives exec.
-	shimFd, _, errno := syscall.RawSyscall(syscall.SYS_MEMFD_CREATE,
-		uintptr(unsafe.Pointer(syscall.StringBytePtr("ph"))), 0, 0)
-	if int(shimFd) < 0 {
+	shimFdC := C.sp_memfd_create_nocloe()
+	if shimFdC < 0 {
 		syscall.Close(soFd)
-		return nil, fmt.Errorf("memfd_create for shim failed: %w", errno)
+		return nil, errors.New("memfd_create for shim failed")
 	}
-	shimFile := os.NewFile(shimFd, "plugin_host_shim")
+	shimFile := os.NewFile(uintptr(shimFdC), "plugin_host_shim")
 	if _, err := shimFile.Write(pluginHostBinary); err != nil {
 		shimFile.Close()
 		syscall.Close(soFd)
@@ -105,7 +109,7 @@ func loadNativePluginSubproc(soData []byte) (NativePlugin, error) {
 	//   child fd 3 = .so memfd
 	//   child fd 4 = child end of socketpair
 	devNull, _ := syscall.Open("/dev/null", syscall.O_RDONLY, 0)
-	shimPath := fmt.Sprintf("/proc/self/fd/%d", int(shimFd))
+	shimPath := fmt.Sprintf("/proc/self/fd/%d", int(shimFdC))
 	pid, err := syscall.ForkExec(shimPath, []string{"plugin_host",
 		strconv.Itoa(3), strconv.Itoa(4)},
 		&syscall.ProcAttr{
