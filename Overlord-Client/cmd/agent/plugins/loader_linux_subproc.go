@@ -4,10 +4,31 @@ package plugins
 
 /*
 #include <sys/socket.h>
+#include <sys/syscall.h>
 #include <unistd.h>
+#include <stdint.h>
+
+#ifndef MFD_CLOEXEC
+#define MFD_CLOEXEC 0x0001U
+#endif
 
 static int make_socketpair(int fds[2]) {
 	return socketpair(AF_UNIX, SOCK_STREAM, 0, fds);
+}
+
+static int sp_memfd_create(void) {
+	return (int)syscall(SYS_memfd_create, "plugin", MFD_CLOEXEC);
+}
+
+static int sp_write_all(int fd, const void* buf, size_t len) {
+	const char* p = (const char*)buf;
+	while (len > 0) {
+		ssize_t n = write(fd, p, len);
+		if (n <= 0) return -1;
+		p += n;
+		len -= (size_t)n;
+	}
+	return 0;
 }
 */
 import "C"
@@ -44,11 +65,11 @@ func loadNativePluginSubproc(soData []byte) (NativePlugin, error) {
 	}
 
 	// Write the .so to a memfd so the shim can dlopen it.
-	soFd := int(C.so_memfd_create())
+	soFd := int(C.sp_memfd_create())
 	if soFd < 0 {
 		return nil, errors.New("memfd_create failed for plugin .so")
 	}
-	if C.so_write_all(C.int(soFd), unsafe.Pointer(&soData[0]), C.size_t(len(soData))) != 0 {
+	if C.sp_write_all(C.int(soFd), unsafe.Pointer(&soData[0]), C.size_t(len(soData))) != 0 {
 		syscall.Close(soFd)
 		return nil, errors.New("write to plugin .so memfd failed")
 	}
