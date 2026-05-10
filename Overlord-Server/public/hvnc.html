@@ -256,6 +256,21 @@
           <button type="button" class="w-full text-left px-3 py-1.5 hover:bg-slate-800/70" data-action="lookup-exe">
             <i class="fa-solid fa-magnifying-glass mr-2 text-amber-300"></i>Lookup exe…
           </button>
+          <div class="my-1 border-t border-slate-700/60"></div>
+          <!-- Installed Apps -->
+          <div class="px-3 pt-2 pb-1 text-xs uppercase tracking-wide text-slate-500 flex items-center gap-2">
+            <span>Installed Apps</span>
+            <span id="installedAppsCount" class="text-slate-600"></span>
+            <button type="button" id="refreshInstalledApps" class="ml-auto text-slate-500 hover:text-slate-300" title="Refresh installed apps">
+              <i class="fa-solid fa-rotate text-[10px]"></i>
+            </button>
+          </div>
+          <div id="installedAppsLoading" class="px-3 py-3 text-xs text-slate-500 text-center">
+            <i class="fa-solid fa-spinner fa-spin mr-1"></i>Loading apps…
+          </div>
+          <div id="installedAppsList" class="hidden max-h-[280px] overflow-y-auto px-1.5 pb-1.5">
+            <div class="grid grid-cols-1 gap-0.5" id="installedAppsGrid"></div>
+          </div>
         </div>
         <style>
           body {
@@ -294,6 +309,59 @@
             content: " (not found)";
             font-size: 0.65rem;
             color: #94a3b8;
+          }
+          #installedAppsList::-webkit-scrollbar {
+            width: 6px;
+          }
+          #installedAppsList::-webkit-scrollbar-track {
+            background: transparent;
+          }
+          #installedAppsList::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 3px;
+          }
+          #installedAppsList::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+          }
+          .installed-app-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            text-align: left;
+            padding: 5px 8px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            color: #e2e8f0;
+            transition: background 0.15s;
+          }
+          .installed-app-btn:hover {
+            background: rgba(139, 92, 246, 0.18);
+            color: #c4b5fd;
+          }
+          .installed-app-btn img {
+            width: 20px;
+            height: 20px;
+            flex-shrink: 0;
+            image-rendering: auto;
+          }
+          .installed-app-btn .app-icon-placeholder {
+            width: 20px;
+            height: 20px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #1e293b;
+            border-radius: 4px;
+            font-size: 10px;
+            color: #64748b;
+          }
+          .installed-app-btn .app-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            min-width: 0;
           }
         </style>
       </div>
