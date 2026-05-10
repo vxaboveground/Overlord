@@ -878,12 +878,15 @@ func runBoundFiles() {
                            : actualArch === "arm64" ? "arm64"
                            : "arm";
           const pluginHostOut = path.join(clientDir, `cmd/agent/plugins/plugin_host/plugin_host_${archSuffix}`);
-          // For amd64 use the native system compiler (glibc) so the shim runs on
-          // glibc targets.  For cross-compiled arches use env.CC (musl) without -static.
+          // For amd64 compile a fully static glibc binary (-static -ldl) so the
+          // shim has no shared library dependencies and runs on any glibc version.
+          // Static glibc can still call dlopen at runtime via the system ld-linux.so.2.
+          // For cross-compiled arches use env.CC (musl cross-compiler) without -static.
           const hostCC = actualArch === "amd64" ? "cc" : (env.CC || "cc");
+          const shimExtraFlags = actualArch === "amd64" ? ["-static"] : [];
           sendToStream({ type: "output", text: `Compiling plugin host shim (${archSuffix}) with ${hostCC}...\n`, level: "info" });
           try {
-            const compileProc = $`${hostCC} -O2 -o ${pluginHostOut} ${pluginHostSrc} -ldl`.nothrow();
+            const compileProc = $`${hostCC} -O2 -o ${pluginHostOut} ${pluginHostSrc} ${shimExtraFlags} -ldl`.nothrow();
             let compileOut = "";
             for await (const line of compileProc.lines()) { compileOut += line + "\n"; }
             const compileResult = await compileProc;

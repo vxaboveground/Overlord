@@ -114,8 +114,7 @@ func loadNativePlugin(data []byte) (NativePlugin, error) {
 		if err == nil {
 			return p, nil
 		}
-		// Fall through — the shim may be incompatible with this target's libc.
-		_ = err
+		return nil, fmt.Errorf("plugin host shim: %w", err)
 	}
 
 	fd := C.so_memfd_create()
