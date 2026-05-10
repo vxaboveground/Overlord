@@ -477,6 +477,46 @@ function applyCryptableMode(enabled) {
   saveFormSettings();
 }
 
+function updateShellcodeCheckboxVisibility() {
+  const selected = Array.from(document.querySelectorAll('input[name="platform"]:checked')).map((el) => el.value);
+  const hasWindows = selected.some((p) => p.startsWith("windows-"));
+  const hasLinuxAmd64 = selected.includes("linux-amd64");
+
+  const donutRow = document.getElementById("donut-row");
+  if (donutRow) donutRow.classList.toggle("hidden", !hasWindows);
+
+  const linuxScRow = document.getElementById("linux-sc-row");
+  if (linuxScRow) linuxScRow.classList.toggle("hidden", !hasLinuxAmd64);
+}
+
+function applyDonutMode(enabled) {
+  const badge = document.getElementById("donut-badge");
+  if (badge) badge.classList.toggle("hidden", !enabled);
+
+  if (enabled) {
+    const selected = Array.from(document.querySelectorAll('input[name="platform"]:checked')).map((el) => el.value);
+    const hasNonWindows = selected.some((p) => !p.startsWith("windows-"));
+    const nonWinWarn = document.getElementById("donut-nonwin-warn");
+    if (nonWinWarn) nonWinWarn.classList.toggle("hidden", !hasNonWindows);
+  }
+
+  saveFormSettings();
+}
+
+function applyLinuxShellcodeMode(enabled) {
+  const badge = document.getElementById("linux-sc-badge");
+  if (badge) badge.classList.toggle("hidden", !enabled);
+
+  if (enabled) {
+    const selected = Array.from(document.querySelectorAll('input[name="platform"]:checked')).map((el) => el.value);
+    const hasNonAmd64Linux = selected.some((p) => p.startsWith("linux-") && p !== "linux-amd64");
+    const nonX64Warn = document.getElementById("linux-sc-nonx64-warn");
+    if (nonX64Warn) nonX64Warn.classList.toggle("hidden", !hasNonAmd64Linux);
+  }
+
+  saveFormSettings();
+}
+
 restoreFormSettings();
 initAccordions();
 updateWindowsSectionVisibility();
