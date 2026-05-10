@@ -229,6 +229,7 @@ function applyFormSettings(settings) {
   updateWindowsSectionVisibility();
   updateIosSectionVisibility();
   updatePersistenceSettingsVisibility();
+  updateShellcodeCheckboxVisibility();
   if (solMemoCheckbox && solSettings) {
     solSettings.classList.toggle("hidden", !solMemoCheckbox.checked);
   }
@@ -520,6 +521,7 @@ function applyLinuxShellcodeMode(enabled) {
 restoreFormSettings();
 initAccordions();
 updateWindowsSectionVisibility();
+updateShellcodeCheckboxVisibility();
 init();
 
 if (solMemoCheckbox && solSettings) {
