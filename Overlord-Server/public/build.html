@@ -364,6 +364,55 @@
                       </div>
                     </div>
 
+                    <div id="donut-row" class="hidden flex flex-col gap-1">
+                      <label class="flex items-center gap-2 p-3 bg-green-900/20 border border-green-500/30 rounded-lg cursor-pointer hover:border-green-400 transition-colors">
+                        <input type="checkbox" id="donut-mode" name="donut-mode" class="w-4 h-4" />
+                        <div class="flex flex-col">
+                          <span class="flex items-center gap-2">
+                            <i class="fa-solid fa-pepper-hot text-green-400"></i> Donut Shellcode
+                          </span>
+                          <span class="text-xs text-slate-500">Convert Windows PE to position-independent shellcode (.bin) via Donut. PE metadata, icon, bound files, UPX, hide-console, UAC, and critical-process are disabled. Persistence uses a two-pass build.</span>
+                        </div>
+                      </label>
+                      <div id="donut-badge" class="hidden pl-3 border-l-2 border-green-500/40 flex flex-col gap-1">
+                        <div class="flex items-center gap-2 px-3 py-1.5 rounded bg-green-900/30 border border-green-600/40 text-xs text-green-300">
+                          <i class="fa-solid fa-circle-check"></i>
+                          <span>Donut mode active — Windows builds output position-independent shellcode (.bin)</span>
+                        </div>
+                        <label class="flex items-center gap-2 px-3 py-1.5 rounded bg-slate-800/60 border border-slate-600/40 text-xs text-slate-300 cursor-pointer hover:border-slate-400 transition-colors">
+                          <input type="checkbox" id="shellcode-console" name="shellcode-console" class="w-3.5 h-3.5" />
+                          <i class="fa-solid fa-terminal text-slate-400"></i>
+                          <span>Show console window — calls <code>AllocConsole()</code> on start (debug builds only)</span>
+                        </label>
+                        <div id="donut-nonwin-warn" class="hidden flex items-center gap-2 px-3 py-1.5 rounded bg-yellow-900/30 border border-yellow-600/40 text-xs text-yellow-300">
+                          <i class="fa-solid fa-triangle-exclamation"></i>
+                          <span>Non-Windows targets selected — Donut only applies to Windows builds; other platforms build normally</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div id="linux-sc-row" class="hidden flex flex-col gap-1">
+                      <label class="flex items-center gap-2 p-3 bg-cyan-900/20 border border-cyan-500/30 rounded-lg cursor-pointer hover:border-cyan-400 transition-colors">
+                        <input type="checkbox" id="linux-shellcode-mode" name="linux-shellcode-mode" class="w-4 h-4" />
+                        <div class="flex flex-col">
+                          <span class="flex items-center gap-2">
+                            <i class="fa-brands fa-linux text-cyan-400"></i> Linux Shellcode
+                          </span>
+                          <span class="text-xs text-slate-500">Wrap Linux amd64 ELF in a position-independent shellcode stub (.bin) using memfd_create + execveat. Bound files and UPX are disabled. Persistence uses a two-pass build.</span>
+                        </div>
+                      </label>
+                      <div id="linux-sc-badge" class="hidden pl-3 border-l-2 border-cyan-500/40 flex flex-col gap-1">
+                        <div class="flex items-center gap-2 px-3 py-1.5 rounded bg-cyan-900/30 border border-cyan-600/40 text-xs text-cyan-300">
+                          <i class="fa-solid fa-circle-check"></i>
+                          <span>Linux shellcode mode active — linux-amd64 builds output shellcode (.bin)</span>
+                        </div>
+                        <div id="linux-sc-nonx64-warn" class="hidden flex items-center gap-2 px-3 py-1.5 rounded bg-yellow-900/30 border border-yellow-600/40 text-xs text-yellow-300">
+                          <i class="fa-solid fa-triangle-exclamation"></i>
+                          <span>Non-amd64 Linux targets selected — shellcode stub only supports x86_64; other platforms build normally</span>
+                        </div>
+                      </div>
+                    </div>
+
                   </div>
                 </div>
               </div>

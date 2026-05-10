@@ -12,7 +12,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strconv"
@@ -32,24 +31,6 @@ import (
 	"nhooyr.io/websocket"
 )
 
-func isRunningInMemory() bool {
-	exePath, err := os.Executable()
-	if err != nil {
-		return true
-	}
-	if realPath, err := filepath.EvalSymlinks(exePath); err == nil {
-		exePath = realPath
-	}
-	absPath, err := filepath.Abs(exePath)
-	if err != nil {
-		return true
-	}
-	info, err := os.Stat(absPath)
-	if err != nil || !info.Mode().IsRegular() {
-		return true
-	}
-	return false
-}
 
 func runClient(cfg config.Config) {
 	//garble:controlflow block_splits=10 junk_jumps=10 flatten_passes=2

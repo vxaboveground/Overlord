@@ -48,6 +48,19 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     go install mvdan.cc/garble@latest
 
+# Pre-fetch the latest Donut shellcode converter binary.
+# The runtime donut-manager will re-check GitHub and update automatically;
+# this step just ensures a working binary is available offline / on first use.
+RUN DONUT_TAG=$(curl -sSf "https://api.github.com/repos/TheWover/donut/releases/latest" \
+        | grep '"tag_name"' | head -1 | cut -d'"' -f4) \
+    && ARCHIVE_URL="https://github.com/TheWover/donut/releases/download/${DONUT_TAG}/donut_${DONUT_TAG}.tar.gz" \
+    && if curl -sSfL "${ARCHIVE_URL}" | tar xzf - --strip-components=0 -C /usr/local/bin ./donut 2>/dev/null; then \
+        chmod +x /usr/local/bin/donut; \
+        echo "Donut ${DONUT_TAG} pre-installed from archive"; \
+    else \
+        echo "WARNING: Donut pre-fetch failed — will fall back to system PATH or download on first use"; \
+    fi
+
 # Full bun install (includes devDeps needed for tailwind / vendor / minify steps)
 COPY Overlord-Server/package.json Overlord-Server/bun.lock* ./
 RUN --mount=type=cache,target=/root/.bun/install/cache \
@@ -132,6 +145,14 @@ COPY --from=builder /app/dist-clients ./dist-clients
 COPY Overlord-Client/ ./Overlord-Client/
 
 RUN mkdir -p certs data
+
+# Pre-seed Go module cache so first agent builds work offline.
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    cd /app/Overlord-Client && \
+    GOWORK=off \
+    GOMODCACHE=/go/pkg/mod \
+    go mod download
 
 EXPOSE 5173
 

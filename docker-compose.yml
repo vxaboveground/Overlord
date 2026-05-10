@@ -4,10 +4,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      cache_from:
-        - type=local,src=.docker-cache/buildx
-      cache_to:
-        - type=local,dest=.docker-cache/buildx,mode=max
     container_name: overlord-server
     # Host networking: the container shares the host's network stack directly.
     # Every port the server binds (5173, SOCKS5 proxies, etc.) is accessible
@@ -61,7 +57,7 @@ services:
       - no-new-privileges:true
     healthcheck:
       # Use http:// when OVERLORD_TLS_OFFLOAD=true.
-      test: ["CMD-SHELL", "curl -f ${OVERLORD_HEALTHCHECK_URL:-https://localhost:5173/health} >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- --no-check-certificate ${OVERLORD_HEALTHCHECK_URL:-https://localhost:5173/health} >/dev/null 2>&1 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

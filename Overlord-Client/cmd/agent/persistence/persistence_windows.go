@@ -211,8 +211,6 @@ func install(exePath string) error {
 	}
 	_ = cleanupLegacyRunValues()
 	return firstErr
-
-	return nil
 }
 
 func replaceExecutable(exePath, targetPath string) error {

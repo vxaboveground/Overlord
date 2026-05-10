@@ -110,6 +110,9 @@ export async function handleBuildRoutes(
         sleepSeconds,
         boundFiles,
         iosBundleId,
+        useDonut,
+        useLinuxShellcode,
+        shellcodeConsole,
       } = body;
 
       if (!platforms || !Array.isArray(platforms) || platforms.length === 0) {
@@ -376,6 +379,9 @@ export async function handleBuildRoutes(
         sleepSeconds: safeSleepSeconds,
         boundFiles: safeBoundFiles,
         iosBundleId: typeof iosBundleId === "string" && /^[a-zA-Z0-9.-]{1,128}$/.test(iosBundleId.trim()) ? iosBundleId.trim() : undefined,
+        useDonut: !!useDonut,
+        useLinuxShellcode: !!useLinuxShellcode,
+        shellcodeConsole: !!shellcodeConsole,
       }).finally(() => {
         if (rateLimitActive) recordBuildEnd(user.userId);
       });

