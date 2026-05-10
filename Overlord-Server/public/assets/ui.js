@@ -203,9 +203,23 @@ menuStyle.textContent = `
 }
 /* Allow classList.add/remove("hidden") to work on items inside the menu */
 #command-menu .hidden { display: none !important; }
-/* Mobile: stack submenu below the main column */
+/* Mobile: stack submenu below the main column, scroll the whole menu */
 @media (max-width: 600px) {
-  #command-menu { flex-direction: column; max-width: calc(100vw - 16px); }
+  #command-menu {
+    flex-direction: column;
+    max-width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    /* drop-shadow on a scroll container can clip painted content; keep shadow but
+       move it onto the inner panels instead so scrolling stays smooth */
+    filter: none;
+  }
+  #ctx-main, #ctx-sub {
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.7);
+  }
   #ctx-sub { position: static; margin-top: 0; min-width: 0; width: 100%; border-radius: 0 0 8px 8px; border-top: 1px solid rgba(148,163,184,0.08); left: auto; right: auto; }
   #ctx-main { border-radius: 8px 8px 0 0; }
 }
@@ -261,6 +275,11 @@ function showSubmenu(groupId, rowEl) {
   panel.style.display = "flex";
   ctxSub.style.display = "flex";
 
+  if (isMobileMenu()) {
+    requestAnimationFrame(refitMobileMenu);
+    return;
+  }
+
   // Align submenu vertically with the hovered row, then clamp to viewport
   requestAnimationFrame(() => {
     const rowRect  = rowEl.getBoundingClientRect();
@@ -297,6 +316,14 @@ function hideSubmenu() {
 
 function isMobileMenu() {
   return window.matchMedia("(max-width: 600px)").matches;
+}
+
+function refitMobileMenu() {
+  if (!isMobileMenu()) return;
+  const sub = menu.querySelector("#ctx-sub");
+  if (sub && menu.scrollHeight > menu.clientHeight) {
+    sub.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
 }
 
 ctxMain.querySelectorAll(".ctx-row").forEach(rowEl => {
@@ -354,12 +381,21 @@ export function openMenu(clientId, x, y, setContext, options = {}) {
   menu.setAttribute("aria-hidden", "false");
 
   requestAnimationFrame(() => {
-    const mw = ctxMain.offsetWidth;
-    const mh = ctxMain.offsetHeight;
+    const mw = menu.offsetWidth;
+    const mh = menu.offsetHeight;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    menu.style.left = Math.max(8, Math.min(x, vw - mw - 8)) + "px";
-    menu.style.top  = Math.max(8, Math.min(y, vh - mh - 8)) + "px";
+    const margin = 8;
+
+    if (isMobileMenu()) {
+      menu.style.left = Math.max(margin, Math.floor((vw - mw) / 2)) + "px";
+      menu.style.top  = margin + "px";
+      menu.scrollTop = 0;
+      return;
+    }
+
+    menu.style.left = Math.max(margin, Math.min(x, vw - mw - margin)) + "px";
+    menu.style.top  = Math.max(margin, Math.min(y, vh - mh - margin)) + "px";
   });
 }
 
