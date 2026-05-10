@@ -2921,6 +2921,34 @@ tbody tr:hover {
 .cv-card:hover .cv-card-actions,
 .cv-card:has(.client-checkbox:checked) .cv-card-actions { opacity: 1; }
 
+/* ── Sticky pagination at viewport bottom ─────────────────── */
+
+#pagination {
+  position: fixed;
+  bottom: 12px;
+  left: var(--sb-w);
+  right: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  z-index: 30;
+  pointer-events: none;
+  transition: left var(--sb-speed, 240ms) var(--sb-ease, cubic-bezier(0.4, 0, 0.2, 1));
+}
+#pagination > * { pointer-events: auto; }
+
+html.nav-pre-sidebar.nav-pre-collapsed #pagination,
+body.sb-ready.sb-collapsed #pagination {
+  left: var(--sb-w-collapsed);
+}
+
+@media (max-width: 767px) {
+  #pagination { left: 0 !important; }
+}
+
+/* Reserve space so content isn't hidden behind the fixed bar */
+main:has(#pagination) { padding-bottom: 76px; }
+
 /* ── Mobile tweaks ─────────────────────────────────────────── */
 @media (max-width: 720px) {
   .cv-row {
