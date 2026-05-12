@@ -1,6 +1,6 @@
 [package]
 name = "overlord-desktop"
-version = "1.02"
+version = "1.0.2"
 description = "Overlord Desktop Client"
 authors = ["K fucking Dot"]
 edition = "2021"

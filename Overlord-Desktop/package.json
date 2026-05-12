@@ -1,6 +1,6 @@
 {
   "name": "overlord-desktop",
-  "version": "1.02",
+  "version": "1.0.2",
   "description": "Overlord Desktop Client - Tauri fat client for the Overlord server",
   "author": "K fucking Dot",
   "private": true,
