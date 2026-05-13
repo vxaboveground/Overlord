@@ -69,6 +69,8 @@ Overlord-Server/plugins/*
 plugins/toxi/*
 plugins/toxi copy/*
 
+*.zip
+
 # Runtime data
 Overlord-Server/data/
 

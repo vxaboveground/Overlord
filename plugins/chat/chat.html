@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chat</title>
+    <link rel="stylesheet" href="/plugins/chat/assets/chat.css" />
+  </head>
+  <body>
+    <main class="chat-wrap">
+      <header class="chat-header">
+        <h1><i class="fa-solid fa-comments"></i> Chat</h1>
+        <p class="chat-sub">Two-way chat with target user (Windows only)</p>
+      </header>
+
+      <!-- Config Panel -->
+      <section class="chat-card chat-config" id="config-panel">
+        <div class="chat-config-toggle" id="config-toggle">
+          <span>Configuration</span>
+          <i class="fa-solid fa-chevron-down" id="config-chevron"></i>
+        </div>
+        <div class="chat-config-body" id="config-body">
+          <div class="chat-grid">
+            <label>Client ID</label>
+            <input id="client-id" type="text" class="chat-field" placeholder="paste client ID" />
+
+            <label>Your Name</label>
+            <input id="operator-name" type="text" class="chat-field" value="Operator" />
+
+            <label>Target Name</label>
+            <input id="target-name" type="text" class="chat-field" value="User" />
+
+            <label>Window Title</label>
+            <input id="window-title" type="text" class="chat-field" value="Chat" />
+
+            <label>Options</label>
+            <div class="chat-checkboxes">
+              <label><input type="checkbox" id="opt-closable" checked /> Closable</label>
+              <label><input type="checkbox" id="opt-ontop" /> Always on Top</label>
+            </div>
+          </div>
+          <div class="chat-config-actions">
+            <button id="btn-open" class="chat-btn chat-btn-blue">Open Chat</button>
+            <button id="btn-close" class="chat-btn chat-btn-red" disabled>Close Chat</button>
+            <button id="btn-clear" class="chat-btn chat-btn-muted">Clear History</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Status -->
+      <div class="chat-status" id="status">
+        <span class="chat-status-dot" id="status-dot"></span>
+        <span id="status-text">Chat not opened</span>
+      </div>
+
+      <!-- Messages -->
+      <section class="chat-card chat-messages" id="messages"></section>
+
+      <!-- Input -->
+      <section class="chat-input-area">
+        <input type="text" id="msg-input" class="chat-field chat-msg-field" placeholder="Type a message..." disabled />
+        <button id="btn-send" class="chat-btn chat-btn-blue" disabled>Send</button>
+      </section>
+    </main>
+
+    <script src="/plugins/chat/assets/chat.js"></script>
+  </body>
+</html>
