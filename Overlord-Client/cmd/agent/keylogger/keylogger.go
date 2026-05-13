@@ -1,3 +1,6 @@
+//go:build !nokeylogger
+// +build !nokeylogger
+
 package keylogger
 
 import (

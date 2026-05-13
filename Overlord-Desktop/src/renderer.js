@@ -1,3 +1,5 @@
+const { invoke } = window.__TAURI__.core;
+
 const form = document.getElementById("connect-form");
 const hostInput = document.getElementById("host");
 const portInput = document.getElementById("port");
@@ -10,26 +12,20 @@ function setStatus(msg, type = "info") {
   statusEl.innerHTML = msg;
 }
 
-// Load saved connection on startup and surface any pending error from a
-// previous session (e.g. the server dropped mid-session and we bounced back).
 (async () => {
   try {
-    const saved = await window.overlord.getSavedConnection();
+    const saved = await invoke("get_saved_connection");
     if (saved) {
       hostInput.value = saved.host;
       portInput.value = String(saved.port);
-      tlsCheckbox.checked = saved.useTLS;
+      tlsCheckbox.checked = saved.useTls;
     }
-  } catch {
-    // first run, no saved data
-  }
+  } catch { }
 
   try {
-    const err = await window.overlord.getPendingError();
+    const err = await invoke("get_pending_error");
     if (err) setStatus(err, "error");
-  } catch {
-    // ignore
-  }
+  } catch { }
 })();
 
 form.addEventListener("submit", async (e) => {
@@ -37,7 +33,7 @@ form.addEventListener("submit", async (e) => {
 
   const host = hostInput.value.trim();
   const port = parseInt(portInput.value, 10);
-  const useTLS = tlsCheckbox.checked;
+  const useTls = tlsCheckbox.checked;
 
   if (!host) {
     setStatus("Please enter a host address.", "error");
@@ -53,7 +49,7 @@ form.addEventListener("submit", async (e) => {
   setStatus('<span class="spinner"></span> Connecting…', "info");
 
   try {
-    const result = await window.overlord.connectToServer({ host, port, useTLS });
+    const result = await invoke("connect_to_server", { host, port, useTls });
 
     if (result.success) {
       setStatus("Connected! Loading Overlord…", "ok");
@@ -63,7 +59,7 @@ form.addEventListener("submit", async (e) => {
       connectBtn.querySelector(".btn-text").textContent = "Connect";
     }
   } catch (err) {
-    setStatus(err?.message || "Connection failed.", "error");
+    setStatus(err?.message || String(err) || "Connection failed.", "error");
     connectBtn.disabled = false;
     connectBtn.querySelector(".btn-text").textContent = "Connect";
   }

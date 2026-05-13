@@ -1,53 +1,21 @@
 {
   "name": "overlord-desktop",
-  "version": "1.0.1",
-  "description": "Overlord Desktop Client - Fat client for the Overlord server",
+  "version": "1.0.2",
+  "description": "Overlord Desktop Client - Tauri fat client for the Overlord server",
   "author": "K fucking Dot",
-  "main": "src/main.js",
+  "private": true,
   "scripts": {
-    "start": "electron .",
     "vendor": "bun run scripts/vendor.ts",
-    "build": "electron-builder",
-    "build:win": "electron-builder --win nsis",
-    "build:mac": "electron-builder --mac",
-    "build:linux": "electron-builder --linux"
+    "tauri": "tauri",
+    "start": "tauri dev",
+    "build": "tauri build",
+    "build:win": "tauri build --bundles nsis",
+    "build:mac": "tauri build --bundles dmg",
+    "build:linux": "tauri build --bundles appimage"
   },
   "devDependencies": {
     "@fontsource/inter": "^5.2.8",
     "@fortawesome/fontawesome-free": "6.5.2",
-    "electron": "^35.0.0",
-    "electron-builder": "^26.0.0"
-  },
-  "build": {
-    "appId": "com.overlord.desktop",
-    "productName": "Overlord",
-    "icon": "build/icon.ico",
-    "files": [
-      "src/**/*"
-    ],
-    "win": {
-      "target": "nsis",
-      "icon": "build/icon.ico"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "Overlord",
-      "menuCategory": false,
-      "installerIcon": "build/icon.ico",
-      "uninstallerIcon": "build/icon.ico",
-      "include": "build/installer.nsh",
-      "artifactName": "Overlord Setup.${ext}"
-    },
-    "mac": {
-      "target": "dmg",
-      "icon": "build/icon.ico"
-    },
-    "linux": {
-      "target": "AppImage",
-      "icon": "build/icon.ico"
-    }
+    "@tauri-apps/cli": "^2.0.0"
   }
 }

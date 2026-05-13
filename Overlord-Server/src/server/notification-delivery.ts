@@ -243,6 +243,23 @@ async function deliverToUserWebhook(
   }
 }
 
+const TELEGRAM_MESSAGE_MAX = 4096;
+const TELEGRAM_CAPTION_MAX = 1024;
+
+function truncateText(text: string, max: number): string {
+  if (text.length <= max) return text;
+  return text.slice(0, max - 1) + "…";
+}
+
+async function consumeTelegramResponse(res: Response, context: string): Promise<void> {
+  try {
+    const body = await res.text();
+    if (!res.ok) {
+      logger.warn(`[notify] ${context}: telegram API ${res.status} — ${body.slice(0, 300)}`);
+    }
+  } catch { }
+}
+
 async function deliverToUserTelegram(
   target: UserDeliveryTarget,
   record: NotificationRecord,
@@ -261,19 +278,21 @@ async function deliverToUserTelegram(
       const filename = `notification-${record.id}.${meta.ext}`;
       const form = new FormData();
       form.append("chat_id", chatId);
-      form.append("caption", text);
+      form.append("caption", truncateText(text, TELEGRAM_CAPTION_MAX));
       form.append("photo", new Blob([screenshot.bytes as any], { type: meta.contentType }), filename);
       const apiUrl = `https://api.telegram.org/bot${token}/sendPhoto`;
-      await fetch(apiUrl, { method: "POST", body: form });
+      const res = await fetch(apiUrl, { method: "POST", body: form });
+      await consumeTelegramResponse(res, `notification photo to ${target.username}`);
       return;
     }
 
     const apiUrl = `https://api.telegram.org/bot${token}/sendMessage`;
-    await fetch(apiUrl, {
+    const res = await fetch(apiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text }),
+      body: JSON.stringify({ chat_id: chatId, text: truncateText(text, TELEGRAM_MESSAGE_MAX) }),
     });
+    await consumeTelegramResponse(res, `notification to ${target.username}`);
   } catch (err) {
     logger.warn(`[notify] telegram delivery to user ${target.username} (chat ${chatId}) failed`, err);
   }
@@ -494,25 +513,26 @@ export async function deliverClientEventToExternalChannels(
       if (target.telegramEnabled && target.clientEventTelegram && target.telegramBotToken && target.telegramChatId) {
         const token = target.telegramBotToken.trim();
         const chatId = target.telegramChatId.trim();
-        if (!token || !chatId) return;
+        if (token && chatId) {
+          const lines = [label];
+          if (info.id) lines.push(`Client: ${info.id}`);
+          if (info.user) lines.push(`User: ${info.user}`);
+          if (info.host) lines.push(`Host: ${info.host}`);
+          if (info.os) lines.push(`OS: ${info.os}`);
+          if (info.ip) lines.push(`IP: ${info.ip}`);
+          if (info.country) lines.push(`Country: ${info.country}`);
 
-        const lines = [label];
-        if (info.id) lines.push(`Client: ${info.id}`);
-        if (info.user) lines.push(`User: ${info.user}`);
-        if (info.host) lines.push(`Host: ${info.host}`);
-        if (info.os) lines.push(`OS: ${info.os}`);
-        if (info.ip) lines.push(`IP: ${info.ip}`);
-        if (info.country) lines.push(`Country: ${info.country}`);
-
-        try {
-          const apiUrl = `https://api.telegram.org/bot${token}/sendMessage`;
-          await fetch(apiUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ chat_id: chatId, text: lines.join("\n") }),
-          });
-        } catch (err) {
-          logger.warn(`[notify] client event telegram delivery to user ${target.username} failed`, err);
+          try {
+            const apiUrl = `https://api.telegram.org/bot${token}/sendMessage`;
+            const res = await fetch(apiUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ chat_id: chatId, text: truncateText(lines.join("\n"), TELEGRAM_MESSAGE_MAX) }),
+            });
+            await consumeTelegramResponse(res, `client event to ${target.username}`);
+          } catch (err) {
+            logger.warn(`[notify] client event telegram delivery to user ${target.username} failed`, err);
+          }
         }
       }
     }),

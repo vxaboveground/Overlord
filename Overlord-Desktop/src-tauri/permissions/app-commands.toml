@@ -1,0 +1,19 @@
+[[permission]]
+identifier = "allow-connect-to-server"
+description = "Allows the local connect screen to call `connect_to_server`."
+commands.allow = ["connect_to_server"]
+
+[[permission]]
+identifier = "allow-get-saved-connection"
+description = "Allows the local connect screen to read the last saved server connection."
+commands.allow = ["get_saved_connection"]
+
+[[permission]]
+identifier = "allow-get-pending-error"
+description = "Allows the local connect screen to fetch any pending error message."
+commands.allow = ["get_pending_error"]
+
+[[permission]]
+identifier = "allow-go-back-to-connect"
+description = "Allows navigating back to the local connect screen."
+commands.allow = ["go_back_to_connect"]

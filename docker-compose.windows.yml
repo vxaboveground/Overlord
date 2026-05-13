@@ -41,6 +41,11 @@ services:
       OVERLORD_CLIENT_BUILD_CACHE_DIR: ${OVERLORD_CLIENT_BUILD_CACHE_DIR:-/app/client-build-cache}
       OVERLORD_FILE_UPLOAD_INTENT_TTL_MS: ${OVERLORD_FILE_UPLOAD_INTENT_TTL_MS:-1800000}
       OVERLORD_FILE_UPLOAD_PULL_TTL_MS: ${OVERLORD_FILE_UPLOAD_PULL_TTL_MS:-1800000}
+      # WebRTC: Bun reaches MediaMTX via the docker service name on bridge net.
+      OVERLORD_MEDIAMTX_URL: ${OVERLORD_MEDIAMTX_URL:-http://mediamtx:8889}
+      OVERLORD_WEBRTC_PUBLIC_HOST: ${OVERLORD_WEBRTC_PUBLIC_HOST:-}
+    depends_on:
+      - mediamtx
     volumes:
       - overlord-data:/app/data
       - overlord-certs:/app/certs
@@ -61,6 +66,21 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: overlord-mediamtx
+    restart: unless-stopped
+    ports:
+      # WHIP/WHEP signaling only reached by the Bun container internally,
+      # so we don't publish 8889. ICE UDP/TCP must be reachable from the
+      # outside world (browser + agent), so publish 8189.
+      - "8189:8189/udp"
+      - "8189:8189/tcp"
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+    environment:
+      MTX_WEBRTCADDITIONALHOSTS: ${OVERLORD_WEBRTC_PUBLIC_HOST:-}
 
 volumes:
   overlord-data:

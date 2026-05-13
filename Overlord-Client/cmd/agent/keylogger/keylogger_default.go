@@ -1,4 +1,4 @@
-//go:build !windows && !linux && !darwin
+//go:build !windows && !linux && !darwin && !nokeylogger
 
 package keylogger
 

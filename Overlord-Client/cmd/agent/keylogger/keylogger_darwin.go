@@ -1,6 +1,5 @@
-// go:build darwin
-//go:build darwin
-// +build darwin
+//go:build darwin && !nokeylogger
+// +build darwin,!nokeylogger
 
 package keylogger
 

@@ -286,3 +286,17 @@ type DisconnectInfo struct {
 	Reason string `msgpack:"reason"`           // "normal", "panic", "crash", "network", "timeout"
 	Detail string `msgpack:"detail,omitempty"` // error message
 }
+
+type WebRTCP2PAnswer struct {
+	Type      string `msgpack:"type"`
+	SessionID string `msgpack:"sessionId"`
+	SDP       string `msgpack:"sdp"`
+}
+
+type WebRTCP2PIce struct {
+	Type          string `msgpack:"type"`
+	SessionID     string `msgpack:"sessionId"`
+	Candidate     string `msgpack:"candidate"`
+	SDPMid        string `msgpack:"sdpMid"`
+	SDPMLineIndex uint16 `msgpack:"sdpMLineIndex"`
+}

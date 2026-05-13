@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-var AgentVersion = "2.1.1"
+var AgentVersion = "2.2.1"
 
 var DefaultPersistence = "false"
 var DefaultServerURL = "wss://127.0.0.1:5173"

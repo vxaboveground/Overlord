@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissions for the local Overlord connect screen (index.html). Scoped to local app URLs only — the remote Overlord UI must not be able to invoke `connect_to_server` or navigate back to the connect screen.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:webview:allow-webview-show",
+    "core:window:allow-set-title",
+    "allow-connect-to-server",
+    "allow-get-saved-connection",
+    "allow-get-pending-error",
+    "allow-go-back-to-connect"
+  ]
+}

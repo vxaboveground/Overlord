@@ -37,6 +37,8 @@ export const ALLOWED_CLIENT_MESSAGE_TYPES = new Set([
   "proxy_data",
   "proxy_close",
   "disconnect_info",
+  "webrtc_p2p_answer",
+  "webrtc_p2p_ice",
 ]);
 
 export function isAllowedClientMessageType(type: string): boolean {

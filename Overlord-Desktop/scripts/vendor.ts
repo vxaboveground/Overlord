@@ -1,5 +1,5 @@
 /**
- * Copies vendor assets for the Electron Desktop app into src/connect/vendor/.
+ * Copies vendor assets for the Tauri Desktop app into src/vendor/.
  * Usage: bun run scripts/vendor.ts
  */
 
@@ -8,7 +8,7 @@ import path from "path";
 
 const ROOT = path.resolve(import.meta.dir, "..");
 const NM = path.join(ROOT, "node_modules");
-const VENDOR = path.join(ROOT, "src", "connect", "vendor");
+const VENDOR = path.join(ROOT, "src", "vendor");
 
 function ensureDir(dir: string) {
   mkdirSync(dir, { recursive: true });
@@ -45,4 +45,4 @@ copyFilesFiltered(path.join(interRoot, "files"), path.join(VENDOR, "inter", "fil
   /^inter-.*-(400|500|600|700)-normal\.(woff2|woff)$/.test(n),
 );
 
-console.log("✓ Desktop vendor assets ready");
+console.log("Desktop vendor assets ready");

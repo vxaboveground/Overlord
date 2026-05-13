@@ -1,6 +1,5 @@
-// go:build windows
-//go:build windows
-// +build windows
+//go:build windows && !nokeylogger
+// +build windows,!nokeylogger
 
 package keylogger
 

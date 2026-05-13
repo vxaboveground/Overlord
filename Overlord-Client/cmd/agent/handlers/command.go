@@ -610,6 +610,30 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		env.Plugins.Unload(pluginId)
 		_ = wire.WriteMsg(ctx, env.Conn, wire.PluginEvent{Type: "plugin_event", PluginID: pluginId, Event: "unloaded"})
 		return nil
+	case "webrtc_publish":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		if payload == nil {
+			sendCommandResultSafe(env, cmdID, false, "missing payload")
+			return nil
+		}
+		return handleWebrtcPublish(ctx, env, cmdID, payload)
+	case "webrtc_stop":
+		return handleWebrtcStop(ctx, env, cmdID)
+	case "webrtc_p2p_offer":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		if payload == nil {
+			sendCommandResultSafe(env, cmdID, false, "missing payload")
+			return nil
+		}
+		return handleWebrtcP2POffer(ctx, env, cmdID, payload)
+	case "webrtc_p2p_ice":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		if payload == nil {
+			return nil
+		}
+		return handleWebrtcP2PIce(ctx, env, cmdID, payload)
+	case "webrtc_p2p_stop":
+		return handleWebrtcP2PStop(ctx, env, cmdID)
 	case "desktop_start":
 		if goruntime.GOOS == "darwin" {
 			perms := sysinfo.DarwinPermissions()

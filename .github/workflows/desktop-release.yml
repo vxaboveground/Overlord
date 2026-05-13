@@ -22,13 +22,24 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: "20"
+          bun-version: latest
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: Overlord-Desktop/src-tauri -> target
 
       - name: Install Dependencies
-        run: npm install
+        run: bun install
+
+      - name: Vendor frontend assets
+        run: bun run vendor
 
       - name: Get Version
         run: |
@@ -36,14 +47,22 @@ jobs:
           echo "VERSION=$version" >> $env:GITHUB_ENV
         shell: pwsh
 
-      - name: Build Windows Installer
-        run: npm run build:win
+      - name: Build Windows Installer (Tauri NSIS)
+        run: bun run build:win
+
+      - name: Locate NSIS Installer
+        id: locate
+        shell: pwsh
+        run: |
+          $nsis = Get-ChildItem -Path src-tauri\target\release\bundle\nsis\*.exe -ErrorAction Stop | Select-Object -First 1
+          echo "INSTALLER=$($nsis.FullName)" >> $env:GITHUB_ENV
+          echo "INSTALLER_NAME=$($nsis.Name)" >> $env:GITHUB_ENV
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
           name: overlord-desktop-${{ env.VERSION }}
-          path: Overlord-Desktop/dist/Overlord Setup.exe
+          path: ${{ env.INSTALLER }}
 
       - name: Delete Existing Release and Tag
         env:
@@ -72,7 +91,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create Overlord-Desktop-v${{ env.VERSION }} "dist/Overlord Setup.exe" "PLEASE_READ.txt" \
+          gh release create Overlord-Desktop-v${{ env.VERSION }} "${{ env.INSTALLER }}" "PLEASE_READ.txt" \
             --verify-tag \
             -t "Overlord Desktop v${{ env.VERSION }}" \
             -n "Automated build release for Overlord Desktop v${{ env.VERSION }}" \

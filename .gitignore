@@ -1,7 +1,6 @@
 # Local notes (never push)
 TODO-IMPROVEMENTS.md
 upx-reference.txt
-Overlord-Desktop-Tauri\*
 plugins/clipreplace
 
 # Node/Bun
@@ -16,7 +15,12 @@ dist/
 # Build output
 Overlord-Server/public/assets/tailwind.css
 Overlord-Server/public/vendor/
-Overlord-Desktop/src/connect/vendor/
+Overlord-Desktop/src/vendor/
+
+# Tauri
+Overlord-Desktop/src-tauri/target/
+Overlord-Desktop/src-tauri/gen/
+Overlord-Desktop/src-tauri/Cargo.lock
 
 # Configuration
 config.json
@@ -64,6 +68,8 @@ plugins/build-toxi.bat
 Overlord-Server/plugins/*
 plugins/toxi/*
 plugins/toxi copy/*
+
+*.zip
 
 # Runtime data
 Overlord-Server/data/

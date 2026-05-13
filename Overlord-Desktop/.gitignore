@@ -1,0 +1,7 @@
+node_modules/
+dist/
+src/vendor/
+src-tauri/target/
+src-tauri/gen/
+src-tauri/Cargo.lock
+.DS_Store

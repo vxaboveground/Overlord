@@ -630,15 +630,15 @@ element.addEventListener("click", (e) => {
 });
 ```
 
-### Avoiding redeclaration errors
+### Script injection
 
-Because the plugin UI is injected into a persistent single-page application, navigating away and back to a plugin page causes the plugin's JS file to be re-evaluated in the **same global scope**. Using top-level `const` / `let` declarations will throw `SyntaxError: Identifier '...' has already been declared` on the second load.
+The server auto-injects `<script src="/plugins/<pluginId>/assets/<pluginId>.js"></script>` at the end of the page — you don't need to include it yourself. If your plugin HTML does include `<script src=".../<pluginId>.js">` in its `<body>` (e.g. so the file works standalone in a browser), the server strips that tag during injection to prevent the script from running twice. Other `<script>` tags in the body are left alone.
 
-**Wrap all plugin JS in an IIFE** to scope everything locally:
+If you want defensive scoping anyway, wrap your plugin JS in an IIFE so top-level identifiers don't collide with the global scope:
 
 ```js
 (() => {
-  const MY_CONST = "value"; // safe — scoped to this closure
+  const MY_CONST = "value";
   // ... rest of plugin code
 })();
 ```

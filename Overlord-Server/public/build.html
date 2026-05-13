@@ -285,6 +285,7 @@
                       </div>
                     </label>
 
+
                     <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-purple-500 transition-colors">
                       <input type="checkbox" name="obfuscate" class="w-4 h-4" />
                       <div class="flex flex-col">
@@ -417,7 +418,42 @@
                 </div>
               </div>
 
-              <!-- == Section 4: Persistence (collapsed) == -->
+              <!-- == Section 4: Features == -->
+              <div class="accordion-section border border-slate-800 rounded-lg overflow-hidden" data-open="true">
+                <button type="button" class="accordion-header w-full flex items-center justify-between px-4 py-3 bg-slate-800/50 hover:bg-slate-800/80 transition-colors text-left">
+                  <span class="flex items-center gap-2 text-sm font-medium text-slate-200">
+                    <i class="fa-solid fa-puzzle-piece text-cyan-400"></i> Features
+                  </span>
+                  <i class="fa-solid fa-chevron-down accordion-chevron text-slate-400 text-xs"></i>
+                </button>
+                <div class="accordion-body">
+                  <div class="accordion-inner px-4 pb-4 pt-3 flex flex-col gap-2">
+
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-amber-500 transition-colors">
+                      <input type="checkbox" name="enable-keylogger" class="w-4 h-4" checked />
+                      <div class="flex flex-col">
+                        <span class="flex items-center gap-2">
+                          <i class="fa-solid fa-keyboard text-amber-400"></i> Keylogger
+                        </span>
+                        <span class="text-xs text-slate-500">Captures keystrokes with window titles on target</span>
+                      </div>
+                    </label>
+
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-amber-500 transition-colors">
+                      <input type="checkbox" name="enable-webrtc" class="w-4 h-4" />
+                      <div class="flex flex-col">
+                        <span class="flex items-center gap-2">
+                          <i class="fa-solid fa-tower-broadcast text-amber-400"></i> WebRTC
+                        </span>
+                        <span class="text-xs text-slate-500">Compile Pion into the agent for WebRTC streaming (P2P + relayed). Adds ~6&nbsp;MB to the binary; leave off if not needed.</span>
+                      </div>
+                    </label>
+
+                  </div>
+                </div>
+              </div>
+
+              <!-- == Section 5: Persistence (collapsed) == -->
               <div class="accordion-section border border-slate-800 rounded-lg overflow-hidden" data-open="false">
                 <button type="button" class="accordion-header w-full flex items-center justify-between px-4 py-3 bg-slate-800/50 hover:bg-slate-800/80 transition-colors text-left">
                   <span class="flex items-center gap-2 text-sm font-medium text-slate-200">

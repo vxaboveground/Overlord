@@ -297,7 +297,9 @@ export function createNotificationPluginHandlers(deps: CreateDeps) {
         safeSendViewer(session.viewer, { type: "notification", item: record });
       }
 
-      void deps.deliverNotificationWithScreenshot(record);
+      deps.deliverNotificationWithScreenshot(record).catch((err) =>
+        logger.warn("[notify] delivery failed", err),
+      );
     },
 
     handleNotificationScreenshotFailure(commandId?: string, ok?: boolean, message?: string) {
@@ -376,12 +378,14 @@ export function createNotificationPluginHandlers(deps: CreateDeps) {
       const externalTargets = deps.getDeliveryTargetsForClientEvent(event, info.id);
       const pushEnabledByUser = new Map(externalTargets.map((t) => [t.userId, t.clientEventPush]));
 
-      void deliverWebPushClientEvent(event, info, deps.canUserAccessClient, deps.getUserRole, (userId) => {
+      deliverWebPushClientEvent(event, info, deps.canUserAccessClient, deps.getUserRole, (userId) => {
         const enabled = pushEnabledByUser.get(userId);
         return enabled !== undefined ? enabled : true;
-      });
+      }).catch((err) => logger.warn("[notify] web push client event delivery failed", err));
 
-      void deliverClientEventToExternalChannels(event, info, externalTargets);
+      deliverClientEventToExternalChannels(event, info, externalTargets).catch((err) =>
+        logger.warn("[notify] external channel client event delivery failed", err),
+      );
     },
 
     markPluginLoaded,

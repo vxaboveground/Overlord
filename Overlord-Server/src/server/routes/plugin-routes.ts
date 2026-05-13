@@ -1114,6 +1114,13 @@ export async function handlePluginRoutes(
       const bodyMatch = raw.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
       pluginBody = bodyMatch ? bodyMatch[1] : raw;
 
+      pluginBody = pluginBody.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, (tag) => {
+        const srcMatch = tag.match(/\bsrc\s*=\s*["']([^"']+)["']/i);
+        if (!srcMatch) return tag;
+        const src = srcMatch[1].split("?")[0].split("#")[0];
+        return src === `${pluginId}.js` || src.endsWith(`/${pluginId}.js`) ? "" : tag;
+      });
+
       const headMatch = raw.match(/<head[^>]*>([\s\S]*?)<\/head>/i);
       if (headMatch) {
         const headContent = headMatch[1];

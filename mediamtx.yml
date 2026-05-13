@@ -1,0 +1,42 @@
+# MediaMTX config for Overlord WebRTC streaming.
+#
+# Auth + access control are enforced by the Overlord Bun server, which proxies
+# every WHIP/WHEP signaling request. MediaMTX only sees requests originating
+# from the Bun server (over the internal docker network / loopback), so we
+# leave MediaMTX itself wide open and bind its HTTP endpoint to localhost.
+#
+# Browser/agent ICE traffic goes directly to MediaMTX over UDP on the host
+# (port 8189). That port must be reachable from both operator and agent.
+
+logLevel: info
+
+api: no
+metrics: no
+playback: no
+pprof: no
+
+# Disable every protocol except WebRTC.
+rtsp: no
+rtmp: no
+hls: no
+srt: no
+
+# WebRTC server (WHIP/WHEP).
+webrtc: yes
+webrtcAddress: :8889
+webrtcEncryption: no
+webrtcAllowOrigins: ['*']
+# UDP/TCP mux for ICE candidates. Exposed publicly so browsers + agents can
+# punch through to MediaMTX directly without TURN.
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: :8189
+# Optional: set OVERLORD_WEBRTC_PUBLIC_HOST to your public IP/hostname and
+# uncomment to add explicit ICE candidates (needed behind NAT).
+# webrtcAdditionalHosts:
+#   - ${OVERLORD_WEBRTC_PUBLIC_HOST}
+
+paths:
+  # Accept any path created by a publisher (WHIP). Overlord uses
+  # `agents/<clientId>` for per-agent streams.
+  all_others:
+    source: publisher

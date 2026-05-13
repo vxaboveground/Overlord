@@ -1,0 +1,27 @@
+[package]
+name = "overlord-desktop"
+version = "1.0.2"
+description = "Overlord Desktop Client"
+authors = ["K fucking Dot"]
+edition = "2021"
+
+[lib]
+name = "overlord_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["image-png"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+url = "2"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

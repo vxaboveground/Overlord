@@ -39,6 +39,13 @@ services:
       OVERLORD_CLIENT_BUILD_CACHE_DIR: ${OVERLORD_CLIENT_BUILD_CACHE_DIR:-/app/client-build-cache}
       OVERLORD_FILE_UPLOAD_INTENT_TTL_MS: ${OVERLORD_FILE_UPLOAD_INTENT_TTL_MS:-1800000}
       OVERLORD_FILE_UPLOAD_PULL_TTL_MS: ${OVERLORD_FILE_UPLOAD_PULL_TTL_MS:-1800000}
+      # WebRTC: where Bun reaches MediaMTX HTTP (WHIP/WHEP signaling).
+      # Host networking on Linux → localhost works. WebRTC is opt-in; leave the
+      # toggle in the UI off if MediaMTX is not running.
+      OVERLORD_MEDIAMTX_URL: ${OVERLORD_MEDIAMTX_URL:-http://localhost:8889}
+      # Public address advertised to browsers/agents for ICE. Defaults to the
+      # request host (Bun rewrites the WHEP candidate list when needed).
+      OVERLORD_WEBRTC_PUBLIC_HOST: ${OVERLORD_WEBRTC_PUBLIC_HOST:-}
     volumes:
       # overlord-data also caches downloaded cross-compile toolchains
       # under /app/data/toolchains, fetched on first agent build for a
@@ -62,6 +69,18 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: overlord-mediamtx
+    # Share the host network so WebRTC ICE UDP candidates use the host's
+    # interfaces directly. Same trade-off as the main service.
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+    environment:
+      MTX_WEBRTCADDITIONALHOSTS: ${OVERLORD_WEBRTC_PUBLIC_HOST:-}
 
 volumes:
   overlord-data:
