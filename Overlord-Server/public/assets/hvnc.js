@@ -1,5 +1,6 @@
 import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
 import { checkFeatureAccess } from "./feature-gate.js";
+import { createKeyboardCapture } from "./keyboard-capture.js";
 
 (async function () {
   const clientId = new URLSearchParams(location.search).get("clientId");
@@ -1074,22 +1075,22 @@ import { checkFeatureAccess } from "./feature-gate.js";
   canvas.addEventListener("click", function () {
     canvas.focus({ preventScroll: true });
   });
+  const kbdCapture = createKeyboardCapture({
+    container: canvas,
+    sendKeyDown: (e) => sendCmd("hvnc_key_down", { key: e.key, code: e.code }),
+    sendKeyUp: (e) => sendCmd("hvnc_key_up", { key: e.key, code: e.code }),
+  });
   if (kbdCtrl) {
     kbdCtrl.addEventListener("change", function () {
-      if (kbdCtrl.checked) {
-        canvas.focus({ preventScroll: true });
-      }
+      if (kbdCtrl.checked) kbdCapture.enable();
+      else kbdCapture.disable();
     });
   }
-  canvas.addEventListener("keydown", function (e) {
-    if (!kbdCtrl.checked) return;
-    sendCmd("hvnc_key_down", { key: e.key, code: e.code });
-    e.preventDefault();
-  });
-  canvas.addEventListener("keyup", function (e) {
-    if (!kbdCtrl.checked) return;
-    sendCmd("hvnc_key_up", { key: e.key, code: e.code });
-    e.preventDefault();
+  document.addEventListener("fullscreenchange", function () {
+    if (document.fullscreenElement === canvasContainer && kbdCtrl && !kbdCtrl.checked) {
+      kbdCtrl.checked = true;
+      kbdCtrl.dispatchEvent(new Event("change"));
+    }
   });
 
   function stopOnExit() {

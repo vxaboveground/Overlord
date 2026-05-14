@@ -2,6 +2,7 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
 import { checkFeatureAccess } from "./feature-gate.js";
 import { WhepClient } from "./whep.js";
 import { P2PClient } from "./webrtc-p2p.js";
+import { createKeyboardCapture } from "./keyboard-capture.js";
 
 (async function () {
   const clientId = new URLSearchParams(location.search).get("clientId");
@@ -946,11 +947,22 @@ import { P2PClient } from "./webrtc-p2p.js";
   mouseCtrl.addEventListener("change", function () {
     pushInputToggles();
   });
+  const kbdCapture = createKeyboardCapture({
+    container: canvas,
+    sendKeyDown: (e) => sendCmd("key_down", { key: e.key, code: e.code }),
+    sendKeyUp: (e) => sendCmd("key_up", { key: e.key, code: e.code }),
+    onTextInput: (e) => sendCmd("text_input", { text: e.key }),
+  });
   kbdCtrl.addEventListener("change", function () {
-    if (kbdCtrl.checked) {
-      canvas.focus({ preventScroll: true });
-    }
+    if (kbdCtrl.checked) kbdCapture.enable();
+    else kbdCapture.disable();
     pushInputToggles();
+  });
+  document.addEventListener("fullscreenchange", function () {
+    if (document.fullscreenElement === canvasContainer && kbdCtrl && !kbdCtrl.checked) {
+      kbdCtrl.checked = true;
+      kbdCtrl.dispatchEvent(new Event("change"));
+    }
   });
   cursorCtrl.addEventListener("change", function () {
     pushCaptureToggles();
@@ -1573,25 +1585,6 @@ import { P2PClient } from "./webrtc-p2p.js";
   canvas.setAttribute("tabindex", "0");
   canvas.addEventListener("click", function () {
     canvas.focus({ preventScroll: true });
-  });
-  canvas.addEventListener("keydown", function (e) {
-    if (!kbdCtrl.checked) return;
-    if (!e.ctrlKey && !e.metaKey && !e.altKey && typeof e.key === "string" && e.key.length === 1) {
-      sendCmd("text_input", { text: e.key });
-      e.preventDefault();
-      return;
-    }
-    sendCmd("key_down", { key: e.key, code: e.code });
-    e.preventDefault();
-  });
-  canvas.addEventListener("keyup", function (e) {
-    if (!kbdCtrl.checked) return;
-    if (!e.ctrlKey && !e.metaKey && !e.altKey && typeof e.key === "string" && e.key.length === 1) {
-      e.preventDefault();
-      return;
-    }
-    sendCmd("key_up", { key: e.key, code: e.code });
-    e.preventDefault();
   });
 
   function stopOnExit() {

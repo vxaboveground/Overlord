@@ -10,10 +10,12 @@ import { mountNav } from "./nav/template.js";
 import { createAdaptiveNavController } from "./nav/layout.js";
 import { applyUserRoleUI } from "./nav/role-ui.js";
 import { loadPluginNavItems } from "./nav/plugins-loader.js";
+import { init as initCommandPalette } from "./command-palette.js";
 
 const host = document.getElementById("top-nav");
 if (host) {
   const refs = mountNav(host);
+  initCommandPalette();
   import("./cert-banner.js").then(({ showCertBannerIfNeeded }) => {
     showCertBannerIfNeeded(document.getElementById("sb-mobile-bar") || host);
   });

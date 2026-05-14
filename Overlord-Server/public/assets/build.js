@@ -1061,7 +1061,7 @@ if (cloneExeUpload) {
 }
 
 const MAX_BIND_FILES = 5;
-const MAX_BIND_FILE_BYTES = 50 * 1024 * 1024; // 50 MB
+const MAX_BIND_FILE_BYTES = 200 * 1024 * 1024; // 200 MB
 
 let boundFiles = []; // { name, base64, targetOS: string[], execute: boolean }
 
