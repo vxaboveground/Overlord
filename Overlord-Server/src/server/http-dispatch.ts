@@ -1,3 +1,5 @@
+import { wrapServerWithClientIp, type RequestServerLike } from "./client-ip";
+
 export type RouteHandler = (req: Request, url: URL, server: unknown) => Promise<Response | null>;
 
 export function createHttpFetchHandler(deps: {
@@ -11,8 +13,9 @@ export function createHttpFetchHandler(deps: {
         return new Response("", { headers: deps.CORS_HEADERS });
       }
       const url = new URL(req.url);
+      const wrapped = wrapServerWithClientIp(server as RequestServerLike);
       for (const route of deps.routes) {
-        const response = await route(req, url, server);
+        const response = await route(req, url, wrapped);
         if (response) return response;
       }
       return new Response("Not found", { status: 404 });

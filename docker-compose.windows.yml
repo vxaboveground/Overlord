@@ -28,6 +28,12 @@ services:
       # Set true only behind a trusted reverse proxy that terminates TLS (for example Render).
       # Default false keeps current behavior: Overlord terminates TLS in-process.
       OVERLORD_TLS_OFFLOAD: ${OVERLORD_TLS_OFFLOAD:-false}
+      # Trust X-Forwarded-For / X-Real-IP / CF-Connecting-IP from an upstream proxy when
+      # resolving the agent's source IP shown in the dashboard, audit log, and IP bans.
+      # Set true only when a trusted reverse proxy (nginx, Caddy, Cloudflare, etc.) sits
+      # in front of Overlord — otherwise agents can spoof their IP. Auto-enabled when
+      # OVERLORD_TLS_OFFLOAD=true.
+      OVERLORD_TRUST_PROXY: ${OVERLORD_TRUST_PROXY:-false}
       # Cookie security mode: auto (default), true, or false.
       # auto: Secure cookie on HTTPS requests / X-Forwarded-Proto=https.
       OVERLORD_AUTH_COOKIE_SECURE: ${OVERLORD_AUTH_COOKIE_SECURE:-auto}
