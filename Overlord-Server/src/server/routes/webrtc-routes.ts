@@ -24,15 +24,18 @@ export function issueWebrtcPublishToken(clientId: string): string {
   return token;
 }
 
-export function webrtcStreamPathFor(clientId: string): string {
-  return `agents/${clientId}`;
+export type WebrtcKind = "desktop" | "webcam" | "audio";
+
+export function webrtcStreamPathFor(clientId: string, kind: WebrtcKind): string {
+  return `agents/${clientId}/${kind}`;
 }
 
 export async function handleWebrtcRoutes(req: Request, url: URL): Promise<Response | null> {
   if (!url.pathname.startsWith("/api/webrtc/")) return null;
 
   const rest = url.pathname.slice("/api/webrtc/".length);
-  const match = rest.match(/^(agents\/[A-Za-z0-9_.\-]+)\/(whip|whep)(\/[A-Za-z0-9_.\-]+)?$/);
+  // /api/webrtc/agents/<clientId>/<kind>/(whip|whep)[/<sessionId>]
+  const match = rest.match(/^(agents\/[A-Za-z0-9_.\-]+\/(?:desktop|webcam|audio))\/(whip|whep)(\/[A-Za-z0-9_.\-]+)?$/);
   if (!match) return new Response("Not Found", { status: 404 });
 
   const [, streamPath, kind, sessionSuffix] = match;

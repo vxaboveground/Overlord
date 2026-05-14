@@ -43,17 +43,16 @@ func drainRTCP(sender *webrtc.RTPSender) {
 	}
 }
 
-type trackWriter struct {
+type h264TrackWriter struct {
 	t *webrtc.TrackLocalStaticSample
 }
 
-func (w *trackWriter) WriteH264(nalu []byte, dur time.Duration) error {
+func (w *h264TrackWriter) WriteH264(nalu []byte, dur time.Duration) error {
 	return w.t.WriteSample(media.Sample{Data: nalu, Duration: dur})
 }
 
-const whipWriterID = "whip"
-
 type Publisher struct {
+	kind        Kind
 	pc          *webrtc.PeerConnection
 	resourceURL string
 	token       string
@@ -62,31 +61,48 @@ type Publisher struct {
 }
 
 var (
-	whipMu sync.Mutex
-	whip   *Publisher
+	whipMu     sync.Mutex
+	whipByKind = map[Kind]*Publisher{}
 )
 
-func Start(ctx context.Context, opts Options) (*Publisher, error) {
+func Start(ctx context.Context, kind Kind, opts Options) (*Publisher, error) {
 	if strings.TrimSpace(opts.WhipURL) == "" {
 		return nil, errors.New("webrtcpub: empty WhipURL")
 	}
 	if strings.TrimSpace(opts.PublishToken) == "" {
 		return nil, errors.New("webrtcpub: empty PublishToken")
 	}
-	Stop()
+	if !opts.HasVideo && !opts.HasAudio {
+		return nil, errors.New("webrtcpub: at least one of HasVideo/HasAudio must be true")
+	}
+	Stop(kind)
 
 	httpClient := buildHTTPClient(opts)
 
 	mediaEngine := &webrtc.MediaEngine{}
-	if err := mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
-		RTPCodecCapability: webrtc.RTPCodecCapability{
-			MimeType:    webrtc.MimeTypeH264,
-			ClockRate:   90000,
-			SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
-		},
-		PayloadType: 102,
-	}, webrtc.RTPCodecTypeVideo); err != nil {
-		return nil, fmt.Errorf("register codec: %w", err)
+	if opts.HasVideo {
+		if err := mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
+			RTPCodecCapability: webrtc.RTPCodecCapability{
+				MimeType:    webrtc.MimeTypeH264,
+				ClockRate:   90000,
+				SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
+			},
+			PayloadType: 102,
+		}, webrtc.RTPCodecTypeVideo); err != nil {
+			return nil, fmt.Errorf("register video codec: %w", err)
+		}
+	}
+	if opts.HasAudio {
+		if err := mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
+			RTPCodecCapability: webrtc.RTPCodecCapability{
+				MimeType:  webrtc.MimeTypePCMU,
+				ClockRate: 8000,
+				Channels:  1,
+			},
+			PayloadType: 0,
+		}, webrtc.RTPCodecTypeAudio); err != nil {
+			return nil, fmt.Errorf("register audio codec: %w", err)
+		}
 	}
 
 	api := webrtc.NewAPI(webrtc.WithMediaEngine(mediaEngine))
@@ -95,23 +111,49 @@ func Start(ctx context.Context, opts Options) (*Publisher, error) {
 		return nil, fmt.Errorf("new peer connection: %w", err)
 	}
 
-	track, err := webrtc.NewTrackLocalStaticSample(
-		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264},
-		"overlord-video", "overlord-desktop",
+	var (
+		videoTrack *webrtc.TrackLocalStaticSample
+		audioTrack *webrtc.TrackLocalStaticSample
 	)
-	if err != nil {
-		_ = pc.Close()
-		return nil, fmt.Errorf("new track: %w", err)
+	if opts.HasVideo {
+		videoTrack, err = webrtc.NewTrackLocalStaticSample(
+			webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264},
+			"overlord-video-"+string(kind), "overlord-"+string(kind),
+		)
+		if err != nil {
+			_ = pc.Close()
+			return nil, fmt.Errorf("new video track: %w", err)
+		}
+		tx, err := pc.AddTransceiverFromTrack(videoTrack, webrtc.RTPTransceiverInit{
+			Direction: webrtc.RTPTransceiverDirectionSendonly,
+		})
+		if err != nil {
+			_ = pc.Close()
+			return nil, fmt.Errorf("add video transceiver: %w", err)
+		}
+		if sender := tx.Sender(); sender != nil {
+			go drainRTCP(sender)
+		}
 	}
-	transceiver, err := pc.AddTransceiverFromTrack(track, webrtc.RTPTransceiverInit{
-		Direction: webrtc.RTPTransceiverDirectionSendonly,
-	})
-	if err != nil {
-		_ = pc.Close()
-		return nil, fmt.Errorf("add transceiver: %w", err)
-	}
-	if sender := transceiver.Sender(); sender != nil {
-		go drainRTCP(sender)
+	if opts.HasAudio {
+		audioTrack, err = webrtc.NewTrackLocalStaticSample(
+			webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypePCMU, ClockRate: 8000, Channels: 1},
+			"overlord-audio-"+string(kind), "overlord-"+string(kind),
+		)
+		if err != nil {
+			_ = pc.Close()
+			return nil, fmt.Errorf("new audio track: %w", err)
+		}
+		tx, err := pc.AddTransceiverFromTrack(audioTrack, webrtc.RTPTransceiverInit{
+			Direction: webrtc.RTPTransceiverDirectionSendonly,
+		})
+		if err != nil {
+			_ = pc.Close()
+			return nil, fmt.Errorf("add audio transceiver: %w", err)
+		}
+		if sender := tx.Sender(); sender != nil {
+			go drainRTCP(sender)
+		}
 	}
 
 	offer, err := pc.CreateOffer(nil)
@@ -148,41 +190,60 @@ func Start(ctx context.Context, opts Options) (*Publisher, error) {
 	}
 
 	pub := &Publisher{
+		kind:        kind,
 		pc:          pc,
 		resourceURL: resourceURL,
 		token:       opts.PublishToken,
 		httpClient:  httpClient,
 	}
 
+	writerID := whipWriterID(kind)
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		log.Printf("webrtcpub: WHIP peer state=%s", state)
+		log.Printf("webrtcpub: WHIP[%s] peer state=%s", kind, state)
 		switch state {
 		case webrtc.PeerConnectionStateFailed, webrtc.PeerConnectionStateClosed:
 			whipMu.Lock()
-			if whip == pub {
-				whip = nil
+			if whipByKind[kind] == pub {
+				delete(whipByKind, kind)
 			}
 			whipMu.Unlock()
-			unregisterWriter(whipWriterID)
+			unregisterWriter(kind, writerID)
 		}
 	})
 
 	whipMu.Lock()
-	whip = pub
+	whipByKind[kind] = pub
 	whipMu.Unlock()
-	registerWriter(whipWriterID, &trackWriter{t: track})
-	log.Printf("webrtcpub: WHIP session established (resource=%s)", resourceURL)
+	if videoTrack != nil {
+		registerVideoWriter(kind, writerID, &h264TrackWriter{t: videoTrack})
+	}
+	if audioTrack != nil {
+		registerAudioWriter(kind, writerID, newPCMUAudioWriter(audioTrack))
+	}
+	log.Printf("webrtcpub: WHIP[%s] session established (resource=%s)", kind, resourceURL)
 	return pub, nil
 }
 
-func Stop() {
+func Stop(kind Kind) {
 	whipMu.Lock()
-	p := whip
-	whip = nil
+	p := whipByKind[kind]
+	delete(whipByKind, kind)
 	whipMu.Unlock()
-	unregisterWriter(whipWriterID)
+	unregisterWriter(kind, whipWriterID(kind))
 	if p != nil {
 		p.Close()
+	}
+}
+
+func StopAll() {
+	whipMu.Lock()
+	kinds := make([]Kind, 0, len(whipByKind))
+	for k := range whipByKind {
+		kinds = append(kinds, k)
+	}
+	whipMu.Unlock()
+	for _, k := range kinds {
+		Stop(k)
 	}
 }
 
@@ -203,6 +264,10 @@ func (p *Publisher) Close() {
 		}
 		_ = p.pc.Close()
 	})
+}
+
+func whipWriterID(kind Kind) string {
+	return "whip:" + string(kind)
 }
 
 func postWhip(ctx context.Context, client *http.Client, whipURL, token, sdp string) (string, string, error) {

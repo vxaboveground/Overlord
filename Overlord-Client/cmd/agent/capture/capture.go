@@ -147,12 +147,12 @@ func CaptureAndSend(ctx context.Context, env *rt.Env) error {
 	if ctx.Err() != nil {
 		return nil
 	}
-	if frame.Header.Format == "h264" && webrtcpub.IsActive() {
+	if frame.Header.Format == "h264" && webrtcpub.IsActive(webrtcpub.KindDesktop) {
 		dur := time.Second / time.Duration(fps)
 		if dur <= 0 {
 			dur = 33 * time.Millisecond
 		}
-		if werr := webrtcpub.WriteH264(frame.Data, dur); werr != nil {
+		if werr := webrtcpub.WriteH264(webrtcpub.KindDesktop, frame.Data, dur); werr != nil {
 			log.Printf("webrtc: write h264 failed: %v", werr)
 		}
 		statFrames.Add(1)

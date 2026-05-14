@@ -183,33 +183,124 @@ import { P2PClient } from "./webrtc-p2p.js";
     }
   }
 
-  function connectAudio() {
-    if (audioWs && audioWs.readyState === WebSocket.OPEN) return;
-    // Create AudioContext in click/change handler so the browser trusts the user gesture.
-    initAudioPlayback();
-    if (audioPlayCtx?.state === "suspended") audioPlayCtx.resume();
-    const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    audioWs = new WebSocket(proto + "//" + location.host + "/api/clients/" + encodeURIComponent(clientId) + "/desktop-audio/ws");
-    audioWs.binaryType = "arraybuffer";
-    audioWs.onopen = function () {
-      audioWs.send(JSON.stringify({ type: "start", source: "system" }));
-    };
-    audioWs.onmessage = function (ev) {
-      if (typeof ev.data === "string") return;
-      const bytes = new Uint8Array(ev.data);
-      if (bytes.byteLength > 1) appendAudioPcm(bytes);
-    };
-    audioWs.onclose = function () { cleanupAudio(false); };
-    audioWs.onerror = function () {};
+  const audioTransport = document.getElementById("audioTransport");
+  const webrtcAudio = document.getElementById("webrtcAudio");
+  let audioWhep = null;
+  let audioP2P = null;
+  function getAudioTransport() {
+    return audioTransport ? String(audioTransport.value || "off") : "off";
   }
 
-  function disconnectAudio() {
+  async function stopAudioWebrtc() {
+    const w = audioWhep;
+    audioWhep = null;
+    if (w) { try { await w.stop(); } catch {} }
+    const p = audioP2P;
+    audioP2P = null;
+    if (p) { try { await p.stop(); } catch {} }
+  }
+
+  async function startAudioWhep(whepPath) {
+    await stopAudioWebrtc();
+    audioWhep = new WhepClient({
+      whepPath,
+      audioEl: webrtcAudio,
+      onState: (s) => console.debug("audio-webrtc[Relayed]: state", s),
+    });
+    try {
+      await audioWhep.start();
+    } catch (err) {
+      console.warn("audio: WHEP start failed", err);
+      audioWhep = null;
+    }
+  }
+
+  function startAudioP2P() {
+    if (!audioWs || audioWs.readyState !== WebSocket.OPEN) return;
+    audioP2P = new P2PClient({
+      audioEl: webrtcAudio,
+      send: (msg) => {
+        if (audioWs && audioWs.readyState === WebSocket.OPEN) {
+          audioWs.send(JSON.stringify(msg));
+        }
+      },
+      onState: (s) => console.debug("audio-webrtc[P2P]: state", s),
+    });
+    audioP2P.start().catch((err) => {
+      console.warn("audio: P2P start failed", err);
+      audioP2P = null;
+    });
+  }
+
+  function connectAudio() {
+    if (audioWs && audioWs.readyState === WebSocket.OPEN) return;
+    const mode = getAudioTransport();
+    // The WS-PCM path requires an AudioContext — only init it when we
+    // actually need it (WebRTC plays through the <audio> element instead).
+    if (mode === "off") {
+      initAudioPlayback();
+      if (audioPlayCtx?.state === "suspended") audioPlayCtx.resume();
+    }
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    // Each handler captures `ws` locally instead of reading the module-scope
+    // `audioWs`. When the operator switches transports, the previous socket's
+    // close event fires asynchronously and would otherwise null out the
+    // freshly created replacement.
+    const ws = new WebSocket(proto + "//" + location.host + "/api/clients/" + encodeURIComponent(clientId) + "/desktop-audio/ws");
+    audioWs = ws;
+    ws.binaryType = "arraybuffer";
+    ws.onopen = function () {
+      const start = { type: "start", source: "system" };
+      if (mode === "relayed") start.webrtc = true;
+      try { ws.send(JSON.stringify(start)); } catch (err) {
+        console.warn("audio: send start failed", err);
+        return;
+      }
+      if (mode === "p2p") startAudioP2P();
+    };
+    ws.onmessage = function (ev) {
+      if (typeof ev.data === "string") {
+        let msg;
+        try { msg = JSON.parse(ev.data); } catch { return; }
+        if (!msg || typeof msg.type !== "string") return;
+        if (msg.type === "webrtc_ready" && typeof msg.whepPath === "string") {
+          startAudioWhep(msg.whepPath);
+          return;
+        }
+        if (msg.type === "webrtc_p2p_answer" && typeof msg.sdp === "string") {
+          if (audioP2P) audioP2P.onAnswer(msg.sdp);
+          return;
+        }
+        if (msg.type === "webrtc_p2p_ice") {
+          if (audioP2P) audioP2P.onRemoteCandidate(msg);
+          return;
+        }
+        return;
+      }
+      const bytes = new Uint8Array(ev.data);
+      // Only feed PCM into the ScriptProcessor when the WS path is the active
+      // playback — WebRTC modes ignore the parallel PCM uplink.
+      if (mode === "off" && bytes.byteLength > 1) appendAudioPcm(bytes);
+    };
+    ws.onclose = function () {
+      // Stale closes from a previous switch must not stomp the current
+      // socket. Only do the global teardown if this WS is still active.
+      if (audioWs === ws) {
+        stopAudioWebrtc();
+        cleanupAudio(false);
+      }
+    };
+    ws.onerror = function () {};
+  }
+
+  function disconnectAudio(uncheckBox = true) {
     if (audioWs) {
       try { audioWs.send(JSON.stringify({ type: "stop" })); } catch {}
       try { audioWs.close(); } catch {}
       audioWs = null;
     }
-    cleanupAudio(true);
+    stopAudioWebrtc();
+    cleanupAudio(uncheckBox);
   }
 
   function cleanupAudio(uncheckBox) {
@@ -875,6 +966,16 @@ import { P2PClient } from "./webrtc-p2p.js";
         connectAudio();
       } else {
         disconnectAudio();
+      }
+    });
+  }
+  if (audioTransport) {
+    audioTransport.addEventListener("change", function () {
+      // Reconnect with the new transport if audio is already on. Keep the
+      // checkbox checked — the user is switching modes, not turning audio off.
+      if (audioCtrl && audioCtrl.checked) {
+        disconnectAudio(false);
+        connectAudio();
       }
     });
   }

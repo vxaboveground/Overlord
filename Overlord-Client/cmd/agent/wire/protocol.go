@@ -290,12 +290,14 @@ type DisconnectInfo struct {
 type WebRTCP2PAnswer struct {
 	Type      string `msgpack:"type"`
 	SessionID string `msgpack:"sessionId"`
+	Kind      string `msgpack:"kind,omitempty"`
 	SDP       string `msgpack:"sdp"`
 }
 
 type WebRTCP2PIce struct {
 	Type          string `msgpack:"type"`
 	SessionID     string `msgpack:"sessionId"`
+	Kind          string `msgpack:"kind,omitempty"`
 	Candidate     string `msgpack:"candidate"`
 	SDPMid        string `msgpack:"sdpMid"`
 	SDPMLineIndex uint16 `msgpack:"sdpMLineIndex"`

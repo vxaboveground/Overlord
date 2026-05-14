@@ -23,6 +23,7 @@ import (
 	"overlord-client/cmd/agent/plugins"
 	"overlord-client/cmd/agent/runtime"
 	"overlord-client/cmd/agent/sysinfo"
+	"overlord-client/cmd/agent/webrtcpub"
 	"overlord-client/cmd/agent/wire"
 )
 
@@ -488,6 +489,12 @@ func startDesktopAudioSession(ctx context.Context, env *runtime.Env, sessionID s
 		if len(chunk) == 0 {
 			return
 		}
+		// Fan to any active WebRTC audio session. No-op when nothing is
+		// subscribed, so the cost is just a map lookup under a read lock.
+		if webrtcpub.IsActive(webrtcpub.KindAudio) {
+			samples := pcm16BytesToInt16(chunk)
+			_ = webrtcpub.WriteAudio(webrtcpub.KindAudio, samples)
+		}
 		msg := map[string]interface{}{
 			"type":      "desktop_audio_uplink",
 			"sessionId": sessionID,
@@ -618,7 +625,8 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		}
 		return handleWebrtcPublish(ctx, env, cmdID, payload)
 	case "webrtc_stop":
-		return handleWebrtcStop(ctx, env, cmdID)
+		payload, _ := envelope["payload"].(map[string]interface{})
+		return handleWebrtcStop(ctx, env, cmdID, payload)
 	case "webrtc_p2p_offer":
 		payload, _ := envelope["payload"].(map[string]interface{})
 		if payload == nil {
@@ -633,7 +641,8 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		}
 		return handleWebrtcP2PIce(ctx, env, cmdID, payload)
 	case "webrtc_p2p_stop":
-		return handleWebrtcP2PStop(ctx, env, cmdID)
+		payload, _ := envelope["payload"].(map[string]interface{})
+		return handleWebrtcP2PStop(ctx, env, cmdID, payload)
 	case "desktop_start":
 		if goruntime.GOOS == "darwin" {
 			perms := sysinfo.DarwinPermissions()

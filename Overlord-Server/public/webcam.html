@@ -68,6 +68,14 @@
               <input type="checkbox" id="codecH264" checked /> H.264
             </label>
             <span id="codecMode" class="pill pill-ghost text-slate-100">Codec: auto</span>
+            <label class="flex items-center gap-2 text-slate-200" title="Streaming transport. P2P: browser ↔ agent direct (H.264 required). Relayed: through MediaMTX. Canvas: existing WS path.">
+              <span class="text-slate-200">Transport</span>
+              <select id="webrtcMode" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-100">
+                <option value="off" selected>Canvas</option>
+                <option value="p2p">WebRTC P2P</option>
+                <option value="relayed">WebRTC Relayed</option>
+              </select>
+            </label>
           </div>
           <div class="flex items-center gap-2">
             <button id="startBtn" class="button primary">
@@ -114,6 +122,14 @@
               height="720"
               style="display: block; max-width: 100%; max-height: 100%; width: auto; height: auto;"
             ></canvas>
+            <video
+              id="webrtcVideo"
+              class="bg-slate-950"
+              autoplay
+              playsinline
+              muted
+              style="display: none; max-width: 100%; max-height: 100%; width: auto; height: auto;"
+            ></video>
           </div>
         </div>
       </div>

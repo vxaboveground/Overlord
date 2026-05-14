@@ -11,18 +11,20 @@ var ErrNotCompiled = errors.New("webrtc support not compiled in (build with -tag
 
 type Publisher struct{}
 
-func Start(_ context.Context, _ Options) (*Publisher, error) {
+func Start(_ context.Context, _ Kind, _ Options) (*Publisher, error) {
 	return nil, ErrNotCompiled
 }
 
-func Stop() {}
-
+func Stop(_ Kind)  {}
+func StopAll()     {}
 func (*Publisher) Close() {}
 
-func StartP2POffer(_ context.Context, _ string, _ string, _ P2POfferCallbacks) (string, error) {
+func StartP2POffer(_ context.Context, _ Kind, _ string, _ string, _ P2POfferCallbacks, _ bool, _ bool) (string, error) {
 	return "", ErrNotCompiled
 }
 
-func AddP2PICECandidate(_ string, _ ICECandidate) {}
+func AddP2PICECandidate(_ Kind, _ string, _ ICECandidate) {}
 
-func StopP2P() {}
+func StopP2P(_ Kind, _ string) {}
+
+func StopAllP2P() {}

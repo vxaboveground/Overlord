@@ -1,5 +1,7 @@
 import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
 import { checkFeatureAccess } from "./feature-gate.js";
+import { WhepClient } from "./whep.js";
+import { P2PClient } from "./webrtc-p2p.js";
 
 (async function () {
   const clientId = new URLSearchParams(location.search).get("clientId");
@@ -27,6 +29,17 @@ import { checkFeatureAccess } from "./feature-gate.js";
   const statusEl = document.getElementById("streamStatus");
   const canvas = document.getElementById("frameCanvas");
   const ctx = canvas.getContext("2d");
+  const webrtcMode = document.getElementById("webrtcMode");
+  const webrtcVideo = document.getElementById("webrtcVideo");
+  let whepClient = null;
+  let p2pClient = null;
+  function getWebrtcMode() {
+    return webrtcMode ? String(webrtcMode.value || "off") : "off";
+  }
+  function setWebrtcViewActive(active) {
+    if (canvas) canvas.style.display = active ? "none" : "block";
+    if (webrtcVideo) webrtcVideo.style.display = active ? "block" : "none";
+  }
 
   clientLabel.textContent = clientId;
 
@@ -350,8 +363,76 @@ import { checkFeatureAccess } from "./feature-gate.js";
     ws.send(encodeMsgpack({ type, ...payload }));
   }
 
+  async function startWhep(whepPath) {
+    await stopAllWebrtc();
+    if (!webrtcVideo) return;
+    whepClient = new WhepClient({
+      whepPath,
+      videoEl: webrtcVideo,
+      onState: (s) => {
+        if (s === "connected") setStreamState("streaming", "Streaming (WebRTC Relayed)");
+        else if (s === "failed" || s === "disconnected") setWebrtcViewActive(false);
+      },
+    });
+    try {
+      await whepClient.start();
+      setWebrtcViewActive(true);
+    } catch (err) {
+      console.warn("webcam: WHEP start failed, falling back to canvas", err);
+      setWebrtcViewActive(false);
+      whepClient = null;
+    }
+  }
+
+  async function startP2P() {
+    await stopAllWebrtc();
+    if (!webrtcVideo) return;
+    p2pClient = new P2PClient({
+      videoEl: webrtcVideo,
+      send: (msg) => {
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send(encodeMsgpack(msg));
+      },
+      onState: (s) => {
+        if (s === "connected") setStreamState("streaming", "Streaming (WebRTC P2P)");
+        else if (s === "failed" || s === "disconnected") setWebrtcViewActive(false);
+      },
+    });
+    try {
+      await p2pClient.start();
+      setWebrtcViewActive(true);
+    } catch (err) {
+      console.warn("webcam: P2P start failed, falling back to canvas", err);
+      setWebrtcViewActive(false);
+      const c = p2pClient;
+      p2pClient = null;
+      if (c) { try { await c.stop(); } catch {} }
+    }
+  }
+
+  async function stopAllWebrtc() {
+    setWebrtcViewActive(false);
+    const w = whepClient;
+    whepClient = null;
+    if (w) { try { await w.stop(); } catch {} }
+    const p = p2pClient;
+    p2pClient = null;
+    if (p) { try { await p.stop(); } catch {} }
+  }
+
   function handleControlMessage(msg) {
     if (!msg || typeof msg !== "object") return;
+    if (msg.type === "webrtc_ready" && typeof msg.whepPath === "string") {
+      startWhep(msg.whepPath);
+      return;
+    }
+    if (msg.type === "webrtc_p2p_answer" && typeof msg.sdp === "string") {
+      if (p2pClient) p2pClient.onAnswer(msg.sdp);
+      return;
+    }
+    if (msg.type === "webrtc_p2p_ice") {
+      if (p2pClient) p2pClient.onRemoteCandidate(msg);
+      return;
+    }
     if (msg.type === "webcam_devices") {
       renderCameraList(msg.devices, msg.selected);
       return;
@@ -404,11 +485,13 @@ import { checkFeatureAccess } from "./feature-gate.js";
     };
 
     ws.onclose = () => {
+      stopAllWebrtc();
       setStreamState("disconnected", "Disconnected");
       setTimeout(connect, 3000);
     };
 
     ws.onerror = () => {
+      stopAllWebrtc();
       setStreamState("error", "Connection error");
     };
   }
@@ -416,13 +499,23 @@ import { checkFeatureAccess } from "./feature-gate.js";
   startBtn.addEventListener("click", () => {
     desiredStreaming = true;
     applyFpsSettings();
-    send("webcam_start");
+    const mode = getWebrtcMode();
+    if (mode === "relayed") {
+      // Server replies with webrtc_ready; startWhep happens then.
+      send("webcam_start", { webrtc: true });
+    } else if (mode === "p2p") {
+      send("webcam_start");
+      startP2P();
+    } else {
+      send("webcam_start");
+    }
     setStreamState("starting", "Starting");
   });
 
   stopBtn.addEventListener("click", () => {
     desiredStreaming = false;
     send("webcam_stop");
+    stopAllWebrtc();
     setStreamState("stopping", "Stopping");
     setTimeout(() => {
       if (streamState === "stopping") {

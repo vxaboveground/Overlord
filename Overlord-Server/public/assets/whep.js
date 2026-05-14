@@ -11,13 +11,16 @@
 export class WhepClient {
   /**
    * @param {object} opts
-   * @param {string} opts.whepPath  Path under the same origin, e.g. "/api/webrtc/agents/abc/whep"
-   * @param {HTMLVideoElement} opts.videoEl
+   * @param {string} opts.whepPath  Path under the same origin, e.g. "/api/webrtc/agents/abc/desktop/whep"
+   * @param {HTMLVideoElement} [opts.videoEl]  Attach the video track here.
+   * @param {HTMLAudioElement} [opts.audioEl]  Attach the audio track here.
+   *                                            Default: hidden <audio> appended to <body>.
    * @param {(state: string) => void} [opts.onState]
    */
   constructor(opts) {
     this.whepPath = opts.whepPath;
-    this.videoEl = opts.videoEl;
+    this.videoEl = opts.videoEl || null;
+    this.audioEl = opts.audioEl || null;
     this.onState = opts.onState || (() => {});
     this.pc = null;
     this.resourceURL = "";
@@ -28,13 +31,18 @@ export class WhepClient {
 
     const pc = new RTCPeerConnection({});
     this.pc = pc;
-    pc.addTransceiver("video", { direction: "recvonly" });
+    if (this.videoEl) pc.addTransceiver("video", { direction: "recvonly" });
+    if (this.audioEl) pc.addTransceiver("audio", { direction: "recvonly" });
 
     pc.ontrack = (ev) => {
-      if (ev.track.kind !== "video") return;
       const stream = ev.streams[0] || new MediaStream([ev.track]);
-      this.videoEl.srcObject = stream;
-      this.videoEl.play().catch(() => {});
+      if (ev.track.kind === "video" && this.videoEl) {
+        this.videoEl.srcObject = stream;
+        this.videoEl.play().catch(() => {});
+      } else if (ev.track.kind === "audio" && this.audioEl) {
+        this.audioEl.srcObject = stream;
+        this.audioEl.play().catch(() => {});
+      }
     };
     pc.onconnectionstatechange = () => {
       this.onState(pc.connectionState);
@@ -77,9 +85,8 @@ export class WhepClient {
     if (pc) {
       try { pc.close(); } catch {}
     }
-    if (this.videoEl) {
-      this.videoEl.srcObject = null;
-    }
+    if (this.videoEl) this.videoEl.srcObject = null;
+    if (this.audioEl) this.audioEl.srcObject = null;
   }
 }
 

@@ -145,6 +145,15 @@
             <label class="flex items-center gap-2 text-sm text-slate-200" title="Stream system audio from the remote machine"
               ><input type="checkbox" id="audioCtrl" /> <i class="fa-solid fa-volume-high text-slate-400"></i> Audio</label
             >
+            <label class="flex items-center gap-2 text-sm text-slate-200" title="Audio transport. WS: raw PCM over the existing WebSocket (current default). WebRTC modes use G.711 over the WebRTC track instead.">
+              <span class="text-slate-400">Audio via</span>
+              <select id="audioTransport" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-100">
+                <option value="off" selected>WS</option>
+                <option value="p2p">WebRTC P2P</option>
+                <option value="relayed">WebRTC Relayed</option>
+              </select>
+            </label>
+            <audio id="webrtcAudio" autoplay style="display: none"></audio>
             <label class="flex items-center gap-2 text-sm text-slate-200" title="Smooths mouse input for steadier movement">
               <span class="text-slate-400">Smoothing</span>
               <input id="smoothingSlider" type="range" min="0" max="80" step="5" value="20" class="accent-emerald-400" />

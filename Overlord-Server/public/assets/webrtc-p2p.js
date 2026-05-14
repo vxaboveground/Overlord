@@ -16,13 +16,15 @@
 export class P2PClient {
   /**
    * @param {object} opts
-   * @param {HTMLVideoElement} opts.videoEl
-   * @param {(msg: object) => void} opts.send  Send a JSON-encodable msg over the RD WS.
+   * @param {HTMLVideoElement} [opts.videoEl]
+   * @param {HTMLAudioElement} [opts.audioEl]
+   * @param {(msg: object) => void} opts.send  Send a JSON-encodable msg over the viewer's WS.
    * @param {(state: string) => void} [opts.onState]
    * @param {string[]} [opts.iceServers]  STUN URLs. Default: Google public STUN.
    */
   constructor(opts) {
-    this.videoEl = opts.videoEl;
+    this.videoEl = opts.videoEl || null;
+    this.audioEl = opts.audioEl || null;
     this.send = opts.send;
     this.onState = opts.onState || (() => {});
     this.iceServers = opts.iceServers || ["stun:stun.l.google.com:19302"];
@@ -38,13 +40,18 @@ export class P2PClient {
     });
     this.pc = pc;
 
-    pc.addTransceiver("video", { direction: "recvonly" });
+    if (this.videoEl) pc.addTransceiver("video", { direction: "recvonly" });
+    if (this.audioEl) pc.addTransceiver("audio", { direction: "recvonly" });
 
     pc.ontrack = (ev) => {
-      if (ev.track.kind !== "video") return;
       const stream = ev.streams[0] || new MediaStream([ev.track]);
-      this.videoEl.srcObject = stream;
-      this.videoEl.play().catch(() => {});
+      if (ev.track.kind === "video" && this.videoEl) {
+        this.videoEl.srcObject = stream;
+        this.videoEl.play().catch(() => {});
+      } else if (ev.track.kind === "audio" && this.audioEl) {
+        this.audioEl.srcObject = stream;
+        this.audioEl.play().catch(() => {});
+      }
     };
     pc.onicecandidate = (ev) => {
       // Trickle ICE: empty candidate signals end-of-gathering — we don't
@@ -104,5 +111,6 @@ export class P2PClient {
     }
     try { this.send({ type: "webrtc_p2p_stop" }); } catch {}
     if (this.videoEl) this.videoEl.srcObject = null;
+    if (this.audioEl) this.audioEl.srcObject = null;
   }
 }
