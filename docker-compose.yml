@@ -4,6 +4,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      cache_from:
+        - type=local,src=.docker-cache/buildx
+      cache_to:
+        - type=local,dest=.docker-cache/buildx,mode=max
     container_name: overlord-server
     # Host networking: the container shares the host's network stack directly.
     # Every port the server binds (5173, SOCKS5 proxies, etc.) is accessible
