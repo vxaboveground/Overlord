@@ -57,6 +57,7 @@ type CreateDeps = {
   getNotificationConfig: () => NotificationConfigShape;
   canUserAccessClient: (userId: number, userRole: string, clientId: string) => boolean;
   getUserRole: (userId: number) => string | undefined;
+  isClientNotificationsMuted: (clientId: string) => boolean;
   storeNotificationScreenshot: (
     pending: PendingNotificationScreenshot,
     bytes: Uint8Array,
@@ -284,7 +285,13 @@ export function createNotificationPluginHandlers(deps: CreateDeps) {
 
       saveNotification(record);
 
+      const muted = deps.isClientNotificationsMuted(clientId);
+
       requestNotificationScreenshot(info, record);
+
+      if (muted) {
+        return;
+      }
 
       for (const session of sessionManager.getAllNotificationSessions().values()) {
         const sRole = session.userRole ?? session.viewer.data.userRole ?? "";
@@ -359,6 +366,9 @@ export function createNotificationPluginHandlers(deps: CreateDeps) {
       event: "client_online" | "client_offline" | "client_purgatory",
       info: { id: string; host?: string; user?: string; os?: string; ip?: string; country?: string },
     ) {
+      if (deps.isClientNotificationsMuted(info.id)) {
+        return;
+      }
       const item = { type: "client_event", event, clientId: info.id, host: info.host, user: info.user, os: info.os, ip: info.ip, country: info.country, ts: Date.now() };
       for (const session of sessionManager.getAllNotificationSessions().values()) {
         const sRole = session.userRole ?? session.viewer.data.userRole ?? "";

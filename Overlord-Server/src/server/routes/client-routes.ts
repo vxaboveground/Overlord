@@ -15,6 +15,7 @@ import {
   listDistinctCountries,
   setClientBookmark,
   setClientNickname,
+  setClientNotificationsMuted,
   setClientTag,
   setOnlineState,
   unbanIp,
@@ -470,6 +471,83 @@ export async function handleClientRoutes(
       { ok: true, tag: normalizedTag, note: note ?? null },
       { headers: deps.CORS_HEADERS },
     );
+  }
+
+  if (req.method === "PATCH" && url.pathname === "/api/clients/bulk-notifications-muted") {
+    const user = await authenticateRequest(req);
+    if (!user) return new Response("Unauthorized", { status: 401 });
+    try { requirePermission(user, "clients:control"); } catch (error) {
+      if (error instanceof Response) return error;
+      return new Response("Forbidden", { status: 403 });
+    }
+
+    let body: any = {};
+    try { body = await req.json(); } catch {
+      return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+
+    const clientIds = body?.clientIds;
+    if (!Array.isArray(clientIds) || clientIds.length === 0 || clientIds.some((id: any) => typeof id !== "string")) {
+      return Response.json({ error: "clientIds must be a non-empty array of strings" }, { status: 400 });
+    }
+    if (clientIds.length > 500) {
+      return Response.json({ error: "Too many clients (max 500)" }, { status: 400 });
+    }
+    const muted = !!body?.muted;
+
+    let updated = 0;
+    for (const cid of clientIds) {
+      if (!canUserAccessClient(user.userId, user.role, cid)) continue;
+      if (setClientNotificationsMuted(cid, muted)) updated++;
+    }
+
+    notifyDashboardViewers();
+    const ip = server.requestIP(req)?.address || "unknown";
+    logAudit({ timestamp: Date.now(), username: user.username, ip, action: AuditAction.COMMAND, details: `bulk_set_notifications_muted:${muted}:${updated}/${clientIds.length}`, success: true });
+    return Response.json({ ok: true, updated, total: clientIds.length, muted }, { headers: deps.CORS_HEADERS });
+  }
+
+  const muteMatch = url.pathname.match(/^\/api\/clients\/([^/]+)\/notifications-muted$/);
+  if (req.method === "PATCH" && muteMatch) {
+    const user = await authenticateRequest(req);
+    if (!user) return new Response("Unauthorized", { status: 401 });
+    try { requirePermission(user, "clients:control"); } catch (error) {
+      if (error instanceof Response) return error;
+      return new Response("Forbidden", { status: 403 });
+    }
+
+    const targetId = muteMatch[1];
+    if (!canUserAccessClient(user.userId, user.role, targetId)) {
+      return new Response("Forbidden: Client access denied", { status: 403 });
+    }
+    if (!clientExists(targetId)) {
+      return Response.json({ error: "Client not found" }, { status: 404 });
+    }
+
+    let body: any = {};
+    try { body = await req.json(); } catch {
+      return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+
+    const muted = !!body?.muted;
+    const updated = setClientNotificationsMuted(targetId, muted);
+    if (!updated) {
+      return Response.json({ error: "Client not found" }, { status: 404 });
+    }
+    notifyDashboardViewers();
+
+    const ip = server.requestIP(req)?.address || "unknown";
+    logAudit({
+      timestamp: Date.now(),
+      username: user.username,
+      ip,
+      action: AuditAction.COMMAND,
+      targetClientId: targetId,
+      details: muted ? "mute_notifications" : "unmute_notifications",
+      success: true,
+    });
+
+    return Response.json({ ok: true, muted }, { headers: deps.CORS_HEADERS });
   }
 
   const bookmarkMatch = url.pathname.match(/^\/api\/clients\/([^/]+)\/bookmark$/);

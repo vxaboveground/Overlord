@@ -408,7 +408,7 @@ export function createRenderer({
   }
 
   function cardDigest(c) {
-    return `${currentLayout}|${c.id}|${!!c.online}|${c.lastSeen}|${c.pingMs}|${c.host}|${c.user}|${c.os}|${c.arch}|${c.version}|${c.monitors}|${c.thumbnail}|${c.country}|${c.nickname}|${c.customTag}|${c.customTagNote}|${!!c.bookmarked}|${!!c.isAdmin}|${c.elevation}|${c.cpu}|${c.gpu}|${c.ram}|${c.hwid}|${c.disconnectReason}|${c.disconnectDetail}|${c.groupId}|${c.groupName}|${c.groupColor}`;
+    return `${currentLayout}|${c.id}|${!!c.online}|${c.lastSeen}|${c.pingMs}|${c.host}|${c.user}|${c.os}|${c.arch}|${c.version}|${c.monitors}|${c.thumbnail}|${c.country}|${c.nickname}|${c.customTag}|${c.customTagNote}|${!!c.bookmarked}|${!!c.isAdmin}|${c.elevation}|${c.cpu}|${c.gpu}|${c.ram}|${c.hwid}|${c.disconnectReason}|${c.disconnectDetail}|${c.groupId}|${c.groupName}|${c.groupColor}|${!!c.notificationsMuted}`;
   }
 
   function renderMerge(data, options = {}) {
@@ -506,6 +506,7 @@ export function createRenderer({
     el.dataset.nickname = String(client.nickname || "");
     el.dataset.customTag = String(client.customTag || "");
     el.dataset.bookmarked = String(!!client.bookmarked);
+    el.dataset.notificationsMuted = String(!!client.notificationsMuted);
     el.dataset.admin = String(!!client.isAdmin);
     el.dataset.groupId = String(client.groupId || "");
     el.dataset.groupName = String(client.groupName || "");
@@ -626,6 +627,7 @@ export function createRenderer({
           ${client.isAdmin ? `<span class="cv-mini-pill cv-pill-admin" title="Admin"><i class="fa-solid fa-shield-halved"></i></span>` : ""}
           ${client.elevation === "system" ? `<span class="cv-mini-pill cv-pill-system" title="SYSTEM"><i class="fa-solid fa-gear"></i></span>` : ""}
           ${client.elevation === "trustedinstaller" ? `<span class="cv-mini-pill cv-pill-ti" title="TrustedInstaller"><i class="fa-solid fa-lock"></i></span>` : ""}
+          ${client.notificationsMuted ? `<span class="cv-mini-pill cv-pill-muted" title="Notifications muted"><i class="fa-solid fa-bell-slash"></i></span>` : ""}
         </div>
         <div class="cv-user-line"><i class="fa-solid fa-user"></i> ${escapeHtml(userLine)}</div>
         <div class="cv-meta-line">${meta}</div>
@@ -696,6 +698,7 @@ export function createRenderer({
               ${client.isAdmin ? `<span class="cv-mini-pill cv-pill-admin" title="Admin"><i class="fa-solid fa-shield-halved"></i></span>` : ""}
               ${client.elevation === "system" ? `<span class="cv-mini-pill cv-pill-system" title="SYSTEM"><i class="fa-solid fa-gear"></i></span>` : ""}
               ${client.elevation === "trustedinstaller" ? `<span class="cv-mini-pill cv-pill-ti" title="TI"><i class="fa-solid fa-lock"></i></span>` : ""}
+              ${client.notificationsMuted ? `<span class="cv-mini-pill cv-pill-muted" title="Notifications muted"><i class="fa-solid fa-bell-slash"></i></span>` : ""}
             </span>
             <span class="cv-user-line cv-mono"><i class="fa-solid fa-user"></i> ${escapeHtml(userLine)}${client.ip ? `<span class="cv-mid">·</span><i class="fa-solid fa-network-wired"></i> ${escapeHtml(client.ip)}` : ""}</span>
           </div>
@@ -752,6 +755,7 @@ export function createRenderer({
       client.isAdmin ? `<span class="cv-mini-pill cv-pill-admin" title="Admin"><i class="fa-solid fa-shield-halved"></i></span>` : "",
       client.elevation === "system" ? `<span class="cv-mini-pill cv-pill-system" title="SYSTEM"><i class="fa-solid fa-gear"></i></span>` : "",
       client.elevation === "trustedinstaller" ? `<span class="cv-mini-pill cv-pill-ti" title="TrustedInstaller"><i class="fa-solid fa-lock"></i></span>` : "",
+      client.notificationsMuted ? `<span class="cv-mini-pill cv-pill-muted" title="Notifications muted"><i class="fa-solid fa-bell-slash"></i></span>` : "",
     ].join("");
 
     article.innerHTML = `

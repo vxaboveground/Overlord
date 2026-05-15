@@ -50,6 +50,7 @@ export type ClientInfo = {
   groupId?: number | null;
   groupName?: string | null;
   groupColor?: string | null;
+  notificationsMuted?: boolean;
 };
 
 export type ListFilters = {

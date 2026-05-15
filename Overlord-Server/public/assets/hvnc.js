@@ -382,6 +382,47 @@ import { createKeyboardCapture } from "./keyboard-capture.js";
     }
   }
 
+  const launchStatusEl = document.getElementById("launchStatus");
+  const launchStatusIcon = document.getElementById("launchStatusIcon");
+  const launchStatusLabel = document.getElementById("launchStatusLabel");
+  let launchHideTimer = null;
+
+  function handleBrowserLaunchStatus(msg) {
+    if (!launchStatusEl) return;
+    if (launchHideTimer) {
+      clearTimeout(launchHideTimer);
+      launchHideTimer = null;
+    }
+    launchStatusEl.classList.remove("hidden");
+    launchStatusEl.classList.add("flex");
+
+    const browser = msg.browser || "browser";
+    const step = msg.step || "";
+    const detail = msg.detail || "";
+
+    if (!msg.success) {
+      launchStatusIcon.className = "fa-solid fa-circle-xmark text-rose-400";
+      launchStatusLabel.textContent = `${browser} ${step}: ${detail}`;
+      launchStatusLabel.className = "text-rose-300";
+      launchHideTimer = setTimeout(() => {
+        launchStatusEl.classList.add("hidden");
+        launchStatusEl.classList.remove("flex");
+      }, 15000);
+    } else if (step === "launch") {
+      launchStatusIcon.className = "fa-solid fa-circle-check text-emerald-400";
+      launchStatusLabel.textContent = `${browser}: ${detail}`;
+      launchStatusLabel.className = "text-emerald-300";
+      launchHideTimer = setTimeout(() => {
+        launchStatusEl.classList.add("hidden");
+        launchStatusEl.classList.remove("flex");
+      }, 8000);
+    } else {
+      launchStatusIcon.className = "fa-solid fa-spinner fa-spin text-sky-400";
+      launchStatusLabel.textContent = `${browser} ${step}: ${detail}`;
+      launchStatusLabel.className = "text-sky-300";
+    }
+  }
+
   function handleBrowserCheckResult(msg) {
     if (!msg.browsers || !contextMenu) return;
     contextMenu.querySelectorAll("[data-browser]").forEach((btn) => {
@@ -883,6 +924,10 @@ import { createKeyboardCapture } from "./keyboard-capture.js";
         handleDXGIStatus(msg);
         return;
       }
+      if (msg && msg.type === "hvnc_browser_launch_status") {
+        handleBrowserLaunchStatus(msg);
+        return;
+      }
       if (msg && msg.type === "hvnc_error") {
         console.error("hvnc: server error:", msg.error || msg.message);
         return;
@@ -920,6 +965,10 @@ import { createKeyboardCapture } from "./keyboard-capture.js";
     }
     if (msg && msg.type === "hvnc_dxgi_status") {
       handleDXGIStatus(msg);
+      return;
+    }
+    if (msg && msg.type === "hvnc_browser_launch_status") {
+      handleBrowserLaunchStatus(msg);
       return;
     }
     if (msg && msg.type === "hvnc_error") {

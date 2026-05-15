@@ -130,6 +130,9 @@ try {
 try {
   db.run(`ALTER TABLE clients ADD COLUMN permissions TEXT`);
 } catch {}
+try {
+  db.run(`ALTER TABLE clients ADD COLUMN notifications_muted INTEGER NOT NULL DEFAULT 0`);
+} catch {}
 
 db.run(`
   CREATE TABLE IF NOT EXISTS client_groups (
@@ -1138,7 +1141,7 @@ export function listClients(filters: ListFilters): ListResult {
 
   const rows = db
     .query<any>(
-      `SELECT c.id, c.hwid, c.role, c.ip, c.host, c.os, c.arch, c.version, c.user, c.nickname, c.custom_tag as customTag, c.custom_tag_note as customTagNote, c.monitors, c.country, c.last_seen as lastSeen, c.online, c.ping_ms as pingMs, c.bookmarked, c.build_tag as buildTag, c.built_by_user_id as builtByUserId, c.enrollment_status as enrollmentStatus, c.public_key as publicKey, c.key_fingerprint as keyFingerprint, c.cpu, c.gpu, c.ram, c.is_admin as isAdmin, c.elevation, c.permissions, c.disconnect_reason as disconnectReason, c.disconnect_detail as disconnectDetail, c.group_id as groupId, g.name as groupName, g.color as groupColor
+      `SELECT c.id, c.hwid, c.role, c.ip, c.host, c.os, c.arch, c.version, c.user, c.nickname, c.custom_tag as customTag, c.custom_tag_note as customTagNote, c.monitors, c.country, c.last_seen as lastSeen, c.online, c.ping_ms as pingMs, c.bookmarked, c.build_tag as buildTag, c.built_by_user_id as builtByUserId, c.enrollment_status as enrollmentStatus, c.public_key as publicKey, c.key_fingerprint as keyFingerprint, c.cpu, c.gpu, c.ram, c.is_admin as isAdmin, c.elevation, c.permissions, c.disconnect_reason as disconnectReason, c.disconnect_detail as disconnectDetail, c.group_id as groupId, g.name as groupName, g.color as groupColor, c.notifications_muted as notificationsMuted
        FROM clients c
        LEFT JOIN client_groups g ON g.id = c.group_id
        ${whereSql}
@@ -1182,6 +1185,7 @@ export function listClients(filters: ListFilters): ListResult {
     groupId: typeof c.groupId === "number" ? c.groupId : null,
     groupName: c.groupName || null,
     groupColor: c.groupColor || null,
+    notificationsMuted: c.notificationsMuted === 1,
     thumbnail: getThumbnail(c.id),
   }));
 
@@ -1524,6 +1528,22 @@ export function setClientBookmark(id: string, bookmarked: boolean): boolean {
 export function getClientBookmark(id: string): boolean {
   const row = db.query<{ bookmarked: number }>(`SELECT bookmarked FROM clients WHERE id=?`).get(id);
   return row?.bookmarked === 1;
+}
+
+export function setClientNotificationsMuted(id: string, muted: boolean): boolean {
+  const result = db.run(
+    `UPDATE clients SET notifications_muted=? WHERE id=?`,
+    muted ? 1 : 0,
+    id,
+  );
+  return ((result as any)?.changes || 0) > 0;
+}
+
+export function isClientNotificationsMuted(id: string): boolean {
+  const row = db.query<{ notifications_muted: number }>(
+    `SELECT notifications_muted FROM clients WHERE id=?`,
+  ).get(id);
+  return row?.notifications_muted === 1;
 }
 
 export interface BuildProfileRecord {

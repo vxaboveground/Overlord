@@ -39,6 +39,8 @@ const bulkDisconnectBtn = document.getElementById("bulk-disconnect");
 const bulkUninstallBtn = document.getElementById("bulk-uninstall");
 const bulkClearBtn = document.getElementById("bulk-clear");
 const bulkGroupBtn = document.getElementById("bulk-group");
+const bulkMuteBtn = document.getElementById("bulk-mute");
+const bulkUnmuteBtn = document.getElementById("bulk-unmute");
 const serverVersionText = document.getElementById("server-version-text");
 const selectedClients = new Set();
 let lastNonOnlineStatus = "all";
@@ -593,7 +595,9 @@ function initializeRenderer() {
     pageLabel,
     openMenu: (id, x, y) => {
       applyMenuSupportRules(id);
-      openMenu(id, x, y, setContext, { isOnline: isClientOnline(id) });
+      const card = getClientCard(id);
+      const notificationsMuted = card?.dataset.notificationsMuted === "true";
+      openMenu(id, x, y, setContext, { isOnline: isClientOnline(id), notificationsMuted });
       loadPluginsForClient(id);
     },
     openModal,
@@ -896,6 +900,39 @@ bulkGroupBtn?.addEventListener("click", () => {
   openBulkGroupPicker([...selectedClients]);
 });
 
+async function bulkSetMuted(muted) {
+  if (selectedClients.size === 0) return;
+  const ids = [...selectedClients];
+  try {
+    const res = await fetch("/api/clients/bulk-notifications-muted", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clientIds: ids, muted }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(data.error || "Failed to update notifications mute state");
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    const action = muted ? "Muted" : "Unmuted";
+    alert(`${action} notifications for ${data.updated ?? 0}/${ids.length} clients`);
+  } catch (err) {
+    console.error(err);
+    alert("Failed to update notifications mute state");
+    return;
+  }
+  selectedClients.clear();
+  document
+    .querySelectorAll(".client-checkbox")
+    .forEach((cb) => (cb.checked = false));
+  updateBulkToolbar();
+  setTimeout(() => loadWithOptions({ force: true }), 200);
+}
+
+bulkMuteBtn?.addEventListener("click", () => bulkSetMuted(true));
+bulkUnmuteBtn?.addEventListener("click", () => bulkSetMuted(false));
+
 async function openBulkGroupPicker(clientIds) {
   const groups = await loadGroups();
 
@@ -1062,6 +1099,27 @@ window.setClientTag = async (clientId, tag, note) => {
   } catch (err) {
     console.error(err);
     alert("Failed to update custom tag");
+    return false;
+  }
+};
+
+window.setClientNotificationsMuted = async (clientId, muted) => {
+  if (!clientId) return false;
+  try {
+    const res = await fetch(`/api/clients/${clientId}/notifications-muted`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ muted: !!muted }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(data.error || "Failed to update notification mute state");
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error(err);
+    alert("Failed to update notification mute state");
     return false;
   }
 };
@@ -1446,6 +1504,13 @@ menu.addEventListener("click", async (e) => {
     const savedClientId = contextCard;
     closeMenu(clearContext);
     openGroupPicker(savedClientId);
+    return;
+  } else if (action === "toggle-mute") {
+    const card = getClientCard(contextCard);
+    const currentlyMuted = card?.dataset.notificationsMuted === "true";
+    const ok = await window.setClientNotificationsMuted(contextCard, !currentlyMuted);
+    if (ok) setTimeout(() => loadWithOptions({ force: true }), 200);
+    closeMenu(clearContext);
     return;
   }
 

@@ -265,6 +265,14 @@ type HVNCInstalledAppsResult struct {
 	Done bool               `msgpack:"done"`
 }
 
+type HVNCBrowserLaunchStatus struct {
+	Type    string `msgpack:"type"`
+	Browser string `msgpack:"browser"`
+	Step    string `msgpack:"step"`
+	Success bool   `msgpack:"success"`
+	Detail  string `msgpack:"detail"`
+}
+
 type ClipboardContent struct {
 	Type   string `msgpack:"type"`
 	Text   string `msgpack:"text"`
