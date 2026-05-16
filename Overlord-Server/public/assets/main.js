@@ -537,6 +537,63 @@ function renderPluginMenu(plugins) {
   }
 }
 
+function renderScriptMenu(scripts) {
+  const section = document.getElementById("script-section");
+  const container = document.getElementById("script-menu");
+  if (!section || !container) return;
+  container.innerHTML = "";
+
+  if (!Array.isArray(scripts) || scripts.length === 0) {
+    section.classList.add("hidden");
+    return;
+  }
+
+  section.classList.remove("hidden");
+  const sorted = scripts.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  for (const script of sorted) {
+    const btn = document.createElement("button");
+    btn.className = "ctx-item ctx-plugin-item";
+    btn.dataset.scriptId = script.id;
+    btn.title = `${script.scriptType} — click to open in Scripts with this client preselected`;
+
+    const labelIcon = document.createElement("i");
+    labelIcon.className = "fa-solid fa-scroll ctx-icon text-cyan-400";
+    btn.appendChild(labelIcon);
+
+    const label = document.createElement("span");
+    label.className = "ctx-plugin-label";
+    label.textContent = script.name || script.id;
+    btn.appendChild(label);
+
+    const badge = document.createElement("span");
+    badge.className = "ctx-plugin-badge";
+    badge.textContent = script.scriptType || "";
+    btn.appendChild(badge);
+
+    container.appendChild(btn);
+  }
+}
+
+let _scriptMenuCache = null;
+async function loadSavedScriptsForMenu() {
+  const section = document.getElementById("script-section");
+  const container = document.getElementById("script-menu");
+  if (!section || !container) return;
+
+  if (_scriptMenuCache) renderScriptMenu(_scriptMenuCache);
+
+  try {
+    const res = await fetch("/api/saved-scripts");
+    if (!res.ok) return;
+    const data = await res.json();
+    const scripts = Array.isArray(data.items) ? data.items : [];
+    _scriptMenuCache = scripts;
+    renderScriptMenu(scripts);
+  } catch {
+    // ignore — cached render (if any) is already showing
+  }
+}
+
 async function loadPluginsForClient(clientId) {
   const section = document.getElementById("plugin-section");
   const container = document.getElementById("plugin-menu");
@@ -599,6 +656,7 @@ function initializeRenderer() {
       const notificationsMuted = card?.dataset.notificationsMuted === "true";
       openMenu(id, x, y, setContext, { isOnline: isClientOnline(id), notificationsMuted });
       loadPluginsForClient(id);
+      loadSavedScriptsForMenu();
     },
     openModal,
     requestPreview,
@@ -1359,6 +1417,16 @@ menu.addEventListener("click", async (e) => {
     await fetch(`/api/clients/${contextCard}/plugins/${unloadId}/unload`, {
       method: "POST",
     });
+    closeMenu(clearContext);
+    return;
+  }
+  const scriptId = target.dataset.scriptId;
+  if (scriptId) {
+    window.open(
+      `/scripts?clientId=${encodeURIComponent(contextCard)}&scriptId=${encodeURIComponent(scriptId)}`,
+      "_blank",
+      "noopener",
+    );
     closeMenu(clearContext);
     return;
   }

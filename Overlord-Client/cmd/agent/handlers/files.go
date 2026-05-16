@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -468,6 +469,26 @@ func HandleFileUpload(ctx context.Context, env *agentRuntime.Env, cmdID string, 
 	return wire.WriteMsg(ctx, env.Conn, result)
 }
 
+type progressReader struct {
+	r     io.Reader
+	bytes atomic.Int64
+}
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	n, err := p.r.Read(b)
+	if n > 0 {
+		p.bytes.Add(int64(n))
+	}
+	return n, err
+}
+
+const (
+	httpUploadMaxAttempts  = 6
+	httpUploadStallTimeout = 45 * time.Second
+	httpUploadInitBackoff  = 1 * time.Second
+	httpUploadMaxBackoff   = 30 * time.Second
+)
+
 func HandleFileUploadHTTP(ctx context.Context, env *agentRuntime.Env, cmdID string, destPath string, sourceURL string, expectedSize int64) error {
 	parsed, err := url.Parse(strings.TrimSpace(sourceURL))
 	if err != nil || parsed == nil || parsed.Host == "" {
@@ -490,27 +511,14 @@ func HandleFileUploadHTTP(ctx context.Context, env *agentRuntime.Env, cmdID stri
 		tlsConfig.RootCAs = pool
 	}
 
-	client := &http.Client{Transport: &http.Transport{TLSClientConfig: tlsConfig}}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
-	if err != nil {
-		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: err.Error()})
+	transport := &http.Transport{
+		TLSClientConfig:       tlsConfig,
+		ResponseHeaderTimeout: 30 * time.Second,
+		TLSHandshakeTimeout:   20 * time.Second,
+		IdleConnTimeout:       60 * time.Second,
+		DisableCompression:    true,
 	}
-	if token := strings.TrimSpace(env.Cfg.AgentToken); token != "" {
-		req.Header.Set("x-agent-token", token)
-	}
-	if id := strings.TrimSpace(env.Cfg.ID); id != "" {
-		req.Header.Set("x-overlord-client-id", id)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: err.Error()})
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: fmt.Sprintf("upload fetch failed: status %d", resp.StatusCode)})
-	}
+	client := &http.Client{Transport: transport}
 
 	dir := filepath.Dir(destPath)
 	if dir != "." {
@@ -520,25 +528,149 @@ func HandleFileUploadHTTP(ctx context.Context, env *agentRuntime.Env, cmdID stri
 	}
 
 	tmpPath := destPath + ".httpuploading"
-	f, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0644)
 	if err != nil {
 		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: err.Error()})
 	}
 
-	written, copyErr := io.Copy(f, resp.Body)
-	closeErr := f.Close()
-	if copyErr != nil {
-		_ = os.Remove(tmpPath)
-		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: copyErr.Error()})
+	var lastErr error
+	backoff := httpUploadInitBackoff
+
+	for attempt := 1; attempt <= httpUploadMaxAttempts; attempt++ {
+		offset, seekErr := f.Seek(0, io.SeekEnd)
+		if seekErr != nil {
+			_ = f.Close()
+			_ = os.Remove(tmpPath)
+			return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: seekErr.Error()})
+		}
+		if expectedSize > 0 && offset >= expectedSize {
+			break
+		}
+
+		attemptCtx, attemptCancel := context.WithCancel(ctx)
+
+		req, reqErr := http.NewRequestWithContext(attemptCtx, http.MethodGet, parsed.String(), nil)
+		if reqErr != nil {
+			attemptCancel()
+			lastErr = reqErr
+			break
+		}
+		if token := strings.TrimSpace(env.Cfg.AgentToken); token != "" {
+			req.Header.Set("x-agent-token", token)
+		}
+		if id := strings.TrimSpace(env.Cfg.ID); id != "" {
+			req.Header.Set("x-overlord-client-id", id)
+		}
+		if offset > 0 {
+			req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
+		}
+
+		resp, doErr := client.Do(req)
+		if doErr != nil {
+			attemptCancel()
+			lastErr = doErr
+			if ctx.Err() != nil {
+				break
+			}
+			sleepBackoff(ctx, backoff)
+			backoff = nextBackoff(backoff)
+			continue
+		}
+
+		if offset > 0 && resp.StatusCode == http.StatusOK {
+			if _, err := f.Seek(0, io.SeekStart); err != nil {
+				_ = resp.Body.Close()
+				attemptCancel()
+				_ = f.Close()
+				_ = os.Remove(tmpPath)
+				return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: err.Error()})
+			}
+			if err := f.Truncate(0); err != nil {
+				_ = resp.Body.Close()
+				attemptCancel()
+				_ = f.Close()
+				_ = os.Remove(tmpPath)
+				return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: err.Error()})
+			}
+			offset = 0
+		}
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			status := resp.StatusCode
+			_ = resp.Body.Close()
+			attemptCancel()
+			lastErr = fmt.Errorf("upload fetch failed: status %d", status)
+			// 4xx (not 416) won't get better on retry — bail.
+			if status >= 400 && status < 500 && status != http.StatusRequestedRangeNotSatisfiable {
+				break
+			}
+			sleepBackoff(ctx, backoff)
+			backoff = nextBackoff(backoff)
+			continue
+		}
+
+		pr := &progressReader{r: resp.Body}
+		watchdogDone := make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(httpUploadStallTimeout / 3)
+			defer ticker.Stop()
+			last := pr.bytes.Load()
+			lastChange := time.Now()
+			for {
+				select {
+				case <-watchdogDone:
+					return
+				case <-attemptCtx.Done():
+					return
+				case <-ticker.C:
+					cur := pr.bytes.Load()
+					if cur != last {
+						last = cur
+						lastChange = time.Now()
+						continue
+					}
+					if time.Since(lastChange) >= httpUploadStallTimeout {
+						attemptCancel()
+						return
+					}
+				}
+			}
+		}()
+
+		n, copyErr := io.Copy(f, pr)
+		close(watchdogDone)
+		_ = resp.Body.Close()
+		attemptCancel()
+
+		if copyErr == nil {
+			lastErr = nil
+			_ = n
+			break
+		}
+
+		lastErr = copyErr
+		if ctx.Err() != nil {
+			break
+		}
+		sleepBackoff(ctx, backoff)
+		backoff = nextBackoff(backoff)
 	}
-	if closeErr != nil {
+
+	if lastErr != nil {
+		_ = f.Close()
+		_ = os.Remove(tmpPath)
+		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: lastErr.Error()})
+	}
+
+	written, _ := f.Seek(0, io.SeekEnd)
+	if closeErr := f.Close(); closeErr != nil {
 		_ = os.Remove(tmpPath)
 		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: closeErr.Error()})
 	}
 
 	if expectedSize > 0 && written != expectedSize {
 		_ = os.Remove(tmpPath)
-		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: "upload size mismatch"})
+		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: fmt.Sprintf("upload size mismatch: got %d, expected %d", written, expectedSize)})
 	}
 
 	_ = os.Remove(destPath)
@@ -548,6 +680,23 @@ func HandleFileUploadHTTP(ctx context.Context, env *agentRuntime.Env, cmdID stri
 	}
 
 	return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: true})
+}
+
+func sleepBackoff(ctx context.Context, d time.Duration) {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+	case <-t.C:
+	}
+}
+
+func nextBackoff(d time.Duration) time.Duration {
+	next := d * 2
+	if next > httpUploadMaxBackoff {
+		return httpUploadMaxBackoff
+	}
+	return next
 }
 
 func HandleFileDelete(ctx context.Context, env *agentRuntime.Env, cmdID string, path string) error {

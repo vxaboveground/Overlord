@@ -532,28 +532,72 @@ export async function handleFileDownloadRoutes(
       return new Response("Forbidden", { status: 403 });
     }
 
+    const rangeHeader = req.headers.get("range") || req.headers.get("Range") || "";
+
     logger.debug("[filebrowser] http upload pull", {
       pullId,
       clientId: pull.clientId,
       path: pull.path,
       bytes: pull.size,
+      range: rangeHeader,
       ip: server.requestIP(req)?.address || "unknown",
     });
 
-    uploadPulls.delete(pullId);
-    clearTimeout(pull.timeout);
-
-    const headers = {
+    const fileName = deps.sanitizeOutputName(path.basename(pull.fileName) || "upload.bin");
+    const baseHeaders = {
       ...deps.secureHeaders("application/octet-stream"),
-      "Content-Disposition": `attachment; filename="${deps.sanitizeOutputName(path.basename(pull.fileName) || "upload.bin")}"`,
+      "Content-Disposition": `attachment; filename="${fileName}"`,
       "Cache-Control": "no-store, private",
-      "Content-Length": String(pull.size),
+      "Accept-Ranges": "bytes",
     };
 
-    const body = pull.deleteFile
-      ? streamFileAndDelete(pull.tmpPath)
-      : Bun.file(pull.tmpPath).stream();
-    return new Response(body, { headers });
+    if (pull.deleteFile) {
+      uploadPulls.delete(pullId);
+      clearTimeout(pull.timeout);
+      return new Response(streamFileAndDelete(pull.tmpPath), {
+        headers: { ...baseHeaders, "Content-Length": String(pull.size) },
+      });
+    }
+
+    if (rangeHeader) {
+      const match = /^bytes=(\d+)-(\d*)$/.exec(rangeHeader.trim());
+      if (!match) {
+        return new Response("Range Not Satisfiable", {
+          status: 416,
+          headers: { ...baseHeaders, "Content-Range": `bytes */${pull.size}` },
+        });
+      }
+      const start = Number(match[1]);
+      const end = match[2] === "" ? pull.size - 1 : Number(match[2]);
+      if (
+        !Number.isFinite(start) ||
+        !Number.isFinite(end) ||
+        start < 0 ||
+        end >= pull.size ||
+        start > end
+      ) {
+        return new Response("Range Not Satisfiable", {
+          status: 416,
+          headers: { ...baseHeaders, "Content-Range": `bytes */${pull.size}` },
+        });
+      }
+      const length = end - start + 1;
+      const sliceStream = (Bun.file(pull.tmpPath) as any)
+        .slice(start, end + 1)
+        .stream();
+      return new Response(sliceStream, {
+        status: 206,
+        headers: {
+          ...baseHeaders,
+          "Content-Range": `bytes ${start}-${end}/${pull.size}`,
+          "Content-Length": String(length),
+        },
+      });
+    }
+
+    return new Response(Bun.file(pull.tmpPath).stream(), {
+      headers: { ...baseHeaders, "Content-Length": String(pull.size) },
+    });
   }
 
   if (!url.pathname.startsWith("/api/file/download")) {

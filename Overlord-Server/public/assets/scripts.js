@@ -746,9 +746,42 @@ function renderTemplatePalette() {
   }
 }
 
+function applyContextMenuParams() {
+  const params = new URLSearchParams(window.location.search);
+  const clientId = params.get("clientId");
+  const scriptId = params.get("scriptId");
+  if (!clientId && !scriptId) return;
+
+  if (clientId) {
+    const found = allClients.find((c) => c.id === clientId);
+    if (found) {
+      selectedClients.clear();
+      selectedClients.add(clientId);
+      renderClients();
+    } else {
+      showToast(`Client ${clientId.substring(0, 8)} is not online`, "warning", 4000);
+    }
+  }
+
+  if (scriptId) {
+    const script = cachedSavedScripts.find((s) => s.id === scriptId);
+    if (script) {
+      setEditorValue(script.content);
+      scriptType.value = script.scriptType;
+      scriptSaveName.value = script.name;
+      setEditorMode(script.scriptType);
+      showToast(`Loaded "${script.name}" — ready to run`, "success", 3000);
+    } else {
+      showToast("Saved script not found", "error", 4000);
+    }
+  }
+}
+
 checkAuth();
-loadClients();
-loadSavedScripts().then(() => renderSavedScripts());
+Promise.all([
+  loadClients(),
+  loadSavedScripts().then(() => renderSavedScripts()),
+]).then(applyContextMenuParams);
 loadAutoTasks();
 renderTemplatePalette();
 

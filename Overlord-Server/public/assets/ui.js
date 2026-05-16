@@ -241,12 +241,14 @@ const mainRowsHTML =
     `<button class="ctx-row" data-group-toggle="${g.id}"><i class="${g.icon} ctx-icon ${g.color}"></i><span style="flex:1">${g.label}</span><i class="fa-solid fa-chevron-right ctx-chevron"></i></button>`
   ).join("") +
   `<div class="ctx-divider"></div>` +
+  `<button class="ctx-row hidden" id="script-section" data-group-toggle="scripts"><i class="fa-solid fa-scroll ctx-icon text-cyan-400"></i><span style="flex:1">Run Script</span><i class="fa-solid fa-chevron-right ctx-chevron"></i></button>` +
   `<button class="ctx-row hidden" id="plugin-section" data-group-toggle="plugins"><i class="fa-solid fa-puzzle-piece ctx-icon text-fuchsia-400"></i><span style="flex:1">Plugins</span><i class="fa-solid fa-chevron-right ctx-chevron"></i></button>`;
 
 const subPanelsHTML =
   MENU_GROUPS.map(g =>
     `<div class="ctx-sub-panel" data-for="${g.id}">${g.items.map(buildItemHTML).join("")}</div>`
   ).join("") +
+  `<div class="ctx-sub-panel" data-for="scripts"><div id="script-menu" style="display:flex;flex-direction:column;gap:1px"></div></div>` +
   `<div class="ctx-sub-panel" data-for="plugins"><div id="plugin-menu" style="display:flex;flex-direction:column;gap:1px"></div></div>`;
 
 const menu = document.createElement("div");

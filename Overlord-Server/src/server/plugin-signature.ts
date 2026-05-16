@@ -7,6 +7,7 @@ import { getConfig } from "../config";
 
 export const BUILTIN_TRUSTED_KEYS: string[] = [
   "c0f7b94f9678425d08d2408fd92494c419a5ea6819ee4dbcebc41d86c22c61fa",
+  "f584e6b7f9c0e1dc4037e3f667918707a95a86d075bfc49bd4eebf0571eb0ff6",
 ];
 
 export async function computeContentDigest(zip: InstanceType<typeof AdmZip>): Promise<string> {
