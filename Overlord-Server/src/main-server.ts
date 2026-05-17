@@ -13,7 +13,7 @@ import { v4 as uuidv4 } from "uuid";
 import { authenticateRequest } from "./auth";
 import { loadConfig, getConfig } from "./config";
 import { flushAuditLogsSync } from "./auditLog";
-import { getUserById, getUsersForNotificationDelivery, getUsersForNotificationDeliveryByClient, getUsersForNotificationDeliveryByClientOwnership, isClientOwnedByUser, canUserAccessClient, setUserClientAccessRule, setUserClientAccessScope, getUserClientAccessScope, hasPermission } from "./users";
+import { getUserById, getUsersForNotificationDelivery, isClientOwnedByUser, canUserAccessClient, setUserClientAccessRule, setUserClientAccessScope, getUserClientAccessScope, hasPermission } from "./users";
 import { requireAuth, requirePermission } from "./rbac";
 import { metrics } from "./metrics";
 import { ensureDataDir } from "./paths";
@@ -325,8 +325,10 @@ const toDeliveryTarget = (u: any): UserDeliveryTarget => ({
 });
 
 const deliverNotificationWithScreenshotForRecord = (record: NotificationRecord) => {
-  const getUserDeliveryTargets = (clientId: string): UserDeliveryTarget[] =>
-    getUsersForNotificationDeliveryByClientOwnership(clientId).map(toDeliveryTarget);
+  const getUserDeliveryTargets = (clientId: string): UserDeliveryTarget[] => {
+    const all = getUsersForNotificationDelivery();
+    return all.filter((u) => canUserAccessClient(u.id, u.role, clientId)).map(toDeliveryTarget);
+  };
   return deliverNotificationWithScreenshot(record, getUserDeliveryTargets);
 };
 
@@ -346,7 +348,14 @@ const notificationPluginHandlers = createNotificationPluginHandlers({
   forwardPluginEventToRuntime: (clientId, pluginId, event, payload) =>
     pluginRuntime.dispatchClientEvent(clientId, pluginId, event, payload),
   getDeliveryTargetsForClientEvent: (event: string, clientId: string): UserDeliveryTarget[] => {
-    return getUsersForNotificationDeliveryByClientOwnership(clientId).map(toDeliveryTarget);
+    const all = getUsersForNotificationDelivery();
+    let filtered: typeof all;
+    if (event === "client_purgatory") {
+      filtered = all.filter((u) => u.role === "admin" || u.role === "operator");
+    } else {
+      filtered = all.filter((u) => canUserAccessClient(u.id, u.role, clientId));
+    }
+    return filtered.map(toDeliveryTarget);
   },
   savePluginState,
 });
