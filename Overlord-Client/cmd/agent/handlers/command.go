@@ -2056,6 +2056,35 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		payload, _ := envelope["payload"].(map[string]interface{})
 		path, _ := payload["path"].(string)
 		return HandleFileExecute(ctx, env, cmdID, path)
+	case "file_icon":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		items := parseIconRequestItems(payload["items"])
+		goSafe("file_icon", env.Cancel, func() {
+			if err := HandleFileIcon(ctx, env, cmdID, items); err != nil && err != context.Canceled {
+				log.Printf("file_icon error: %v", err)
+			}
+		})
+		return nil
+	case "file_thumb":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		items := parseThumbRequestItems(payload["items"])
+		goSafe("file_thumb", env.Cancel, func() {
+			if err := HandleFileThumbnail(ctx, env, cmdID, items); err != nil && err != context.Canceled {
+				log.Printf("file_thumb error: %v", err)
+			}
+		})
+		return nil
+	case "file_dirsize":
+		path, _ := envelopePayloadString(envelope, "path")
+		dirsizeCtx, cancel := context.WithCancel(ctx)
+		registerCancellableCommand(cmdID, cancel)
+		goSafe("file_dirsize", env.Cancel, func() {
+			defer unregisterCommand(cmdID)
+			if err := HandleFolderSize(dirsizeCtx, env, cmdID, path); err != nil && err != context.Canceled {
+				log.Printf("file_dirsize error: %v", err)
+			}
+		})
+		return nil
 	case "agent_update":
 		payload, _ := envelope["payload"].(map[string]interface{})
 		path, _ := payload["path"].(string)

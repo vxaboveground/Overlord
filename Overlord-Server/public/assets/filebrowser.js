@@ -266,6 +266,15 @@ function handleMessage(msg) {
     case "file_search_result":
       handleFileSearchResult(msg);
       break;
+    case "file_icon_result":
+      handleFileIconResult(msg);
+      break;
+    case "file_thumb_result":
+      handleFileThumbResult(msg);
+      break;
+    case "file_dirsize_result":
+      handleFileDirsizeResult(msg);
+      break;
     case "command_result":
       console.log("[DEBUG] Command result:", msg);
       handleCommandResult(msg);
@@ -596,16 +605,389 @@ const FILE_ICON_MAP = {
   vhd: "fa-compact-disc text-slate-300", vmdk: "fa-compact-disc text-slate-300",
 };
 
+// Extensions whose icon depends on the actual file (embedded resources),
+// not just the registered shell association.
+const SELF_ICONNING_EXTS = new Set(["exe", "ico", "lnk", "dll", "msi", "cpl", "scr"]);
+// Extensions we'll request a Windows shell thumbnail for. Skip everything else.
+const THUMBNAIL_EXTS = new Set([
+  "jpg", "jpeg", "png", "gif", "bmp", "webp", "tif", "tiff", "heic", "heif",
+  "mp4", "mkv", "mov", "avi", "webm", "m4v",
+  "pdf",
+  "docx", "xlsx", "pptx",
+]);
+
+// key → { blobUrl?: string, failed?: boolean, pending?: boolean }
+const iconCache = new Map();
+const thumbCache = new Map();
+
+// Queues + batching
+const iconQueue = []; // {key, path?, ext?}
+const thumbQueue = []; // {key, path, size}
+const iconCommandsInFlight = new Set();
+const thumbCommandsInFlight = new Set();
+let iconFlushScheduled = false;
+let thumbFlushScheduled = false;
+const ICON_BATCH_SIZE = 32;
+const ICON_BATCH_DELAY_MS = 60;
+const THUMB_BATCH_SIZE = 8;
+const THUMB_BATCH_DELAY_MS = 80;
+const THUMB_EDGE = 96;
+const MAX_THUMB_INFLIGHT_COMMANDS = 2;
+
+function iconCacheKey(entry) {
+  if (entry.isDir) return null;
+  const ext = getFileExt(entry.name);
+  if (!ext) return `ext:_noext`;
+  if (SELF_ICONNING_EXTS.has(ext)) {
+    return `path:${entry.path}|${entry.size}|${entry.modTime}`;
+  }
+  return `ext:${ext}`;
+}
+
+function thumbCacheKey(entry) {
+  if (entry.isDir) return null;
+  const ext = getFileExt(entry.name);
+  if (!THUMBNAIL_EXTS.has(ext)) return null;
+  // Skip absurdly large files — Windows providers may bog down. 256MB cap.
+  if (entry.size > 256 * 1024 * 1024) return null;
+  return `thumb:${entry.path}|${entry.size}|${entry.modTime}|${THUMB_EDGE}`;
+}
+
+function scheduleIconFlush() {
+  if (iconFlushScheduled) return;
+  iconFlushScheduled = true;
+  setTimeout(flushIconQueue, ICON_BATCH_DELAY_MS);
+}
+
+function flushIconQueue() {
+  iconFlushScheduled = false;
+  if (iconQueue.length === 0) return;
+  const batch = iconQueue.splice(0, ICON_BATCH_SIZE);
+  const commandId = `icon-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  iconCommandsInFlight.add(commandId);
+  send({
+    type: "command",
+    commandType: "file_icon",
+    id: commandId,
+    payload: { items: batch },
+  });
+  if (iconQueue.length > 0) scheduleIconFlush();
+}
+
+function scheduleThumbFlush() {
+  if (thumbFlushScheduled) return;
+  if (thumbCommandsInFlight.size >= MAX_THUMB_INFLIGHT_COMMANDS) return;
+  thumbFlushScheduled = true;
+  setTimeout(flushThumbQueue, THUMB_BATCH_DELAY_MS);
+}
+
+function flushThumbQueue() {
+  thumbFlushScheduled = false;
+  if (thumbQueue.length === 0) return;
+  if (thumbCommandsInFlight.size >= MAX_THUMB_INFLIGHT_COMMANDS) return;
+  const batch = thumbQueue.splice(0, THUMB_BATCH_SIZE);
+  const commandId = `thumb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  thumbCommandsInFlight.add(commandId);
+  send({
+    type: "command",
+    commandType: "file_thumb",
+    id: commandId,
+    payload: { items: batch },
+  });
+  if (thumbQueue.length > 0) scheduleThumbFlush();
+}
+
+function requestIconFor(entry) {
+  const key = iconCacheKey(entry);
+  if (!key) return null;
+  if (iconCache.has(key)) return key;
+  iconCache.set(key, { pending: true });
+  const item = { key };
+  if (key.startsWith("path:")) {
+    item.path = entry.path;
+  } else {
+    const ext = getFileExt(entry.name);
+    if (ext) item.ext = ext;
+    else item.ext = "";
+  }
+  iconQueue.push(item);
+  scheduleIconFlush();
+  return key;
+}
+
+function requestThumbFor(entry) {
+  const key = thumbCacheKey(entry);
+  if (!key) return null;
+  if (thumbCache.has(key)) return key;
+  thumbCache.set(key, { pending: true });
+  thumbQueue.push({ key, path: entry.path, size: THUMB_EDGE });
+  scheduleThumbFlush();
+  return key;
+}
+
+function handleFileIconResult(msg) {
+  if (msg.commandId) iconCommandsInFlight.delete(msg.commandId);
+  const items = Array.isArray(msg.icons) ? msg.icons : [];
+  for (const item of items) {
+    if (!item || !item.key) continue;
+    const entry = iconCache.get(item.key) || {};
+    entry.pending = false;
+    if (item.png && item.png.length > 0) {
+      const blob = new Blob([item.png], { type: "image/png" });
+      entry.blobUrl = URL.createObjectURL(blob);
+    } else {
+      entry.failed = true;
+    }
+    iconCache.set(item.key, entry);
+    applyIconToDom(item.key, entry);
+  }
+}
+
+function handleFileThumbResult(msg) {
+  if (msg.commandId) thumbCommandsInFlight.delete(msg.commandId);
+  // Pump the next thumbnail batch now that there's capacity.
+  if (thumbQueue.length > 0) scheduleThumbFlush();
+  const items = Array.isArray(msg.thumbs) ? msg.thumbs : [];
+  for (const item of items) {
+    if (!item || !item.key) continue;
+    const entry = thumbCache.get(item.key) || {};
+    entry.pending = false;
+    if (item.jpeg && item.jpeg.length > 0) {
+      const blob = new Blob([item.jpeg], { type: "image/jpeg" });
+      entry.blobUrl = URL.createObjectURL(blob);
+      entry.w = item.w || 0;
+      entry.h = item.h || 0;
+    } else {
+      entry.failed = true;
+    }
+    thumbCache.set(item.key, entry);
+    applyThumbToDom(item.key, entry);
+  }
+}
+
+function applyIconToDom(key, entry) {
+  if (!entry || !entry.blobUrl) return;
+  const escaped = (typeof CSS !== "undefined" && CSS.escape) ? CSS.escape(key) : key.replace(/"/g, '\\"');
+  document.querySelectorAll(`[data-icon-key="${escaped}"]`).forEach((el) => {
+    el.innerHTML = `<img src="${entry.blobUrl}" class="w-4 h-4 object-contain pointer-events-none" alt="" draggable="false">`;
+  });
+}
+
+function applyThumbToDom(key, entry) {
+  if (!entry || !entry.blobUrl) return;
+  const escaped = (typeof CSS !== "undefined" && CSS.escape) ? CSS.escape(key) : key.replace(/"/g, '\\"');
+  // Thumbs are used by hover-preview popover; just update the popover if it's currently showing this key.
+  if (currentPopoverKey === key) {
+    renderQuickLookPopover(currentPopoverEntry, entry.blobUrl, entry.w, entry.h);
+  }
+}
+
+// Windows FILE_ATTRIBUTE_* flags surfaced as compact badges next to the filename.
+const ATTR_READONLY      = 0x00000001;
+const ATTR_HIDDEN        = 0x00000002;
+const ATTR_SYSTEM        = 0x00000004;
+const ATTR_REPARSE_POINT = 0x00000400;
+const ATTR_COMPRESSED    = 0x00000800;
+const ATTR_ENCRYPTED     = 0x00004000;
+
+function renderAttrBadges(attrs) {
+  if (!attrs || typeof attrs !== "number") return "";
+  const pills = [];
+  const pill = (label, title, cls) =>
+    `<span class="text-[10px] leading-none px-1 py-0.5 rounded ${cls}" title="${title}">${label}</span>`;
+  if (attrs & ATTR_HIDDEN) pills.push(pill("H", "Hidden", "bg-slate-700 text-slate-300"));
+  if (attrs & ATTR_SYSTEM) pills.push(pill("S", "System", "bg-red-900/60 text-red-200"));
+  if (attrs & ATTR_REPARSE_POINT) pills.push(pill("L", "Reparse point / symlink", "bg-indigo-900/60 text-indigo-200"));
+  if (attrs & ATTR_COMPRESSED) pills.push(pill("C", "NTFS compressed", "bg-blue-900/60 text-blue-200"));
+  if (attrs & ATTR_ENCRYPTED) pills.push(pill("E", "NTFS encrypted (EFS)", "bg-emerald-900/60 text-emerald-200"));
+  if (attrs & ATTR_READONLY) pills.push(pill("R", "Read-only", "bg-slate-700 text-slate-300"));
+  if (pills.length === 0) return "";
+  return `<span class="inline-flex items-center gap-1 ml-1 flex-shrink-0">${pills.join("")}</span>`;
+}
+
+// ---- Hover-preview / spacebar quicklook popover --------------------------------
+let currentPopoverKey = null;
+let currentPopoverEntry = null;
+let hoverPreviewTimer = null;
+let popoverEl = null;
+let lastHoveredRow = null;
+let lastHoveredEntry = null;
+const HOVER_DELAY_MS = 350;
+
+function ensurePopover() {
+  if (popoverEl) return popoverEl;
+  popoverEl = document.createElement("div");
+  popoverEl.id = "file-quicklook-popover";
+  popoverEl.style.cssText = "position:fixed;z-index:1500;display:none;pointer-events:none;background:#0f172a;border:1px solid #334155;border-radius:0.5rem;box-shadow:0 10px 25px rgba(0,0,0,.5);padding:0.5rem;max-width:280px;";
+  document.body.appendChild(popoverEl);
+  return popoverEl;
+}
+
+function hideQuickLookPopover() {
+  if (hoverPreviewTimer) {
+    clearTimeout(hoverPreviewTimer);
+    hoverPreviewTimer = null;
+  }
+  currentPopoverKey = null;
+  currentPopoverEntry = null;
+  if (popoverEl) popoverEl.style.display = "none";
+}
+
+function renderQuickLookPopover(entry, thumbUrl, w, h) {
+  if (!entry) return;
+  const el = ensurePopover();
+  const ext = getFileExt(entry.name);
+  const sizeStr = entry.isDir ? "" : formatBytes(entry.size);
+  const modStr = new Date(entry.modTime * 1000).toLocaleString();
+  let imgHtml = "";
+  if (thumbUrl) {
+    imgHtml = `<img src="${thumbUrl}" style="max-width:256px;max-height:256px;display:block;margin:0 auto;border-radius:0.25rem;" alt="">`;
+  } else {
+    const iconKey = iconCacheKey(entry);
+    const iconEntry = iconKey ? iconCache.get(iconKey) : null;
+    if (iconEntry && iconEntry.blobUrl) {
+      imgHtml = `<img src="${iconEntry.blobUrl}" style="width:64px;height:64px;display:block;margin:0 auto;image-rendering:auto;" alt="">`;
+    } else {
+      imgHtml = `<div style="font-size:48px;text-align:center;color:#94a3b8;">${getFileIcon(entry)}</div>`;
+    }
+  }
+  el.innerHTML = `
+    ${imgHtml}
+    <div style="margin-top:0.5rem;font-size:11px;color:#e2e8f0;text-align:center;word-break:break-word;">${escapeHtml(entry.name)}</div>
+    <div style="margin-top:0.25rem;font-size:10px;color:#94a3b8;text-align:center;">
+      ${entry.isDir ? "Folder" : (ext ? ext.toUpperCase() + " · " : "") + sizeStr}
+    </div>
+    <div style="font-size:10px;color:#64748b;text-align:center;">${modStr}</div>
+  `;
+  el.style.display = "block";
+  positionPopover(el);
+}
+
+function positionPopover(el) {
+  if (!lastHoveredRow) return;
+  const rect = lastHoveredRow.getBoundingClientRect();
+  const popoverWidth = el.offsetWidth || 280;
+  const popoverHeight = el.offsetHeight || 320;
+  let left = rect.right + 12;
+  let top = rect.top;
+  if (left + popoverWidth > window.innerWidth - 8) {
+    left = rect.left - popoverWidth - 12;
+  }
+  if (left < 8) left = 8;
+  if (top + popoverHeight > window.innerHeight - 8) {
+    top = Math.max(8, window.innerHeight - popoverHeight - 8);
+  }
+  el.style.left = `${left}px`;
+  el.style.top = `${top}px`;
+}
+
+function showQuickLookFor(row, entry, immediate) {
+  if (!entry) return;
+  lastHoveredRow = row;
+  lastHoveredEntry = entry;
+  const tKey = thumbCacheKey(entry);
+  currentPopoverKey = tKey;
+  currentPopoverEntry = entry;
+  const cached = tKey ? thumbCache.get(tKey) : null;
+  if (cached && cached.blobUrl) {
+    renderQuickLookPopover(entry, cached.blobUrl, cached.w, cached.h);
+    return;
+  }
+  // No thumb yet — still show the popover with icon + metadata.
+  renderQuickLookPopover(entry, null, 0, 0);
+  // Ensure thumb is queued (createFileRow already did this; no-op if so).
+  if (tKey) requestThumbFor(entry);
+}
+
+function attachRowQuicklookEvents(row, entry) {
+  if (entry.isDir) return; // folders: skip hover popover (would just be the icon)
+  row.addEventListener("mouseenter", () => {
+    lastHoveredRow = row;
+    lastHoveredEntry = entry;
+    if (hoverPreviewTimer) clearTimeout(hoverPreviewTimer);
+    hoverPreviewTimer = setTimeout(() => showQuickLookFor(row, entry, false), HOVER_DELAY_MS);
+  });
+  row.addEventListener("mouseleave", () => {
+    hideQuickLookPopover();
+  });
+}
+
+// Spacebar = open quicklook for last-hovered/focused row (Finder style).
+window.addEventListener("keydown", (e) => {
+  if (e.key !== " ") return;
+  const target = e.target;
+  // Don't hijack space in inputs/textareas/editor.
+  if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+  if (document.querySelector(".file-editor-modal.show")) return;
+  if (document.querySelector(".file-preview-modal.show")) return;
+  if (!lastHoveredRow || !lastHoveredEntry) return;
+  e.preventDefault();
+  showQuickLookFor(lastHoveredRow, lastHoveredEntry, true);
+});
+window.addEventListener("keyup", (e) => {
+  if (e.key !== " ") return;
+  hideQuickLookPopover();
+});
+window.addEventListener("scroll", () => hideQuickLookPopover(), { passive: true });
+
+// ---- Folder size --------------------------------------------------------------
+// commandId -> { path, toastId? }
+const folderSizeInFlight = new Map();
+
+function requestFolderSize(entry) {
+  if (!entry.isDir) return;
+  const commandId = `dirsize-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  folderSizeInFlight.set(commandId, { path: entry.path, name: entry.name });
+  send({
+    type: "command",
+    commandType: "file_dirsize",
+    id: commandId,
+    payload: { path: entry.path },
+  });
+  notifyToast(`Calculating size of ${entry.name}…`, "info", 2000);
+}
+
+function handleFileDirsizeResult(msg) {
+  const tracked = msg.commandId ? folderSizeInFlight.get(msg.commandId) : null;
+  if (!tracked) return;
+  if (!msg.done) {
+    // Progress tick — update status bar only (avoid toast spam).
+    if (statusEl) {
+      const label = `${tracked.name || msg.path}: ${formatBytes(msg.bytes || 0)} (${msg.files || 0} files)`;
+      statusEl.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> ${escapeHtml(label)}`;
+    }
+    return;
+  }
+  folderSizeInFlight.delete(msg.commandId);
+  updateStatus("connected", "Connected");
+  if (msg.error) {
+    notifyToast(`Size of ${tracked.name}: error — ${msg.error}`, "error", 5000);
+    return;
+  }
+  notifyToast(
+    `${tracked.name}: ${formatBytes(msg.bytes || 0)} (${msg.files || 0} files, ${msg.dirs || 0} folders)`,
+    "success",
+    8000,
+  );
+}
+
 function getFileIcon(entry) {
   if (entry.isDir) {
     return '<i class="fa-solid fa-folder text-yellow-400"></i>';
   }
   const ext = getFileExt(entry.name);
   const cls = FILE_ICON_MAP[ext];
-  if (cls) {
-    return `<i class="fa-solid ${cls}"></i>`;
+  const fallback = cls
+    ? `<i class="fa-solid ${cls}"></i>`
+    : '<i class="fa-solid fa-file text-slate-400"></i>';
+
+  const key = iconCacheKey(entry);
+  if (!key) return fallback;
+  const cached = iconCache.get(key);
+  if (cached && cached.blobUrl) {
+    return `<span class="inline-flex w-4 h-4 items-center justify-center" data-icon-key="${escapeHtml(key)}"><img src="${cached.blobUrl}" class="w-4 h-4 object-contain pointer-events-none" alt="" draggable="false"></span>`;
   }
-  return '<i class="fa-solid fa-file text-slate-400"></i>';
+  return `<span class="inline-flex w-4 h-4 items-center justify-center" data-icon-key="${escapeHtml(key)}">${fallback}</span>`;
 }
 
 function entryMatchesFilter(entry, mode) {
@@ -928,7 +1310,13 @@ function createFileRow(entry) {
   row.dataset.path = entry.path;
   row.dataset.isDir = entry.isDir;
 
+  // Kick off lazy fetches for the row's real icon and (if applicable) its thumbnail.
+  // Both are throttled + batched; the DOM gets updated when results arrive.
+  requestIconFor(entry);
+  if (!entry.isDir) requestThumbFor(entry);
+
   const icon = getFileIcon(entry);
+  const badges = renderAttrBadges(entry.attrs);
 
   const size = entry.isDir ? "-" : formatBytes(entry.size);
   const modTime = new Date(entry.modTime * 1000).toLocaleString();
@@ -938,6 +1326,7 @@ function createFileRow(entry) {
     <div class="col-span-6 flex items-center gap-2 truncate pl-3">
       ${icon}
       <span class="truncate">${escapeHtml(entry.name)}</span>
+      ${badges}
     </div>
     <div class="col-span-2 text-sm text-slate-400 file-size-col">${size}</div>
     <div class="col-span-3 text-sm text-slate-400 file-modified-col">${modTime}</div>
@@ -998,6 +1387,8 @@ function createFileRow(entry) {
     e.preventDefault();
     showContextMenu(e.clientX, e.clientY, entry);
   };
+
+  attachRowQuicklookEvents(row, entry);
 
   return row;
 }
@@ -1081,8 +1472,17 @@ function handleFileAction(action, entry) {
         });
       }
       break;
+    case "execute":
+      executeFile(entry.path, false);
+      break;
+    case "silent_execute":
+      executeFile(entry.path, true);
+      break;
     case "delete":
       deleteFile(entry.path);
+      break;
+    case "dirsize":
+      requestFolderSize(entry);
       break;
   }
 }
@@ -1590,6 +1990,34 @@ function deleteFile(path) {
   });
 }
 
+function executeFile(path, silent) {
+  if (silent) {
+    const commandId = `silent-exec-${Date.now()}`;
+    send({
+      type: "command",
+      commandType: "silent_exec",
+      id: commandId,
+      payload: { command: path, args: [], hideWindow: true },
+    });
+    trackCommandResult(commandId, {
+      successMessage: "Silent execution started",
+      errorPrefix: "Silent execution failed",
+    });
+  } else {
+    const commandId = `exec-${Date.now()}`;
+    send({
+      type: "command",
+      commandType: "file_execute",
+      id: commandId,
+      payload: { path },
+    });
+    trackCommandResult(commandId, {
+      successMessage: "Execution started",
+      errorPrefix: "Execution failed",
+    });
+  }
+}
+
 function handleFileUploadResult(msg) {
   const toNumber = (value) => {
     if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -1733,10 +2161,16 @@ function showContextMenu(x, y, entry) {
   const editItem = contextMenu.querySelector('[data-action="edit"]');
   const zipItem = contextMenu.querySelector('[data-action="zip"]');
   const chmodItem = contextMenu.querySelector('[data-action="chmod"]');
+  const executeItem = contextMenu.querySelector('[data-action="execute"]');
+  const silentExecuteItem = contextMenu.querySelector('[data-action="silent_execute"]');
+  const dirsizeItem = contextMenu.querySelector('[data-action="dirsize"]');
 
   if (editItem) editItem.style.display = entry.isDir ? "none" : "block";
   if (zipItem) zipItem.style.display = entry.isDir ? "block" : "none";
   if (chmodItem) chmodItem.style.display = entry.mode ? "block" : "none";
+  if (executeItem) executeItem.style.display = entry.isDir ? "none" : "block";
+  if (silentExecuteItem) silentExecuteItem.style.display = entry.isDir ? "none" : "block";
+  if (dirsizeItem) dirsizeItem.style.display = entry.isDir ? "block" : "none";
 }
 
 function hideContextMenu() {

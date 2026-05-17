@@ -110,6 +110,8 @@ type FileEntry struct {
 	Mode    string `msgpack:"mode,omitempty"`
 	Owner   string `msgpack:"owner,omitempty"`
 	Group   string `msgpack:"group,omitempty"`
+	// windows file attributes
+	Attrs uint32 `msgpack:"attrs,omitempty"`
 }
 
 type FileListResult struct {
@@ -185,6 +187,55 @@ type FileSearchResult struct {
 	Results   []FileSearchMatch `msgpack:"results"`
 	Complete  bool              `msgpack:"complete"`
 	Error     string            `msgpack:"error,omitempty"`
+}
+
+type FileIconRequestItem struct {
+	Key  string `msgpack:"key"`
+	Path string `msgpack:"path,omitempty"`
+	Ext  string `msgpack:"ext,omitempty"`
+}
+
+type FileIconResultItem struct {
+	Key   string `msgpack:"key"`
+	PNG   []byte `msgpack:"png,omitempty"`
+	Error string `msgpack:"error,omitempty"`
+}
+
+type FileIconResult struct {
+	Type      string               `msgpack:"type"`
+	CommandID string               `msgpack:"commandId,omitempty"`
+	Icons     []FileIconResultItem `msgpack:"icons"`
+}
+
+type FileThumbnailRequestItem struct {
+	Key  string `msgpack:"key"`
+	Path string `msgpack:"path"`
+	Size int    `msgpack:"size,omitempty"`
+}
+
+type FileThumbnailResultItem struct {
+	Key   string `msgpack:"key"`
+	JPEG  []byte `msgpack:"jpeg,omitempty"`
+	W     int    `msgpack:"w,omitempty"`
+	H     int    `msgpack:"h,omitempty"`
+	Error string `msgpack:"error,omitempty"`
+}
+
+type FileThumbnailResult struct {
+	Type      string                    `msgpack:"type"`
+	CommandID string                    `msgpack:"commandId,omitempty"`
+	Thumbs    []FileThumbnailResultItem `msgpack:"thumbs"`
+}
+
+type FolderSizeResult struct {
+	Type      string `msgpack:"type"`
+	CommandID string `msgpack:"commandId,omitempty"`
+	Path      string `msgpack:"path"`
+	Bytes     int64  `msgpack:"bytes"`
+	Files     int64  `msgpack:"files"`
+	Dirs      int64  `msgpack:"dirs"`
+	Done      bool   `msgpack:"done"`
+	Error     string `msgpack:"error,omitempty"`
 }
 
 type ScriptResult struct {

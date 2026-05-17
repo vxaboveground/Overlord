@@ -636,6 +636,9 @@ export async function handleWebSocketMessage(
       case "file_upload_result":
       case "file_read_result":
       case "file_search_result":
+      case "file_icon_result":
+      case "file_thumb_result":
+      case "file_dirsize_result":
       case "command_result":
         if (payloadType === "command_result" && typeof (payload as any).commandId === "string") {
           const pending = deps.pendingCommandReplies.get((payload as any).commandId);

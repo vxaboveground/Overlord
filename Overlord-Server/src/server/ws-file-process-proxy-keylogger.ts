@@ -130,6 +130,23 @@ export function handleFileBrowserViewerMessage(ws: ServerWebSocket<SocketData>, 
         target.ws.send(encodeMessage({ type: "command", commandType: "file_execute", id: routedId, payload: actualPayload } as any));
         metrics.recordCommand("file_execute");
         break;
+      case "file_icon":
+        target.ws.send(encodeMessage({ type: "command", commandType: "file_icon", id: routedId, payload: actualPayload } as any));
+        metrics.recordCommand("file_icon");
+        break;
+      case "file_thumb":
+        target.ws.send(encodeMessage({ type: "command", commandType: "file_thumb", id: routedId, payload: actualPayload } as any));
+        metrics.recordCommand("file_thumb");
+        break;
+      case "file_dirsize":
+        target.ws.send(encodeMessage({ type: "command", commandType: "file_dirsize", id: routedId, payload: actualPayload } as any));
+        metrics.recordCommand("file_dirsize");
+        break;
+      case "silent_exec":
+        logger.debug(`[DEBUG] Forwarding silent_exec to client ${clientId}:`, actualPayload.command);
+        target.ws.send(encodeMessage({ type: "command", commandType: "silent_exec", id: routedId, payload: actualPayload } as any));
+        metrics.recordCommand("silent_exec");
+        break;
       case "file_upload_http":
         target.ws.send(encodeMessage({ type: "command", commandType: "file_upload_http", id: routedId, payload: actualPayload } as any));
         metrics.recordCommand("file_upload");
@@ -278,6 +295,22 @@ export function handleFileBrowserMessage(clientId: string, payload: any, deps: W
     if (payload.type === "file_download" && payload.data) {
       const data = payload.data instanceof Uint8Array ? payload.data : new Uint8Array(payload.data);
       safeSendViewer(session.viewer, { ...payload, data });
+    } else if (payload.type === "file_icon_result" && Array.isArray(payload.icons)) {
+      const icons = payload.icons.map((item: any) => {
+        if (item && item.png && !(item.png instanceof Uint8Array)) {
+          return { ...item, png: new Uint8Array(item.png) };
+        }
+        return item;
+      });
+      safeSendViewer(session.viewer, { ...payload, icons });
+    } else if (payload.type === "file_thumb_result" && Array.isArray(payload.thumbs)) {
+      const thumbs = payload.thumbs.map((item: any) => {
+        if (item && item.jpeg && !(item.jpeg instanceof Uint8Array)) {
+          return { ...item, jpeg: new Uint8Array(item.jpeg) };
+        }
+        return item;
+      });
+      safeSendViewer(session.viewer, { ...payload, thumbs });
     } else {
       safeSendViewer(session.viewer, payload);
     }

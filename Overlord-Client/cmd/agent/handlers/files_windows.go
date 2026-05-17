@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"syscall"
 
 	"overlord-client/cmd/agent/wire"
 )
 
 func enrichFileEntry(entry *wire.FileEntry, info os.FileInfo) {
-
+	if d, ok := info.Sys().(*syscall.Win32FileAttributeData); ok {
+		entry.Attrs = d.FileAttributes
+	}
 }
 
 func ChangeFilePermissions(path string, mode string) error {

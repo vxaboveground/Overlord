@@ -118,7 +118,10 @@ export type CommandType =
   | "elevate"
   | "file_upload_http"
   | "winre_install"
-  | "winre_uninstall";
+  | "winre_uninstall"
+  | "file_icon"
+  | "file_thumb"
+  | "file_dirsize";
 
 export type Command = {
   type: "command";
@@ -189,6 +192,44 @@ export type FileEntry = {
   mode?: string;
   owner?: string;
   group?: string;
+  attrs?: number;
+};
+
+export type FileIconResultItem = {
+  key: string;
+  png?: Uint8Array;
+  error?: string;
+};
+
+export type FileIconResult = {
+  type: "file_icon_result";
+  commandId?: string;
+  icons: FileIconResultItem[];
+};
+
+export type FileThumbnailResultItem = {
+  key: string;
+  jpeg?: Uint8Array;
+  w?: number;
+  h?: number;
+  error?: string;
+};
+
+export type FileThumbnailResult = {
+  type: "file_thumb_result";
+  commandId?: string;
+  thumbs: FileThumbnailResultItem[];
+};
+
+export type FolderSizeResult = {
+  type: "file_dirsize_result";
+  commandId?: string;
+  path: string;
+  bytes: number;
+  files: number;
+  dirs: number;
+  done: boolean;
+  error?: string;
 };
 
 export type FileListResult = {
