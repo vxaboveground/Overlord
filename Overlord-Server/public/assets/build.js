@@ -56,22 +56,31 @@ async function loadServerVersion() {
 }
 
 function getDefaultServerUrlPlaceholder(isRawList) {
-  const isHttps = window.location.protocol === "https:";
-  const host = window.location.host;
   if (isRawList) {
+    const isHttps = window.location.protocol === "https:";
+    const host = window.location.host;
     return `${isHttps ? "https" : "http"}://${host}/list.txt`;
   }
-  return host;
+  return "";
+}
+
+function stripServerUrlPrefix(value) {
+  return String(value || "").replace(/^\s*(wss?|https?):\/\//i, "").trimStart();
+}
+
+function updateServerUrlHintMode() {
+  const isRaw = rawServerListCheckbox?.checked ?? false;
+  const normalHint = document.getElementById("server-url-hint");
+  const rawHint = document.getElementById("server-url-raw-hint");
+  if (normalHint) normalHint.classList.toggle("hidden", isRaw);
+  if (rawHint) rawHint.classList.toggle("hidden", !isRaw);
 }
 
 function updateServerUrlPlaceholder() {
   if (!serverUrlInput) return;
   const isRaw = rawServerListCheckbox?.checked ?? false;
-  const placeholder = getDefaultServerUrlPlaceholder(isRaw);
-  serverUrlInput.placeholder = placeholder;
-  if (!serverUrlInput.value.trim()) {
-    serverUrlInput.value = placeholder;
-  }
+  serverUrlInput.placeholder = getDefaultServerUrlPlaceholder(isRaw);
+  updateServerUrlHintMode();
 }
 
 let isBuilding = false;
@@ -174,7 +183,10 @@ function applyFormSettings(settings) {
       if (el) el.checked = !!checked;
     });
   }
-  if (settings.serverUrl !== undefined) setVal("server-url", settings.serverUrl);
+  if (settings.serverUrl !== undefined) {
+    const isRaw = !!settings.rawServerList;
+    setVal("server-url", isRaw ? settings.serverUrl : stripServerUrlPrefix(settings.serverUrl));
+  }
   if (settings.rawServerList !== undefined) setCb("#raw-server-list", settings.rawServerList);
   if (settings.solMemo !== undefined) setCb("#sol-memo", settings.solMemo);
   if (settings.solAddress !== undefined) setVal("sol-address", settings.solAddress);
@@ -248,6 +260,7 @@ function applyFormSettings(settings) {
   }
   if (serverUrlInput && rawServerListCheckbox) {
     serverUrlInput.placeholder = getDefaultServerUrlPlaceholder(rawServerListCheckbox.checked);
+    updateServerUrlHintMode();
   }
   applyCryptableMode(document.getElementById("cryptable-mode")?.checked || false);
 }
@@ -572,19 +585,31 @@ if (rawServerListCheckbox && serverUrlInput) {
     }
 
     if (isRaw) {
+      // Raw-list mode wants a real https:// URL pointing at a .txt of endpoints.
+      // Swap any wss:// → https:// / ws:// → http:// the user may have left over.
       if (current.startsWith("wss://")) {
         serverUrlInput.value = "https://" + current.slice("wss://".length);
       } else if (current.startsWith("ws://")) {
         serverUrlInput.value = "http://" + current.slice("ws://".length);
       }
-      serverUrlInput.placeholder = getDefaultServerUrlPlaceholder(true);
     } else {
-      if (current.startsWith("https://")) {
-        serverUrlInput.value = "wss://" + current.slice("https://".length);
-      } else if (current.startsWith("http://")) {
-        serverUrlInput.value = "ws://" + current.slice("http://".length);
-      }
-      serverUrlInput.placeholder = getDefaultServerUrlPlaceholder(false);
+      // Non-raw mode: bare domain only. The agent prepends wss:// itself.
+      serverUrlInput.value = stripServerUrlPrefix(current);
+    }
+    serverUrlInput.placeholder = getDefaultServerUrlPlaceholder(isRaw);
+    updateServerUrlHintMode();
+  });
+
+  // Live-strip protocol prefixes in non-raw mode so the field stays clean and
+  // the user sees their typo corrected immediately.
+  serverUrlInput.addEventListener("input", () => {
+    if (rawServerListCheckbox.checked) return;
+    const before = serverUrlInput.value;
+    const after = stripServerUrlPrefix(before);
+    if (after !== before) {
+      const caret = Math.max(0, (serverUrlInput.selectionStart ?? after.length) - (before.length - after.length));
+      serverUrlInput.value = after;
+      try { serverUrlInput.setSelectionRange(caret, caret); } catch {}
     }
   });
 }
@@ -1442,8 +1467,9 @@ form?.addEventListener("submit", async (e) => {
     return;
   }
 
-  const serverUrl = form.querySelector("#server-url").value.trim();
   const rawServerList = form.querySelector("#raw-server-list")?.checked || false;
+  const serverUrlRaw = form.querySelector("#server-url").value.trim();
+  const serverUrl = rawServerList ? serverUrlRaw : stripServerUrlPrefix(serverUrlRaw);
   const mutex = form.querySelector("#mutex")?.value.trim() || "";
   const disableMutex = form.querySelector('input[name="disable-mutex"]')?.checked || false;
   const stripDebug = form.querySelector('input[name="strip-debug"]').checked;

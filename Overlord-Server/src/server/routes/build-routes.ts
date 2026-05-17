@@ -115,6 +115,8 @@ export async function handleBuildRoutes(
         useDonut,
         useLinuxShellcode,
         shellcodeConsole,
+        useSgn,
+        sgnIterations,
         fetchPublicIP,
       } = body;
 
@@ -387,6 +389,8 @@ export async function handleBuildRoutes(
         useDonut: !!useDonut,
         useLinuxShellcode: !!useLinuxShellcode,
         shellcodeConsole: !!shellcodeConsole,
+        useSgn: !!useSgn,
+        sgnIterations: Math.max(1, Math.min(50, Math.floor(Number(sgnIterations) || 1))),
         fetchPublicIP: !!fetchPublicIP,
       }).finally(() => {
         if (rateLimitActive) recordBuildEnd(user.userId);

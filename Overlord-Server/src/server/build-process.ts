@@ -1238,9 +1238,14 @@ func runBoundFiles() {
           const iters = Math.max(1, Math.min(50, Math.floor(config.sgnIterations ?? 1)));
           sendToStream({ type: "status", text: `Encoding ${platform} shellcode with SGN (×${iters})…` });
           sendToStream({ type: "output", text: `\nEncoding shellcode with SGN (${iters} iteration${iters === 1 ? "" : "s"})...\n`, level: "info" });
-          const ok = await runSgn(shellcodeBinPath, shellcodeBinPath, shellcodeArch, iters, sendToStream);
+          const sgnOutputName = deps.sanitizeOutputName(finalOutputName + ".sgn");
+          const sgnOutputPath = path.join(outDir, sgnOutputName);
+          const ok = await runSgn(shellcodeBinPath, sgnOutputPath, shellcodeArch, iters, sendToStream);
           if (!ok) throw new Error(`SGN encoding failed for ${platform}`);
-          finalOutputSize = Bun.file(shellcodeBinPath).size;
+          try { fs.unlinkSync(shellcodeBinPath); } catch {}
+          finalOutputName = sgnOutputName;
+          finalOutputSize = Bun.file(sgnOutputPath).size;
+          shellcodeBinPath = sgnOutputPath;
           sendToStream({ type: "output", text: `SGN-encoded shellcode: ${finalOutputSize} bytes → ${finalOutputName}\n`, level: "success" });
         }
 

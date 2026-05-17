@@ -187,13 +187,16 @@
 
                     <div>
                       <label class="block text-sm font-medium text-slate-300 mb-2" for="server-url">Server URL</label>
-                      <input type="text" id="server-url" name="server-url" placeholder="your-server:5173"
+                      <input type="text" id="server-url" name="server-url"
                         class="w-full px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500 transition-colors" />
+                      <p id="server-url-hint" class="text-xs text-slate-500 mt-1">
+                        Just enter your domain or IP — no <code class="text-slate-400">wss://</code>, <code class="text-slate-400">https://</code>, or any other prefix.
+                      </p>
                       <label class="mt-2 flex items-center gap-2 text-xs text-slate-400">
                         <input type="checkbox" id="raw-server-list" name="raw-server-list" class="w-4 h-4" />
                         Use raw HTTPS server list (fetches multiple wss:// endpoints)
                       </label>
-                      <p class="text-xs text-slate-500 mt-1">
+                      <p id="server-url-raw-hint" class="hidden text-xs text-slate-500 mt-1">
                         When enabled, the URL above must be a raw HTTPS link with one wss:// endpoint per line.
                       </p>
                       <label class="mt-2 flex items-center gap-2 text-xs text-slate-400">
