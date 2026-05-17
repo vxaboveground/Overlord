@@ -90,3 +90,11 @@ func listProcesses() ([]wire.ProcessInfo, error) {
 func killProcess(pid int32) error {
 	return syscall.Kill(int(pid), syscall.SIGKILL)
 }
+
+func suspendProcess(pid int32) error {
+	return syscall.Kill(int(pid), syscall.SIGSTOP)
+}
+
+func resumeProcess(pid int32) error {
+	return syscall.Kill(int(pid), syscall.SIGCONT)
+}

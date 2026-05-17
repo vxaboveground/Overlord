@@ -51,3 +51,41 @@ func HandleProcessKill(ctx context.Context, env *runtime.Env, cmdID string, pid 
 	}
 	return wire.WriteMsg(ctx, env.Conn, result)
 }
+
+func HandleProcessSuspend(ctx context.Context, env *runtime.Env, cmdID string, pid int32) error {
+	log.Printf("process_suspend: %d", pid)
+
+	err := suspendProcess(pid)
+	ok := err == nil
+	errMsg := ""
+	if err != nil {
+		errMsg = err.Error()
+	}
+
+	result := wire.CommandResult{
+		Type:      "command_result",
+		CommandID: cmdID,
+		OK:        ok,
+		Message:   errMsg,
+	}
+	return wire.WriteMsg(ctx, env.Conn, result)
+}
+
+func HandleProcessResume(ctx context.Context, env *runtime.Env, cmdID string, pid int32) error {
+	log.Printf("process_resume: %d", pid)
+
+	err := resumeProcess(pid)
+	ok := err == nil
+	errMsg := ""
+	if err != nil {
+		errMsg = err.Error()
+	}
+
+	result := wire.CommandResult{
+		Type:      "command_result",
+		CommandID: cmdID,
+		OK:        ok,
+		Message:   errMsg,
+	}
+	return wire.WriteMsg(ctx, env.Conn, result)
+}

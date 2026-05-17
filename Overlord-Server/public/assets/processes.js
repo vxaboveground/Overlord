@@ -8,6 +8,7 @@ let processMap = new Map();
 let processTree = [];
 let collapsedPids = new Set();
 let selectedPid = null;
+let rowsByPid = new Map();
 let sortField = "cpu";
 let sortDirection = "desc";
 let searchTerm = "";
@@ -155,54 +156,54 @@ function buildProcessTree() {
     processMap.set(proc.pid, { ...proc, children: [] });
   });
 
+  const isShellParent = (proc) =>
+    proc && typeof proc.name === "string" && proc.name.toLowerCase() === "explorer.exe";
+
   const roots = [];
   processMap.forEach((proc) => {
-    if (proc.ppid && processMap.has(proc.ppid)) {
-      processMap.get(proc.ppid).children.push(proc);
+    const parent = proc.ppid ? processMap.get(proc.ppid) : null;
+    if (parent && proc.ppid !== proc.pid && !isShellParent(parent)) {
+      parent.children.push(proc);
     } else {
       roots.push(proc);
     }
   });
 
+  function computeAggregates(proc) {
+    let cpuTotal = proc.cpu || 0;
+    let memTotal = Number(proc.memory || 0);
+    for (const child of proc.children) {
+      const [childCpu, childMem] = computeAggregates(child);
+      cpuTotal += childCpu;
+      memTotal += childMem;
+    }
+    proc.aggregatedCpu = Math.min(cpuTotal, 100);
+    proc.aggregatedMemory = memTotal;
+    return [cpuTotal, memTotal];
+  }
+  roots.forEach(computeAggregates);
+
+  const sortValue = (proc) => {
+    if (sortField === "cpu") return proc.aggregatedCpu;
+    if (sortField === "memory") return proc.aggregatedMemory;
+    if (sortField === "name") return proc.name.toLowerCase();
+    return proc[sortField];
+  };
+  const cmp = (a, b) => {
+    const aVal = sortValue(a);
+    const bVal = sortValue(b);
+    if (sortDirection === "asc") return aVal > bVal ? 1 : -1;
+    return aVal < bVal ? 1 : -1;
+  };
+
   function sortChildren(proc) {
     if (proc.children.length > 0) {
-      proc.children.sort((a, b) => {
-        let aVal = a[sortField];
-        let bVal = b[sortField];
-
-        if (sortField === "name") {
-          aVal = aVal.toLowerCase();
-          bVal = bVal.toLowerCase();
-        }
-
-        if (sortDirection === "asc") {
-          return aVal > bVal ? 1 : -1;
-        } else {
-          return aVal < bVal ? 1 : -1;
-        }
-      });
-
-      proc.children.forEach((child) => sortChildren(child));
+      proc.children.sort(cmp);
+      proc.children.forEach(sortChildren);
     }
   }
-
-  roots.forEach((proc) => sortChildren(proc));
-
-  roots.sort((a, b) => {
-    let aVal = a[sortField];
-    let bVal = b[sortField];
-
-    if (sortField === "name") {
-      aVal = aVal.toLowerCase();
-      bVal = bVal.toLowerCase();
-    }
-
-    if (sortDirection === "asc") {
-      return aVal > bVal ? 1 : -1;
-    } else {
-      return aVal < bVal ? 1 : -1;
-    }
-  });
+  roots.forEach(sortChildren);
+  roots.sort(cmp);
 
   processTree = roots;
 }
@@ -236,45 +237,79 @@ function renderProcesses() {
   if (filtered.length === 0) {
     processListEl.innerHTML =
       '<div class="px-4 py-6 text-center text-slate-400"><i class="fa-solid fa-inbox mr-2"></i>No processes found</div>';
+    rowsByPid.clear();
     return;
   }
 
-  processListEl.innerHTML = "";
-  filtered.forEach((proc) => {
-    const row = createProcessRow(proc, proc.depth);
-    processListEl.appendChild(row);
+  for (const child of [...processListEl.children]) {
+    if (!child.classList.contains("process-row")) child.remove();
+  }
+
+  const seen = new Set();
+  filtered.forEach((proc, index) => {
+    seen.add(proc.pid);
+    let row = rowsByPid.get(proc.pid);
+    if (!row) {
+      row = createProcessRow(proc, proc.depth);
+      rowsByPid.set(proc.pid, row);
+    } else {
+      updateProcessRow(row, proc, proc.depth);
+    }
+    if (processListEl.children[index] !== row) {
+      processListEl.insertBefore(row, processListEl.children[index] || null);
+    }
   });
+
+  for (const [pid, row] of rowsByPid) {
+    if (!seen.has(pid)) {
+      row.remove();
+      rowsByPid.delete(pid);
+    }
+  }
 }
 
-function createProcessRow(proc, depth = 0) {
-  const row = document.createElement("div");
-  row.className =
+function rowClassName(proc) {
+  let cls =
     "process-row grid grid-cols-12 gap-3 px-4 py-3 border border-transparent cursor-pointer transition-colors";
-  row.dataset.pid = proc.pid;
+  if (selectedPid === proc.pid) cls += " selected";
+  if (proc.self) cls += " self-process";
+  return cls;
+}
 
-  if (selectedPid === proc.pid) {
-    row.classList.add("selected");
-  }
-  if (proc.self) {
-    row.classList.add("self-process");
-  }
-
+function rowInnerHtml(proc, depth) {
+  const displayCpu = proc.aggregatedCpu ?? proc.cpu;
+  const displayMemory = proc.aggregatedMemory ?? Number(proc.memory || 0);
   const cpuColor =
-    proc.cpu > 50
+    displayCpu > 50
       ? "text-red-400"
-      : proc.cpu > 20
-        ? "text-yellow-400"
-        : "text-slate-400";
-  const memoryStr = formatBytes(proc.memory);
+      : displayCpu > 25
+        ? "text-orange-400"
+        : displayCpu > 10
+          ? "text-yellow-400"
+          : displayCpu > 1
+            ? "text-slate-200"
+            : "text-slate-500";
+  const MB = 1024 * 1024;
+  const memColor =
+    displayMemory > 2048 * MB
+      ? "text-red-400"
+      : displayMemory > 1024 * MB
+        ? "text-orange-400"
+        : displayMemory > 256 * MB
+          ? "text-yellow-400"
+          : displayMemory > 32 * MB
+            ? "text-slate-200"
+            : "text-slate-500";
+  const memoryStr = formatBytes(displayMemory);
 
   const hasChildren = proc.children && proc.children.length > 0;
   const isCollapsed = collapsedPids.has(proc.pid);
-  const indent = "    ".repeat(depth);
+  const indent = '<span class="tree-indent-guide"></span>'.repeat(depth);
 
-  let treeIcon = "";
+  let treeIcon;
   if (hasChildren) {
-    treeIcon = `<span class="tree-icon" data-pid="${escapeHtml(String(proc.pid))}">${isCollapsed ? "▶" : "▼"}</span>`;
-  } else if (depth > 0) {
+    treeIcon = `<span class="tree-icon${isCollapsed ? " collapsed" : ""}" data-pid="${escapeHtml(String(proc.pid))}"><i class="fa-solid fa-chevron-down text-[10px]"></i></span>`;
+  } else {
     treeIcon = '<span class="tree-indent"></span>';
   }
 
@@ -301,28 +336,45 @@ function createProcessRow(proc, depth = 0) {
     ? ' <span class="ml-1 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-300 border border-yellow-500/40">agent</span>'
     : "";
 
-  row.innerHTML = `
+  return `
     <div class="col-span-1 text-sm font-mono text-slate-400">${proc.pid}</div>
     <div class="col-span-4 flex items-center gap-1 truncate">
       ${indent}${treeIcon}<i class="fa-solid ${iconClass} ${iconColor}"></i>
       <span class="truncate ${nameColor}">${escapeHtml(proc.name)}</span>${selfBadge}
     </div>
-    <div class="col-span-2 text-sm ${cpuColor} font-semibold">${proc.cpu.toFixed(1)}%</div>
-    <div class="col-span-2 text-sm text-slate-400">${memoryStr}</div>
+    <div class="col-span-2 text-sm ${cpuColor} font-semibold">${displayCpu.toFixed(1)}%</div>
+    <div class="col-span-2 text-sm ${memColor}">${memoryStr}</div>
     <div class="col-span-3 text-sm text-slate-500 truncate">${escapeHtml(proc.username || "-")}</div>
   `;
+}
+
+function updateProcessRow(row, proc, depth) {
+  const nextClass = rowClassName(proc);
+  if (row.className !== nextClass) row.className = nextClass;
+  row.innerHTML = rowInnerHtml(proc, depth);
+}
+
+function createProcessRow(proc, depth = 0) {
+  const row = document.createElement("div");
+  row.dataset.pid = proc.pid;
+  row.className = rowClassName(proc);
+  row.innerHTML = rowInnerHtml(proc, depth);
 
   row.onclick = (e) => {
-    if (e.target.classList.contains("tree-icon")) {
-      toggleCollapse(proc.pid);
+    const pid = Number(row.dataset.pid);
+    if (e.target.closest(".tree-icon")) {
+      toggleCollapse(pid);
       return;
     }
-    selectProcess(proc.pid);
+    selectProcess(pid);
   };
 
-  row.ondblclick = () => {
-    selectProcess(proc.pid);
-    killProcess();
+  row.oncontextmenu = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const pid = Number(row.dataset.pid);
+    selectProcess(pid);
+    showContextMenu(e.clientX, e.clientY, pid);
   };
 
   return row;
@@ -418,6 +470,130 @@ function escapeHtml(text) {
   const div = document.createElement("div");
   div.textContent = text;
   return div.innerHTML;
+}
+
+// Context menu
+let contextMenuEl = null;
+
+function createContextMenu() {
+  const menu = document.createElement("div");
+  menu.id = "process-context-menu";
+  menu.className = "fixed z-50 hidden min-w-[180px] bg-slate-800 border border-slate-700 rounded-lg shadow-xl shadow-black/40 py-1 text-sm";
+  menu.innerHTML = `
+    <button data-action="suspend" class="ctx-item w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-slate-700 text-slate-200">
+      <i class="fa-solid fa-pause w-4 text-center text-yellow-400"></i> Suspend Process
+    </button>
+    <button data-action="resume" class="ctx-item w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-slate-700 text-slate-200">
+      <i class="fa-solid fa-play w-4 text-center text-green-400"></i> Resume Process
+    </button>
+    <div class="border-t border-slate-700 my-1"></div>
+    <button data-action="kill" class="ctx-item w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-slate-700 text-slate-200">
+      <i class="fa-solid fa-skull-crossbones w-4 text-center text-red-400"></i> Kill Process
+    </button>
+    <button data-action="kill-tree" class="ctx-item w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-slate-700 text-slate-200">
+      <i class="fa-solid fa-diagram-project w-4 text-center text-red-400"></i> Kill Process Tree
+    </button>
+    <div class="border-t border-slate-700 my-1"></div>
+    <button data-action="copy-pid" class="ctx-item w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-slate-700 text-slate-200">
+      <i class="fa-solid fa-copy w-4 text-center text-blue-400"></i> Copy PID
+    </button>
+    <button data-action="copy-name" class="ctx-item w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-slate-700 text-slate-200">
+      <i class="fa-solid fa-tag w-4 text-center text-blue-400"></i> Copy Name
+    </button>
+    <div class="border-t border-slate-700 my-1"></div>
+    <button data-action="refresh" class="ctx-item w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-slate-700 text-slate-200">
+      <i class="fa-solid fa-refresh w-4 text-center text-slate-400"></i> Refresh List
+    </button>
+  `;
+  document.body.appendChild(menu);
+  return menu;
+}
+
+function showContextMenu(x, y, pid) {
+  if (!contextMenuEl) contextMenuEl = createContextMenu();
+  contextMenuEl.dataset.pid = pid;
+  contextMenuEl.classList.remove("hidden");
+
+  const rect = contextMenuEl.getBoundingClientRect();
+  const menuW = rect.width || 180;
+  const menuH = rect.height || 300;
+  const posX = x + menuW > window.innerWidth ? window.innerWidth - menuW - 8 : x;
+  const posY = y + menuH > window.innerHeight ? window.innerHeight - menuH - 8 : y;
+
+  contextMenuEl.style.left = posX + "px";
+  contextMenuEl.style.top = posY + "px";
+}
+
+function hideContextMenu() {
+  if (contextMenuEl) contextMenuEl.classList.add("hidden");
+}
+
+document.addEventListener("click", hideContextMenu);
+document.addEventListener("contextmenu", (e) => {
+  if (!e.target.closest(".process-row") && !e.target.closest("#process-context-menu")) {
+    hideContextMenu();
+  }
+});
+
+document.addEventListener("click", (e) => {
+  const item = e.target.closest(".ctx-item");
+  if (!item || !contextMenuEl) return;
+  const action = item.dataset.action;
+  const pid = Number(contextMenuEl.dataset.pid);
+  const proc = processes.find((p) => p.pid === pid);
+  hideContextMenu();
+
+  switch (action) {
+    case "suspend":
+      if (!proc) break;
+      if (!confirm(`Suspend process "${proc.name}" (PID: ${pid})?`)) break;
+      send({ type: "process_suspend", pid });
+      updateStatus("connected", "Suspending process...");
+      break;
+    case "resume":
+      if (!proc) break;
+      send({ type: "process_resume", pid });
+      updateStatus("connected", "Resuming process...");
+      break;
+    case "kill":
+      if (!proc) break;
+      if (!confirm(`Kill process "${proc.name}" (PID: ${pid})?`)) break;
+      send({ type: "process_kill", pid });
+      updateStatus("connected", "Killing process...");
+      break;
+    case "kill-tree":
+      if (!proc) break;
+      if (!confirm(`Kill process "${proc.name}" (PID: ${pid}) and all child processes?`)) break;
+      killProcessTree(pid);
+      break;
+    case "copy-pid":
+      navigator.clipboard.writeText(String(pid));
+      break;
+    case "copy-name":
+      if (proc) navigator.clipboard.writeText(proc.name);
+      break;
+    case "refresh":
+      requestProcessList();
+      break;
+  }
+});
+
+function killProcessTree(pid) {
+  const toKill = [];
+  function collectChildren(parentPid) {
+    for (const proc of processes) {
+      if (proc.ppid === parentPid && proc.pid !== parentPid) {
+        collectChildren(proc.pid);
+        toKill.push(proc.pid);
+      }
+    }
+  }
+  collectChildren(pid);
+  toKill.push(pid);
+  for (const p of toKill) {
+    send({ type: "process_kill", pid: p });
+  }
+  updateStatus("connected", `Killing ${toKill.length} processes...`);
 }
 
 refreshBtn.onclick = () => requestProcessList();

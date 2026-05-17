@@ -50,20 +50,50 @@
       #process-list::-webkit-scrollbar-thumb:hover {
         background: #64748b;
       }
+      .tree-indent-guide {
+        display: inline-block;
+        position: relative;
+        width: 16px;
+        align-self: stretch;
+        flex-shrink: 0;
+      }
+      .tree-indent-guide::before {
+        content: "";
+        position: absolute;
+        left: 7px;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background: rgba(100, 116, 139, 0.25);
+      }
       .tree-indent {
         display: inline-block;
-        width: 20px;
+        width: 16px;
+        flex-shrink: 0;
       }
       .tree-icon {
-        display: inline-block;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         width: 16px;
-        text-align: center;
+        height: 16px;
         margin-right: 4px;
+        color: #64748b;
         cursor: pointer;
         user-select: none;
+        border-radius: 3px;
+        transition:
+          color 120ms ease,
+          background-color 120ms ease,
+          transform 150ms ease;
+        flex-shrink: 0;
       }
       .tree-icon:hover {
-        color: #60a5fa;
+        color: #93c5fd;
+        background-color: rgba(96, 165, 250, 0.12);
+      }
+      .tree-icon.collapsed {
+        transform: rotate(-90deg);
       }
       .process-row.collapsed > .children {
         display: none;

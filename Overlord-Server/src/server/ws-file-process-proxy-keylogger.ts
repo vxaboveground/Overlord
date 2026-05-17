@@ -360,6 +360,26 @@ export function handleProcessViewerMessage(ws: ServerWebSocket<SocketData>, raw:
       metrics.recordCommand("process_kill");
       break;
     }
+    case "process_suspend": {
+      const pid = Number(payload.pid);
+      if (!Number.isFinite(pid) || pid <= 0) {
+        safeSendViewer(ws, { type: "command_result", commandId, ok: false, message: "Invalid PID" });
+        break;
+      }
+      target.ws.send(encodeMessage({ type: "command", commandType: "process_suspend", id: commandId, payload: { pid } } as any));
+      metrics.recordCommand("process_suspend");
+      break;
+    }
+    case "process_resume": {
+      const pid = Number(payload.pid);
+      if (!Number.isFinite(pid) || pid <= 0) {
+        safeSendViewer(ws, { type: "command_result", commandId, ok: false, message: "Invalid PID" });
+        break;
+      }
+      target.ws.send(encodeMessage({ type: "command", commandType: "process_resume", id: commandId, payload: { pid } } as any));
+      metrics.recordCommand("process_resume");
+      break;
+    }
     default:
       break;
   }
