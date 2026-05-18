@@ -1606,6 +1606,59 @@ function initBuildRateLimitHandlers() {
   if (brlForm) brlForm.addEventListener("submit", saveBuildRateLimitSettings);
 }
 
+// ── Thumbnail Settings ────────────────────────────────────────────────────
+
+async function loadThumbnailSettings() {
+  try {
+    const res = await fetch("/api/settings/thumbnails", { credentials: "include" });
+    if (!res.ok) return;
+    const data = await res.json();
+    const t = data.thumbnails || {};
+    const dashEl = document.getElementById("thumb-dashboard-enabled");
+    const wallEl = document.getElementById("thumb-wall-enabled");
+    if (dashEl) dashEl.checked = t.dashboardEnabled !== false;
+    if (wallEl) wallEl.checked = t.wallEnabled !== false;
+  } catch (e) {
+    console.error("Failed to load thumbnail settings", e);
+  }
+}
+
+function showThumbnailsMsg(text, type) {
+  const el = document.getElementById("thumbnails-msg");
+  if (!el) return;
+  el.textContent = text;
+  el.className = `text-sm rounded-lg px-3 py-2 border ${type === "error" ? "border-rose-800 bg-rose-900/20 text-rose-200" : "border-emerald-800 bg-emerald-900/20 text-emerald-200"}`;
+  el.classList.remove("hidden");
+  setTimeout(() => el.classList.add("hidden"), 5000);
+}
+
+async function saveThumbnailSettings(e) {
+  e.preventDefault();
+  const dashboardEnabled = !!document.getElementById("thumb-dashboard-enabled")?.checked;
+  const wallEnabled = !!document.getElementById("thumb-wall-enabled")?.checked;
+  try {
+    const res = await fetch("/api/settings/thumbnails", {
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dashboardEnabled, wallEnabled }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      showThumbnailsMsg(data.error || "Failed to save", "error");
+      return;
+    }
+    showThumbnailsMsg("Thumbnail settings saved.", "success");
+  } catch {
+    showThumbnailsMsg("Network error.", "error");
+  }
+}
+
+function initThumbnailHandlers() {
+  const form = document.getElementById("thumbnails-form");
+  if (form) form.addEventListener("submit", saveThumbnailSettings);
+}
+
 async function init() {
   try {
     await loadCurrentUser();
@@ -1634,16 +1687,20 @@ async function init() {
     await loadChatSettings();
     await loadBannedIps();
 
-    // Registration + Build Rate Limit (admin only)
+    // Registration + Build Rate Limit + Thumbnails (admin only)
     if (isAdmin(currentUser?.role)) {
       const regSection = document.getElementById("registration-section");
       const brlSection = document.getElementById("build-rate-limit-section");
+      const thumbSection = document.getElementById("thumbnails-section");
       if (regSection) regSection.classList.remove("hidden");
       if (brlSection) brlSection.classList.remove("hidden");
+      if (thumbSection) thumbSection.classList.remove("hidden");
       await loadRegistrationSettings();
       await loadBuildRateLimitSettings();
+      await loadThumbnailSettings();
       initRegistrationHandlers();
       initBuildRateLimitHandlers();
+      initThumbnailHandlers();
     }
 
     passwordForm.addEventListener("submit", updatePassword);

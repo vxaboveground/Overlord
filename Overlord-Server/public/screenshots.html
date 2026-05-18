@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="/assets/nav-prelude.js"></script>
+    <link rel="modulepreload" href="/assets/nav.js" />
+    <title>Screenshot Wall - Overlord</title>
+    <link rel="stylesheet" href="/vendor/inter/400.css" />
+    <link rel="stylesheet" href="/vendor/inter/600.css" />
+    <link rel="stylesheet" href="/vendor/inter/700.css" />
+    <link rel="stylesheet" href="/assets/tailwind.css" />
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
+    <link rel="stylesheet" href="/vendor/flag-icons/css/flag-icons.min.css" />
+    <link rel="icon" type="image/x-icon" href="/assets/favicon.ico" />
+    <link rel="stylesheet" href="/assets/main.css" />
+    <link rel="stylesheet" href="/assets/custom.css" />
+    <style>
+      .wall-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(var(--wall-tile-w, 320px), 1fr));
+        gap: 14px;
+      }
+      .wall-tile {
+        position: relative;
+        background: rgb(15 23 42 / 0.7);
+        border: 1px solid rgb(51 65 85 / 0.6);
+        border-radius: 12px;
+        overflow: hidden;
+        aspect-ratio: 16 / 9;
+        cursor: pointer;
+        transition: transform .12s ease, border-color .12s ease, box-shadow .12s ease;
+      }
+      .wall-tile:hover {
+        transform: translateY(-2px);
+        border-color: rgb(56 189 248 / 0.6);
+        box-shadow: 0 10px 30px -10px rgb(56 189 248 / 0.35);
+      }
+      .wall-tile.is-offline {
+        opacity: 0.55;
+        cursor: default;
+      }
+      .wall-tile.is-offline:hover {
+        transform: none;
+        border-color: rgb(51 65 85 / 0.6);
+        box-shadow: none;
+      }
+      .wall-img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        background:
+          linear-gradient(135deg, rgb(30 41 59) 0%, rgb(15 23 42) 100%);
+      }
+      .wall-empty {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: rgb(100 116 139);
+        gap: 8px;
+        font-size: 13px;
+      }
+      .wall-empty i { font-size: 32px; opacity: 0.5; }
+      .wall-overlay-top {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        padding: 8px 10px;
+        background: linear-gradient(to bottom, rgb(0 0 0 / 0.7), transparent);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        pointer-events: none;
+      }
+      .wall-overlay-bottom {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        padding: 8px 10px;
+        background: linear-gradient(to top, rgb(0 0 0 / 0.78), transparent);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        pointer-events: none;
+        font-size: 12px;
+      }
+      .wall-host {
+        color: rgb(226 232 240);
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+      }
+      .wall-user {
+        color: rgb(148 163 184);
+      }
+      .wall-os {
+        color: rgb(148 163 184);
+        font-size: 11px;
+      }
+      .wall-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      .wall-dot.on { background: rgb(34 197 94); box-shadow: 0 0 8px rgb(34 197 94 / 0.6); }
+      .wall-dot.off { background: rgb(100 116 139); }
+      .wall-age {
+        color: rgb(148 163 184);
+        font-variant-numeric: tabular-nums;
+      }
+      .wall-age.fresh { color: rgb(74 222 128); }
+      .wall-age.stale { color: rgb(251 191 36); }
+      .wall-loading {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: rgb(56 189 248);
+        opacity: 0;
+        transition: opacity .15s ease;
+      }
+      .wall-tile.is-loading .wall-loading { opacity: 1; animation: wallPulse 1s ease-in-out infinite; }
+      @keyframes wallPulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.35; }
+      }
+      .wall-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+      .wall-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: rgb(30 41 59 / 0.7);
+        border: 1px solid rgb(51 65 85 / 0.6);
+        border-radius: 999px;
+        padding: 6px 12px;
+        color: rgb(203 213 225);
+        font-size: 13px;
+      }
+      .wall-pill select,
+      .wall-pill input[type="search"] {
+        background: transparent;
+        border: none;
+        color: rgb(226 232 240);
+        outline: none;
+        font-size: 13px;
+        min-width: 0;
+      }
+      .wall-pill input[type="search"]::placeholder { color: rgb(100 116 139); }
+      .wall-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+        user-select: none;
+      }
+    </style>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <header id="top-nav"></header>
+    <main class="px-5 py-6">
+      <div class="flex flex-col gap-5">
+        <div class="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h1 class="text-2xl font-semibold">Screenshot Wall</h1>
+            <p class="text-slate-400 text-sm">Live thumbnails across every online agent — click a tile to open remote desktop.</p>
+          </div>
+          <div class="wall-controls">
+            <label class="wall-pill">
+              <i class="fa-solid fa-magnifying-glass text-slate-500"></i>
+              <input id="wall-search" type="search" placeholder="Filter host / user / id" />
+            </label>
+            <label class="wall-pill">
+              <span class="text-slate-400">Refresh</span>
+              <select id="wall-interval">
+                <option value="2000">2s</option>
+                <option value="3000" selected>3s</option>
+                <option value="5000">5s</option>
+                <option value="10000">10s</option>
+                <option value="0">Manual</option>
+              </select>
+            </label>
+            <label class="wall-pill">
+              <span class="text-slate-400">Tile size</span>
+              <select id="wall-size">
+                <option value="220">Small</option>
+                <option value="320" selected>Medium</option>
+                <option value="440">Large</option>
+                <option value="600">XL</option>
+              </select>
+            </label>
+            <label class="wall-pill wall-toggle">
+              <input id="wall-show-offline" type="checkbox" class="accent-sky-400" />
+              <span>Show offline</span>
+            </label>
+            <button id="wall-refresh-now" class="wall-pill hover:bg-slate-700/70 transition-colors" title="Refresh all tiles now">
+              <i class="fa-solid fa-rotate"></i><span>Refresh</span>
+            </button>
+            <span class="wall-pill" id="wall-stats">0 online</span>
+          </div>
+        </div>
+        <div id="wall-grid" class="wall-grid"></div>
+        <div id="wall-empty" class="hidden text-center text-slate-500 py-16">
+          <i class="fa-solid fa-display text-4xl mb-3 opacity-40"></i>
+          <p>No matching agents.</p>
+        </div>
+      </div>
+    </main>
+    <script type="module" src="/assets/nav.js"></script>
+    <script defer src="/assets/toast.js"></script>
+    <script defer src="/assets/ripple.js"></script>
+    <script type="module" src="/assets/screenshots.js"></script>
+  </body>
+</html>

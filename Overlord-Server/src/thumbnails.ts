@@ -21,17 +21,50 @@ const MAX_THUMBNAIL_SOURCE_BYTES = Math.max(
   256 * 1024,
   Number(process.env.OVERLORD_THUMBNAIL_MAX_SOURCE_BYTES || 16 * 1024 * 1024),
 );
+const THUMBNAIL_CACHE_MAX = Math.max(
+  64,
+  Number(process.env.OVERLORD_THUMBNAIL_CACHE_MAX || 2000),
+);
 
-const thumbnails = new Map<string, string>();
+type ThumbnailRecord = {
+  bytes: Uint8Array;
+  contentType: string;
+  version: number;
+  updatedAt: number;
+};
+
+const thumbnails = new Map<string, ThumbnailRecord>();
 const latestFrames = new Map<string, { bytes: Uint8Array; format: string; capturedAt: number }>();
 const thumbnailRequests = new Map<string, number>();
 
-export function setThumbnail(id: string, dataUrl: string) {
-  thumbnails.set(id, dataUrl);
+function touchThumbnailLRU(id: string) {
+  const existing = thumbnails.get(id);
+  if (!existing) return;
+  thumbnails.delete(id);
+  thumbnails.set(id, existing);
 }
 
-export function getThumbnail(id: string) {
-  return thumbnails.get(id) ?? null;
+function evictThumbnailsIfFull() {
+  while (thumbnails.size > THUMBNAIL_CACHE_MAX) {
+    const oldestKey = thumbnails.keys().next().value;
+    if (oldestKey === undefined) break;
+    thumbnails.delete(oldestKey);
+  }
+}
+
+export function hasThumbnail(id: string): boolean {
+  return thumbnails.has(id);
+}
+
+export function getThumbnailRecord(id: string): ThumbnailRecord | null {
+  const rec = thumbnails.get(id);
+  if (!rec) return null;
+  touchThumbnailLRU(id);
+  return rec;
+}
+
+export function getThumbnailVersion(id: string): number {
+  return thumbnails.get(id)?.version ?? 0;
 }
 
 export function clearThumbnail(id: string) {
@@ -48,7 +81,7 @@ export function setLatestFrame(id: string, bytes: Uint8Array, format: string) {
   latestFrames.set(id, { bytes, format, capturedAt: Date.now() });
 }
 
-async function buildThumbnailDataUrl(bytes: Uint8Array, format: string): Promise<string | null> {
+async function buildThumbnailBytes(bytes: Uint8Array, format: string): Promise<Uint8Array | null> {
   if (!bytes || bytes.byteLength === 0) {
     return null;
   }
@@ -71,7 +104,7 @@ async function buildThumbnailDataUrl(bytes: Uint8Array, format: string): Promise
     .webp({ quality: THUMBNAIL_QUALITY })
     .toBuffer();
 
-  return `data:image/webp;base64,${output.toString("base64")}`;
+  return new Uint8Array(output);
 }
 
 export async function generateThumbnail(id: string): Promise<boolean> {
@@ -81,11 +114,20 @@ export async function generateThumbnail(id: string): Promise<boolean> {
   }
 
   try {
-    const dataUrl = await buildThumbnailDataUrl(frameData.bytes, frameData.format);
-    if (!dataUrl) {
+    const out = await buildThumbnailBytes(frameData.bytes, frameData.format);
+    if (!out) {
       return false;
     }
-    thumbnails.set(id, dataUrl);
+    const prior = thumbnails.get(id);
+    const now = Date.now();
+    if (prior) thumbnails.delete(id);
+    thumbnails.set(id, {
+      bytes: out,
+      contentType: "image/webp",
+      version: (prior?.version ?? 0) + 1,
+      updatedAt: now,
+    });
+    evictThumbnailsIfFull();
     latestFrames.delete(id);
     return true;
   } catch (err) {

@@ -91,6 +91,7 @@
 
             <span class="settings-nav-group-label" data-admin-only>Admin</span>
             <a data-target="section-security"         class="settings-nav-link" data-admin-only style="--accent: 129 140 248"><i class="fa-solid fa-shield-halved w-4 text-indigo-400"></i><span>Security Policy</span></a>
+            <a data-target="thumbnails-section"       class="settings-nav-link" data-admin-only style="--accent: 56 189 248"><i class="fa-solid fa-images w-4 text-sky-400"></i><span>Screenshot Thumbnails</span></a>
             <a data-target="section-tls"              class="settings-nav-link" data-admin-only style="--accent: 34 211 238"><i class="fa-solid fa-certificate w-4 text-cyan-400"></i><span>TLS Certificates</span></a>
             <a data-target="chat-settings-section"    class="settings-nav-link" data-admin-only style="--accent: 56 189 248"><i class="fa-solid fa-comments w-4 text-sky-400"></i><span>Team Chat</span></a>
             <a data-target="registration-section"     class="settings-nav-link" data-admin-only style="--accent: 52 211 153"><i class="fa-solid fa-user-plus w-4 text-emerald-400"></i><span>Registration</span></a>
@@ -819,6 +820,46 @@
           </div>
           <p id="reg-pending-empty" class="text-sm text-slate-500">No pending registrations.</p>
         </div>
+      </section>
+
+      <!-- Screenshot Thumbnails (admin only) -->
+      <section id="thumbnails-section" class="hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 settings-section">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-sky-500/10 border border-sky-500/30">
+            <i class="fa-solid fa-images text-sky-400"></i>
+          </div>
+          <div>
+            <h2 class="text-lg font-semibold">Screenshot Thumbnails</h2>
+            <p class="text-sm text-slate-400">Admin-only. Control automatic agent screenshot polling.</p>
+          </div>
+        </div>
+
+        <div class="text-xs text-slate-400 bg-slate-800/40 border border-slate-700/60 rounded-lg p-3">
+          <p>Each visible card or tile triggers one screenshot request to its agent on a refresh interval. With many concurrent users or thousands of agents, this can add up. Turn either off to reduce load — manual screenshot commands still work either way.</p>
+        </div>
+
+        <form id="thumbnails-form" class="space-y-4">
+          <label class="flex items-start gap-3 p-3 rounded-lg border border-slate-700/60 bg-slate-900/40 hover:bg-slate-900/70 cursor-pointer transition-colors">
+            <input id="thumb-dashboard-enabled" type="checkbox" class="mt-1 h-4 w-4 accent-sky-500" />
+            <div>
+              <div class="text-sm font-medium text-slate-100">Dashboard live thumbnails</div>
+              <div class="text-xs text-slate-400">Auto-refresh the thumbnail on each visible client card on the Clients dashboard (~15s per visible tile).</div>
+            </div>
+          </label>
+
+          <label class="flex items-start gap-3 p-3 rounded-lg border border-slate-700/60 bg-slate-900/40 hover:bg-slate-900/70 cursor-pointer transition-colors">
+            <input id="thumb-wall-enabled" type="checkbox" class="mt-1 h-4 w-4 accent-sky-500" />
+            <div>
+              <div class="text-sm font-medium text-slate-100">Screenshot Wall page</div>
+              <div class="text-xs text-slate-400">Enable the <code class="text-sky-300">/screenshots</code> page. When off, the page returns 403 and the nav link is hidden.</div>
+            </div>
+          </label>
+
+          <button type="submit" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-700 hover:bg-sky-600 transition-colors text-white text-sm font-medium">
+            <i class="fa-solid fa-floppy-disk"></i>Save
+          </button>
+        </form>
+        <p id="thumbnails-msg" class="hidden text-sm rounded-lg px-3 py-2 border"></p>
       </section>
 
       <!-- Build Rate Limit (admin only) -->

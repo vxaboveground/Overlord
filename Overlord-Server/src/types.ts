@@ -71,7 +71,8 @@ export type ListFilters = {
 
 export type ListItem = Omit<ClientInfo, 'ws'> & {
   online: boolean;
-  thumbnail: string | null;
+  hasThumbnail: boolean;
+  thumbnailVersion: number;
 };
 
 export type ListResult = {

@@ -1,4 +1,5 @@
 import { authenticateRequest } from "../../auth";
+import { getConfig } from "../../config";
 import { requirePermission, type Permission } from "../../rbac";
 import { canUserAccessClient, getUserById, type UserRole } from "../../users";
 
@@ -65,6 +66,7 @@ type QueryClientPageDef = {
 /** Static pages: each entry maps a URL path to its HTML file + access rules. */
 const STATIC_PAGES: StaticPageDef[] = [
   { path: "/metrics",            file: "metrics.html",             access: "any",              checkPasswordChange: true },
+  { path: "/screenshots",        file: "screenshots.html",         access: "no-viewer",        checkPasswordChange: true },
   { path: "/settings",           file: "settings.html",            access: "any",              checkPasswordChange: true },
   { path: "/logs",               file: "logs.html",                access: "any",              checkPasswordChange: true, permission: "audit:view" },
   { path: "/notifications",      file: "notifications.html",       access: "admin-or-operator", checkPasswordChange: true },
@@ -161,6 +163,10 @@ export async function handlePageRoutes(
 
     const user = await authenticateRequest(req);
     if (!user) return serveLoginOrUnauthorized(deps);
+
+    if (page.path === "/screenshots" && !getConfig().thumbnails.wallEnabled) {
+      return new Response("Screenshot wall is disabled by the administrator", { status: 403 });
+    }
 
     if (page.checkPasswordChange) {
       const maybeChange = await serveChangePasswordIfRequired(deps, user.userId);

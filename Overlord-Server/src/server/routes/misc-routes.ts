@@ -1,7 +1,7 @@
 import { authenticateRequest } from "../../auth";
 import { AuditAction, getAuditLogs, logAudit } from "../../auditLog";
 import { logger } from "../../logger";
-import { getConfig, updateSecurityConfig, updateTlsConfig, updateAppearanceConfig, updateChatConfig, getExportableConfig, importFullConfig, updateRegistrationConfig, updateBuildRateLimitConfig } from "../../config";
+import { getConfig, updateSecurityConfig, updateTlsConfig, updateAppearanceConfig, updateChatConfig, getExportableConfig, importFullConfig, updateRegistrationConfig, updateBuildRateLimitConfig, updateThumbnailsConfig } from "../../config";
 import { getClientMetricsSummary, getClientMetricsSummaryForUser } from "../../db";
 import { metrics } from "../../metrics";
 import { requirePermission } from "../../rbac";
@@ -690,6 +690,41 @@ export async function handleMiscRoutes(
       });
 
       return Response.json({ ok: true, buildRateLimit: updated }, { headers: deps.CORS_HEADERS });
+    }
+  }
+
+  // ── Thumbnail toggles (GET: any user, PUT: admin only) ─────────────
+  if (url.pathname === "/api/settings/thumbnails") {
+    const user = await authenticateRequest(req);
+    if (!user) return new Response("Unauthorized", { status: 401 });
+
+    if (req.method === "GET") {
+      return Response.json({ thumbnails: getConfig().thumbnails }, { headers: deps.CORS_HEADERS });
+    }
+
+    if (req.method === "PUT") {
+      if (user.role !== "admin") return new Response("Forbidden: Admin access required", { status: 403 });
+
+      let body: any = {};
+      try { body = await req.json(); } catch {
+        return Response.json({ error: "Invalid JSON" }, { status: 400 });
+      }
+
+      const updated = await updateThumbnailsConfig({
+        dashboardEnabled: body?.dashboardEnabled !== undefined ? Boolean(body.dashboardEnabled) : undefined,
+        wallEnabled: body?.wallEnabled !== undefined ? Boolean(body.wallEnabled) : undefined,
+      });
+
+      logAudit({
+        timestamp: Date.now(),
+        username: user.username,
+        ip: deps.requestIP?.(req)?.address || "unknown",
+        action: AuditAction.COMMAND,
+        details: `Updated thumbnail settings (dashboard=${updated.dashboardEnabled}, wall=${updated.wallEnabled})`,
+        success: true,
+      });
+
+      return Response.json({ ok: true, thumbnails: updated }, { headers: deps.CORS_HEADERS });
     }
   }
 

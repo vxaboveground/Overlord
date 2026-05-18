@@ -71,10 +71,32 @@ function fauxDesktopHtml(client, opts = {}) {
 }
 
 function thumbHtml(client, { width, height, small = false } = {}) {
-  if (client.thumbnail) {
-    return `<img class="thumb-img cv-thumb-img" alt="preview" src="${escapeHtml(client.thumbnail)}" style="width:${width}px;height:${height}px;${client.online ? "" : "opacity:0.35"}">`;
-  }
-  return `<div class="cv-thumb" style="width:${width}px;height:${height}px;${client.online ? "" : "opacity:0.35"}">${fauxDesktopHtml(client, { small })}</div>`;
+  const hasThumb = !!client.hasThumbnail;
+  const version = Number(client.thumbnailVersion) || 0;
+  const opacityStyle = client.online ? "" : "opacity:0.35";
+  const idAttr = escapeHtml(client.id);
+  const initialSrc = hasThumb
+    ? `/api/clients/${encodeURIComponent(client.id)}/thumbnail${version ? `?v=${version}` : ""}`
+    : "";
+  const initialDisplay = hasThumb ? "display:block" : "display:none";
+  return `
+    <div class="cv-thumb cv-thumb-host"
+         data-thumb-host
+         data-thumb-client="${idAttr}"
+         data-thumb-version="${version}"
+         data-thumb-online="${client.online ? "1" : "0"}"
+         style="width:${width}px;height:${height}px;${opacityStyle}">
+      ${fauxDesktopHtml(client, { small })}
+      <img class="thumb-img cv-thumb-img cv-thumb-overlay"
+           data-thumb-img
+           alt=""
+           loading="lazy"
+           decoding="async"
+           ${initialSrc ? `src="${initialSrc}" data-thumb-url="${initialSrc}"` : ""}
+           style="${initialDisplay}"
+           onload="this.style.display='block'"
+           onerror="this.style.display='none';this.removeAttribute('src');this.removeAttribute('data-thumb-url')">
+    </div>`;
 }
 
 function statusDot(client) {
@@ -408,7 +430,7 @@ export function createRenderer({
   }
 
   function cardDigest(c) {
-    return `${currentLayout}|${c.id}|${!!c.online}|${c.lastSeen}|${c.pingMs}|${c.host}|${c.user}|${c.os}|${c.arch}|${c.version}|${c.monitors}|${c.thumbnail}|${c.country}|${c.nickname}|${c.customTag}|${c.customTagNote}|${!!c.bookmarked}|${!!c.isAdmin}|${c.elevation}|${c.cpu}|${c.gpu}|${c.ram}|${c.hwid}|${c.disconnectReason}|${c.disconnectDetail}|${c.groupId}|${c.groupName}|${c.groupColor}|${!!c.notificationsMuted}`;
+    return `${currentLayout}|${c.id}|${!!c.online}|${c.lastSeen}|${c.pingMs}|${c.host}|${c.user}|${c.os}|${c.arch}|${c.version}|${c.monitors}|${c.country}|${c.nickname}|${c.customTag}|${c.customTagNote}|${!!c.bookmarked}|${!!c.isAdmin}|${c.elevation}|${c.cpu}|${c.gpu}|${c.ram}|${c.hwid}|${c.disconnectReason}|${c.disconnectDetail}|${c.groupId}|${c.groupName}|${c.groupColor}|${!!c.notificationsMuted}`;
   }
 
   function renderMerge(data, options = {}) {

@@ -8,7 +8,7 @@ import {
 
 import { mountNav } from "./nav/template.js";
 import { createAdaptiveNavController } from "./nav/layout.js";
-import { applyUserRoleUI } from "./nav/role-ui.js";
+import { applyUserRoleUI, applyThumbnailWallVisibility } from "./nav/role-ui.js";
 import { loadPluginNavItems } from "./nav/plugins-loader.js";
 import { init as initCommandPalette } from "./command-palette.js";
 
@@ -29,6 +29,7 @@ if (host) {
   const activeMap = {
     "/": "nav-clients",
     "/metrics": "metrics-link",
+    "/screenshots": "screenshots-link",
     "/logs": "logs-link",
     "/scripts": "scripts-link",
     "/socks5-manager": "socks5-link",
@@ -134,6 +135,7 @@ if (host) {
       }
       const user = await res.json();
       applyUserRoleUI(user, refs);
+      applyThumbnailWallVisibility(user);
 
       if (user.role === "admin" || user.role === "operator") {
         try {

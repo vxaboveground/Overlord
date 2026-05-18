@@ -75,3 +75,14 @@ export function applyUserRoleUI(user, refs) {
     unhide("file-share-link");
   }
 }
+
+export async function applyThumbnailWallVisibility(user) {
+  if (!user || user.role === "viewer") return;
+  try {
+    const res = await fetch("/api/settings/thumbnails", { credentials: "include" });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data?.thumbnails?.wallEnabled === false) return;
+    document.querySelectorAll("#screenshots-link").forEach((el) => el.classList.remove("hidden"));
+  } catch {}
+}

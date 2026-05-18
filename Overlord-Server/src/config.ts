@@ -81,6 +81,10 @@ export interface Config {
   buildSigning: {
     banlist: string[];
   };
+  thumbnails: {
+    dashboardEnabled: boolean;
+    wallEnabled: boolean;
+  };
 }
 
 const DEFAULT_CONFIG: Config = {
@@ -159,6 +163,10 @@ const DEFAULT_CONFIG: Config = {
   },
   buildSigning: {
     banlist: [],
+  },
+  thumbnails: {
+    dashboardEnabled: true,
+    wallEnabled: true,
   },
 };
 
@@ -558,6 +566,16 @@ export function loadConfig(): Config {
         ? fileConfig.buildSigning.banlist.filter((v: unknown): v is string => typeof v === "string" && v.length > 0)
         : [...DEFAULT_CONFIG.buildSigning.banlist],
     },
+    thumbnails: {
+      dashboardEnabled:
+        fileConfig.thumbnails?.dashboardEnabled !== undefined
+          ? Boolean(fileConfig.thumbnails.dashboardEnabled)
+          : DEFAULT_CONFIG.thumbnails.dashboardEnabled,
+      wallEnabled:
+        fileConfig.thumbnails?.wallEnabled !== undefined
+          ? Boolean(fileConfig.thumbnails.wallEnabled)
+          : DEFAULT_CONFIG.thumbnails.wallEnabled,
+    },
   };
 
   if (saveChanged) {
@@ -858,6 +876,33 @@ export async function updateBuildRateLimitConfig(
   return next;
 }
 
+export async function updateThumbnailsConfig(
+  updates: Partial<Config["thumbnails"]>,
+): Promise<Config["thumbnails"]> {
+  const current = getConfig();
+
+  const next: Config["thumbnails"] = {
+    dashboardEnabled:
+      updates.dashboardEnabled !== undefined
+        ? Boolean(updates.dashboardEnabled)
+        : current.thumbnails.dashboardEnabled,
+    wallEnabled:
+      updates.wallEnabled !== undefined
+        ? Boolean(updates.wallEnabled)
+        : current.thumbnails.wallEnabled,
+  };
+
+  configCache = {
+    ...current,
+    thumbnails: next,
+  };
+
+  const fileConfig = readFileConfigForUpdate();
+  fileConfig.thumbnails = next;
+  await writePersistentFileConfig(fileConfig);
+  return next;
+}
+
 export function getBuildSigningSecrets(): BuildSigningSecrets | null {
   const dataDir = ensureDataDir();
   const savePath = resolve(dataDir, "save.json");
@@ -926,6 +971,7 @@ export function getExportableConfig(serverVersion: string): Record<string, unkno
       publicKey: buildSigningSecrets?.publicKey || "",
       banlist: config.buildSigning.banlist,
     },
+    thumbnails: config.thumbnails,
   };
 }
 
@@ -997,6 +1043,11 @@ export async function importFullConfig(data: Record<string, any>): Promise<{ app
   if (data.buildRateLimit && typeof data.buildRateLimit === "object") {
     await updateBuildRateLimitConfig(data.buildRateLimit);
     applied.push("buildRateLimit");
+  }
+
+  if (data.thumbnails && typeof data.thumbnails === "object") {
+    await updateThumbnailsConfig(data.thumbnails);
+    applied.push("thumbnails");
   }
 
   if (data.auth && typeof data.auth === "object") {

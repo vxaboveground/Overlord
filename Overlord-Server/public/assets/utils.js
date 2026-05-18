@@ -17,7 +17,6 @@ export function digestData(data, { page, pageSize, searchTerm, sort }) {
       user: c.user,
       customTag: c.customTag,
       customTagNote: c.customTagNote,
-      thumbnail: c.thumbnail,
       version: c.version,
       country: c.country,
       arch: c.arch,

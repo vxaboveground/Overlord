@@ -10,7 +10,7 @@ async function getGeoip() {
 import { ClientInfo } from "./types";
 import {
   consumeThumbnailRequest,
-  getThumbnail,
+  hasThumbnail,
   generateThumbnail,
   setLatestFrame,
 } from "./thumbnails";
@@ -297,8 +297,7 @@ export function handleFrame(info: ClientInfo, payload: any) {
   if (safeFormat) {
     const now = Date.now();
     const thumbnailRequested = consumeThumbnailRequest(info.id);
-    const hasThumbnail = Boolean(getThumbnail(info.id));
-    if (thumbnailRequested || !hasThumbnail) {
+    if (thumbnailRequested || !hasThumbnail(info.id)) {
       setLatestFrame(info.id, bytes, safeFormat);
       void generateThumbnail(info.id);
     }

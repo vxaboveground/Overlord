@@ -11,6 +11,7 @@ import {
   requestThumbnail,
   markManualDisconnect,
 } from "./data.js";
+import { ThumbnailLoader } from "./thumbnail-loader.js";
 
 const grid = document.getElementById("grid");
 const totalPill = document.getElementById("total-pill");
@@ -641,6 +642,60 @@ document.querySelectorAll("#layout-toggle .layout-toggle-btn").forEach((btn) => 
   btn.addEventListener("click", () => setLayout(btn.dataset.layout));
 });
 
+let dashboardThumbnailLoader = null;
+
+async function isDashboardThumbnailEnabled() {
+  try {
+    const res = await fetch("/api/settings/thumbnails", { credentials: "include" });
+    if (!res.ok) return true;
+    const data = await res.json();
+    return data?.thumbnails?.dashboardEnabled !== false;
+  } catch {
+    return true;
+  }
+}
+
+async function setupDashboardThumbnailLoader() {
+  if (!grid || dashboardThumbnailLoader) return;
+
+  if (!(await isDashboardThumbnailEnabled())) return;
+
+  const stored = Number(localStorage.getItem("overlord_dash_thumb_interval_ms"));
+  const refreshIntervalMs = Number.isFinite(stored) && stored >= 2000 ? stored : 15_000;
+
+  dashboardThumbnailLoader = new ThumbnailLoader({
+    refreshIntervalMs,
+    rootMargin: "300px",
+    threshold: 0.05,
+  });
+
+  const wire = (el) => {
+    const id = el.dataset.thumbClient;
+    if (!id) return;
+    if (el.dataset.thumbOnline !== "1") return;
+    const v = Number(el.dataset.thumbVersion) || 0;
+    dashboardThumbnailLoader.observe(el, id, v);
+  };
+  const unwire = (el) => dashboardThumbnailLoader.unobserve(el);
+
+  const mo = new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      m.addedNodes.forEach((n) => {
+        if (!(n instanceof HTMLElement)) return;
+        if (n.matches?.("[data-thumb-host]")) wire(n);
+        n.querySelectorAll?.("[data-thumb-host]").forEach(wire);
+      });
+      m.removedNodes.forEach((n) => {
+        if (!(n instanceof HTMLElement)) return;
+        if (n.matches?.("[data-thumb-host]")) unwire(n);
+        n.querySelectorAll?.("[data-thumb-host]").forEach(unwire);
+      });
+    }
+  });
+  mo.observe(grid, { childList: true, subtree: true });
+  grid.querySelectorAll("[data-thumb-host]").forEach(wire);
+}
+
 function initializeRenderer() {
   const savedLayout = localStorage.getItem(PREF_LAYOUT_KEY) || "rows";
   if (grid) grid.dataset.layout = ["rows", "table", "cards"].includes(savedLayout) ? savedLayout : "rows";
@@ -666,6 +721,7 @@ function initializeRenderer() {
   });
   rendererSetLayout = rSetLayout;
   registerRenderer(renderMerge);
+  setupDashboardThumbnailLoader();
   refreshGroupFilter();
   loadWithOptions();
   startAutoRefresh();

@@ -1,7 +1,7 @@
 import Database from "bun:sqlite";
 import type { Statement } from "bun:sqlite";
 import { ClientInfo, ListFilters, ListResult, ClientRole } from "./types";
-import { getThumbnail } from "./thumbnails";
+import { hasThumbnail, getThumbnailVersion } from "./thumbnails";
 import { resolve } from "path";
 import { ensureDataDir } from "./paths";
 
@@ -1186,7 +1186,8 @@ export function listClients(filters: ListFilters): ListResult {
     groupName: c.groupName || null,
     groupColor: c.groupColor || null,
     notificationsMuted: c.notificationsMuted === 1,
-    thumbnail: getThumbnail(c.id),
+    hasThumbnail: hasThumbnail(c.id),
+    thumbnailVersion: getThumbnailVersion(c.id),
   }));
 
   return { page, pageSize, total: totalRow.c, online: onlineRow.c, items };

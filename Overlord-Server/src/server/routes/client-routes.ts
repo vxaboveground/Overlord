@@ -36,6 +36,7 @@ import {
   listUserClientRuleIdsByAccess,
 } from "../../users";
 import { notifyDashboardViewers } from "../../sessions/sessionManager";
+import { clearThumbnail } from "../../thumbnails";
 
 type RequestIpProvider = {
   requestIP: (req: Request) => { address?: string } | null | undefined;
@@ -252,7 +253,7 @@ export async function handleClientRoutes(
     if (!canUserAccessClient(user.userId, user.role, clientId)) {
       return new Response("Forbidden: Client access denied", { status: 403 });
     }
-    const { generateThumbnail, markThumbnailRequested } = await import("../../thumbnails");
+    const { generateThumbnail, markThumbnailRequested, getThumbnailVersion } = await import("../../thumbnails");
     markThumbnailRequested(clientId);
     const target = clientManager.getClient(clientId);
     if (target?.online) {
@@ -268,7 +269,40 @@ export async function handleClientRoutes(
       metrics.recordCommand("screenshot");
     }
     const success = await generateThumbnail(clientId);
-    return Response.json({ ok: true, updated: success }, { headers: deps.CORS_HEADERS });
+    const version = getThumbnailVersion(clientId);
+    return Response.json(
+      { ok: true, updated: success, version },
+      { headers: deps.CORS_HEADERS },
+    );
+  }
+
+  if (req.method === "GET" && thumbnailMatch) {
+    const user = await authenticateRequest(req);
+    if (!user) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    const clientId = thumbnailMatch[1];
+    if (!canUserAccessClient(user.userId, user.role, clientId)) {
+      return new Response("Forbidden: Client access denied", { status: 403 });
+    }
+    const { getThumbnailRecord } = await import("../../thumbnails");
+    const record = getThumbnailRecord(clientId);
+    if (!record) {
+      return new Response("Not Found", { status: 404 });
+    }
+    const etag = `"${clientId}-${record.version}"`;
+    if (req.headers.get("if-none-match") === etag) {
+      return new Response(null, { status: 304, headers: { ETag: etag } });
+    }
+    return new Response(record.bytes as unknown as BodyInit, {
+      status: 200,
+      headers: {
+        "Content-Type": record.contentType,
+        "Content-Length": String(record.bytes.byteLength),
+        ETag: etag,
+        "Cache-Control": "private, max-age=300",
+      },
+    });
   }
 
   if (req.method === "DELETE" && url.pathname === "/api/clients/offline") {
@@ -338,6 +372,7 @@ export async function handleClientRoutes(
     }
 
     deleteClientRow(targetId);
+    clearThumbnail(targetId);
     notifyDashboardViewers();
 
     const ip = server.requestIP(req)?.address || "unknown";
@@ -771,6 +806,7 @@ export async function handleClientRoutes(
           metrics.recordCommand("uninstall");
           clientManager.deleteClient(targetId);
           deleteClientRow(targetId);
+          clearThumbnail(targetId);
           logAudit({
             timestamp: Date.now(),
             username: user.username,
