@@ -38,12 +38,12 @@ for %%T in (%BUILD_TARGETS%) do (
 
   echo [build] cl /LD /EHsc /O2 plugin.cpp /Fe:!OUTFILE!
   pushd "%NATIVE_DIR%"
-  cl /nologo /LD /EHsc /O2 plugin.cpp /Fe:"!OUTFILE!" user32.lib gdi32.lib uxtheme.lib dwmapi.lib /link !CL_MACHINE! >nul 2>&1
+  cl /nologo /LD /EHsc /O2 plugin.cpp /Fe:"!OUTFILE!" user32.lib gdi32.lib uxtheme.lib dwmapi.lib comdlg32.lib shell32.lib /link !CL_MACHINE! >nul 2>&1
   set "CL_STATUS=!errorlevel!"
   popd
   if not "!CL_STATUS!"=="0" (
     echo [build] cl failed, trying !GXX_CMD!...
-    !GXX_CMD! -shared -O2 -s -static -o "!OUTFILE!" "%NATIVE_DIR%\plugin.cpp" -luser32 -lgdi32 -luxtheme -ldwmapi
+    !GXX_CMD! -shared -O2 -s -static -o "!OUTFILE!" "%NATIVE_DIR%\plugin.cpp" -luser32 -lgdi32 -luxtheme -ldwmapi -lcomdlg32 -lshell32
     if errorlevel 1 (
       echo [error] build failed for !TARGET_OS!-!TARGET_ARCH!
       exit /b 1

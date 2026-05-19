@@ -2,23 +2,27 @@
  * Chat Plugin — spawns a Win32 chat window on the target (Windows only).
  *
  * Build (MSVC):
- *   cl /LD /EHsc /O2 plugin.cpp /Fe:chat-windows-amd64.dll user32.lib gdi32.lib uxtheme.lib dwmapi.lib
+ *   cl /LD /EHsc /O2 plugin.cpp /Fe:chat-windows-amd64.dll user32.lib gdi32.lib uxtheme.lib dwmapi.lib comdlg32.lib shell32.lib
  *
  * Build (MinGW):
- *   x86_64-w64-mingw32-g++ -shared -O2 -o chat-windows-amd64.dll plugin.cpp -luser32 -lgdi32 -luxtheme -ldwmapi
+ *   x86_64-w64-mingw32-g++ -shared -O2 -o chat-windows-amd64.dll plugin.cpp -luser32 -lgdi32 -luxtheme -ldwmapi -lcomdlg32 -lshell32
  */
 
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
 #include <cstdlib>
+#include <cctype>
 #include <string>
+#include <vector>
 
 #define EXPORT extern "C" __declspec(dllexport)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <uxtheme.h>
 #include <dwmapi.h>
+#include <commdlg.h>
+#include <shellapi.h>
 
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
@@ -34,9 +38,12 @@
 #define WM_CHAT_APPEND (WM_APP + 1)
 #define WM_CHAT_CLOSE  (WM_APP + 2)
 
-#define IDC_LOG   101
-#define IDC_INPUT 102
-#define IDC_SEND  103
+#define IDC_LOG    101
+#define IDC_INPUT  102
+#define IDC_SEND   103
+#define IDC_ATTACH 104
+
+#define MAX_ATTACHMENT_BYTES (5 * 1024 * 1024)
 
 static const char *WND_CLASS_NAME = "OverlordChatWnd";
 
@@ -73,6 +80,7 @@ static HWND             g_hwnd          = NULL;
 static HWND             g_hwnd_log      = NULL;
 static HWND             g_hwnd_input    = NULL;
 static HWND             g_hwnd_send     = NULL;
+static HWND             g_hwnd_attach   = NULL;
 static HANDLE           g_thread        = NULL;
 static bool             g_class_reg     = false;
 static HFONT            g_font          = NULL;
@@ -158,15 +166,150 @@ static std::string json_escape(const std::string &s) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Base64                                                              */
+/* ------------------------------------------------------------------ */
+
+static const char kB64Tab[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+static std::string base64_encode(const unsigned char *data, size_t len) {
+    std::string out;
+    out.reserve(((len + 2) / 3) * 4);
+    size_t i = 0;
+    while (i + 3 <= len) {
+        unsigned a = data[i], b = data[i + 1], c = data[i + 2];
+        out += kB64Tab[a >> 2];
+        out += kB64Tab[((a & 0x03) << 4) | (b >> 4)];
+        out += kB64Tab[((b & 0x0f) << 2) | (c >> 6)];
+        out += kB64Tab[c & 0x3f];
+        i += 3;
+    }
+    if (i < len) {
+        unsigned a = data[i];
+        unsigned b = (i + 1 < len) ? data[i + 1] : 0;
+        out += kB64Tab[a >> 2];
+        out += kB64Tab[((a & 0x03) << 4) | (b >> 4)];
+        if (i + 1 < len) {
+            out += kB64Tab[(b & 0x0f) << 2];
+            out += '=';
+        } else {
+            out += "==";
+        }
+    }
+    return out;
+}
+
+static int b64_val(char c) {
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if (c >= '0' && c <= '9') return c - '0' + 52;
+    if (c == '+') return 62;
+    if (c == '/') return 63;
+    return -1;
+}
+
+static std::vector<unsigned char> base64_decode(const char *s, size_t len) {
+    std::vector<unsigned char> out;
+    out.reserve(len * 3 / 4 + 4);
+    int buf = 0, bits = 0;
+    for (size_t i = 0; i < len; i++) {
+        char c = s[i];
+        if (c == '=' || c == '\n' || c == '\r' || c == ' ' || c == '\t') continue;
+        int v = b64_val(c);
+        if (v < 0) continue;
+        buf = (buf << 6) | v;
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out.push_back((unsigned char)((buf >> bits) & 0xff));
+        }
+    }
+    return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* Filename / path helpers                                             */
+/* ------------------------------------------------------------------ */
+
+static std::string basename_only(const std::string &p) {
+    auto pos = p.find_last_of("\\/");
+    return (pos == std::string::npos) ? p : p.substr(pos + 1);
+}
+
+static std::string sanitize_filename(const std::string &name) {
+    std::string b = basename_only(name);
+    std::string out;
+    for (char c : b) {
+        if (c == ':' || c == '*' || c == '?' || c == '"' ||
+            c == '<' || c == '>' || c == '|' || c == '\\' || c == '/') {
+            out += '_';
+        } else if ((unsigned char)c < 0x20) {
+            out += '_';
+        } else {
+            out += c;
+        }
+    }
+    if (out.empty()) out = "file";
+    return out;
+}
+
+static std::string guess_mime(const std::string &name) {
+    auto pos = name.find_last_of('.');
+    if (pos == std::string::npos) return "application/octet-stream";
+    std::string ext = name.substr(pos + 1);
+    for (auto &c : ext) c = (char)tolower((unsigned char)c);
+    if (ext == "png")  return "image/png";
+    if (ext == "jpg" || ext == "jpeg") return "image/jpeg";
+    if (ext == "gif")  return "image/gif";
+    if (ext == "webp") return "image/webp";
+    if (ext == "bmp")  return "image/bmp";
+    if (ext == "svg")  return "image/svg+xml";
+    if (ext == "txt")  return "text/plain";
+    if (ext == "pdf")  return "application/pdf";
+    if (ext == "zip")  return "application/zip";
+    if (ext == "json") return "application/json";
+    return "application/octet-stream";
+}
+
+static std::string get_save_dir() {
+    char prof[MAX_PATH];
+    DWORD n = GetEnvironmentVariableA("USERPROFILE", prof, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) return "";
+    std::string dir(prof);
+    dir += "\\Downloads";
+    return dir;
+}
+
+static std::string unique_path(const std::string &dir, const std::string &name) {
+    std::string full = dir + "\\" + name;
+    DWORD attrs = GetFileAttributesA(full.c_str());
+    if (attrs == INVALID_FILE_ATTRIBUTES) return full;
+
+    auto dot = name.find_last_of('.');
+    std::string stem = (dot == std::string::npos) ? name : name.substr(0, dot);
+    std::string ext  = (dot == std::string::npos) ? ""   : name.substr(dot);
+    for (int i = 1; i < 1000; i++) {
+        char buf[32];
+        sprintf(buf, " (%d)", i);
+        std::string cand = dir + "\\" + stem + buf + ext;
+        if (GetFileAttributesA(cand.c_str()) == INVALID_FILE_ATTRIBUTES) return cand;
+    }
+    return full;
+}
+
+/* ------------------------------------------------------------------ */
 /* send_event — call host callback                                     */
 /* ------------------------------------------------------------------ */
 
-static void send_event(const char *event, const char *payload) {
+static void send_event(const char *event, const char *payload, size_t payloadLen) {
     host_callback_t cb = g_callback;
     if (!cb) return;
-    int elen = event   ? (int)strlen(event)   : 0;
-    int plen = payload ? (int)strlen(payload)  : 0;
-    cb(event, (uintptr_t)elen, payload, (uintptr_t)plen);
+    int elen = event ? (int)strlen(event) : 0;
+    cb(event, (uintptr_t)elen, payload, (uintptr_t)payloadLen);
+}
+
+static void send_event(const char *event, const char *payload) {
+    send_event(event, payload, payload ? strlen(payload) : 0);
 }
 
 /* ------------------------------------------------------------------ */
@@ -179,6 +322,12 @@ static void append_to_log(const char *text) {
     SendMessageA(g_hwnd_log, EM_SETSEL, (WPARAM)len, (LPARAM)len);
     SendMessageA(g_hwnd_log, EM_REPLACESEL, FALSE, (LPARAM)text);
     SendMessageA(g_hwnd_log, EM_SCROLLCARET, 0, 0);
+}
+
+static void post_log_line(const std::string &text) {
+    if (!g_hwnd) return;
+    char *dup = _strdup(text.c_str());
+    PostMessageA(g_hwnd, WM_CHAT_APPEND, 0, (LPARAM)dup);
 }
 
 static void do_send_message() {
@@ -194,6 +343,68 @@ static void do_send_message() {
     std::string payload = "{\"from\":\"" + json_escape(g_config.targetName) +
                           "\",\"text\":\"" + json_escape(text) + "\"}";
     send_event("chat_message", payload.c_str());
+}
+
+static void do_attach_file() {
+    char path[MAX_PATH * 2] = {0};
+    OPENFILENAMEA ofn = {};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner   = g_hwnd;
+    ofn.lpstrFile   = path;
+    ofn.nMaxFile    = sizeof(path);
+    ofn.lpstrFilter = "All Files\0*.*\0Images\0*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp\0";
+    ofn.lpstrTitle  = "Attach file";
+    ofn.Flags       = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_EXPLORER | OFN_NOCHANGEDIR;
+    if (!GetOpenFileNameA(&ofn)) return;
+
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        post_log_line("[chat] Could not open selected file\r\n");
+        return;
+    }
+    fseek(f, 0, SEEK_END);
+    long fsize = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (fsize <= 0) { fclose(f); return; }
+    if ((size_t)fsize > MAX_ATTACHMENT_BYTES) {
+        fclose(f);
+        char msg[160];
+        sprintf(msg, "[chat] File too large (%ld bytes); max is %d bytes\r\n",
+                fsize, MAX_ATTACHMENT_BYTES);
+        post_log_line(msg);
+        return;
+    }
+
+    std::vector<unsigned char> data((size_t)fsize);
+    size_t got = fread(data.data(), 1, (size_t)fsize, f);
+    fclose(f);
+    if (got != (size_t)fsize) {
+        post_log_line("[chat] Failed to read attachment\r\n");
+        return;
+    }
+
+    std::string name = basename_only(path);
+    std::string mime = guess_mime(name);
+    std::string b64  = base64_encode(data.data(), data.size());
+
+    std::string payload;
+    payload.reserve(b64.size() + 256);
+    payload += "{\"from\":\"";
+    payload += json_escape(g_config.targetName);
+    payload += "\",\"name\":\"";
+    payload += json_escape(name);
+    payload += "\",\"mime\":\"";
+    payload += json_escape(mime);
+    payload += "\",\"dataB64\":\"";
+    payload += b64;
+    payload += "\"}";
+
+    char fmt[256];
+    sprintf(fmt, "%s sent file: %s (%ld bytes)\r\n",
+            g_config.targetName, name.c_str(), fsize);
+    post_log_line(fmt);
+
+    send_event("chat_attachment", payload.data(), payload.size());
 }
 
 /* ------------------------------------------------------------------ */
@@ -230,6 +441,11 @@ static LRESULT CALLBACK ChatWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
         SetWindowTheme(g_hwnd_log, L"DarkMode_Explorer", NULL);
 
+        g_hwnd_attach = CreateWindowExA(
+            0, "BUTTON", "+",
+            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP,
+            0, 0, 0, 0, hwnd, (HMENU)(uintptr_t)IDC_ATTACH, g_hInstance, NULL);
+
         g_hwnd_input = CreateWindowExA(
             0, "EDIT", "",
             WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | WS_TABSTOP,
@@ -242,9 +458,10 @@ static LRESULT CALLBACK ChatWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP,
             0, 0, 0, 0, hwnd, (HMENU)(uintptr_t)IDC_SEND, g_hInstance, NULL);
 
-        SendMessageA(g_hwnd_log,   WM_SETFONT, (WPARAM)g_font, TRUE);
-        SendMessageA(g_hwnd_input, WM_SETFONT, (WPARAM)g_font, TRUE);
-        SendMessageA(g_hwnd_send,  WM_SETFONT, (WPARAM)g_font, TRUE);
+        SendMessageA(g_hwnd_log,    WM_SETFONT, (WPARAM)g_font, TRUE);
+        SendMessageA(g_hwnd_input,  WM_SETFONT, (WPARAM)g_font, TRUE);
+        SendMessageA(g_hwnd_send,   WM_SETFONT, (WPARAM)g_font, TRUE);
+        SendMessageA(g_hwnd_attach, WM_SETFONT, (WPARAM)g_font, TRUE);
 
         g_orig_input_proc = (WNDPROC)SetWindowLongPtrA(
             g_hwnd_input, GWLP_WNDPROC, (LONG_PTR)InputSubclassProc);
@@ -261,11 +478,16 @@ static LRESULT CALLBACK ChatWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         RECT rc;
         GetClientRect(hwnd, &rc);
         int w = rc.right, h = rc.bottom;
-        int pad = 10, inputH = 32, btnW = 65, gap = 8;
+        int pad = 10, inputH = 32, btnW = 65, attachW = 32, gap = 8;
 
-        MoveWindow(g_hwnd_log,   pad, pad, w - 2 * pad, h - inputH - 3 * pad, TRUE);
-        MoveWindow(g_hwnd_input, pad, h - inputH - pad, w - btnW - 2 * pad - gap, inputH, TRUE);
-        MoveWindow(g_hwnd_send,  w - btnW - pad, h - inputH - pad, btnW, inputH, TRUE);
+        MoveWindow(g_hwnd_log,    pad, pad, w - 2 * pad, h - inputH - 3 * pad, TRUE);
+        MoveWindow(g_hwnd_attach, pad, h - inputH - pad, attachW, inputH, TRUE);
+        MoveWindow(g_hwnd_input,
+                   pad + attachW + gap,
+                   h - inputH - pad,
+                   w - btnW - attachW - 2 * pad - 2 * gap,
+                   inputH, TRUE);
+        MoveWindow(g_hwnd_send,   w - btnW - pad, h - inputH - pad, btnW, inputH, TRUE);
         return 0;
     }
 
@@ -279,6 +501,11 @@ static LRESULT CALLBACK ChatWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_COMMAND:
         if (LOWORD(wp) == IDC_SEND && HIWORD(wp) == BN_CLICKED) {
             do_send_message();
+            SetFocus(g_hwnd_input);
+            return 0;
+        }
+        if (LOWORD(wp) == IDC_ATTACH && HIWORD(wp) == BN_CLICKED) {
+            do_attach_file();
             SetFocus(g_hwnd_input);
             return 0;
         }
@@ -337,6 +564,30 @@ static LRESULT CALLBACK ChatWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                       DT_CENTER | DT_VCENTER | DT_SINGLELINE);
             return TRUE;
         }
+        if (dis->CtlID == IDC_ATTACH) {
+            COLORREF col = (dis->itemState & ODS_SELECTED)
+                               ? RGB(48, 56, 72)
+                               : RGB(60, 68, 86);
+            HBRUSH br = CreateSolidBrush(col);
+            FillRect(dis->hDC, &dis->rcItem, br);
+            DeleteObject(br);
+
+            HPEN pen = CreatePen(PS_SOLID, 1, RGB(80, 90, 110));
+            HPEN oldPen = (HPEN)SelectObject(dis->hDC, pen);
+            HBRUSH oldBr = (HBRUSH)SelectObject(dis->hDC, GetStockObject(NULL_BRUSH));
+            RoundRect(dis->hDC, dis->rcItem.left, dis->rcItem.top,
+                      dis->rcItem.right, dis->rcItem.bottom, 6, 6);
+            SelectObject(dis->hDC, oldPen);
+            SelectObject(dis->hDC, oldBr);
+            DeleteObject(pen);
+
+            SetTextColor(dis->hDC, RGB(220, 225, 234));
+            SetBkMode(dis->hDC, TRANSPARENT);
+            SelectObject(dis->hDC, g_font);
+            DrawTextA(dis->hDC, "+", -1, &dis->rcItem,
+                      DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            return TRUE;
+        }
         break;
     }
 
@@ -364,10 +615,11 @@ static LRESULT CALLBACK ChatWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             SetWindowLongPtrA(g_hwnd_input, GWLP_WNDPROC, (LONG_PTR)g_orig_input_proc);
             g_orig_input_proc = NULL;
         }
-        g_hwnd_log   = NULL;
-        g_hwnd_input = NULL;
-        g_hwnd_send  = NULL;
-        g_hwnd       = NULL;
+        g_hwnd_log    = NULL;
+        g_hwnd_input  = NULL;
+        g_hwnd_send   = NULL;
+        g_hwnd_attach = NULL;
+        g_hwnd        = NULL;
         if (g_font)        { DeleteObject(g_font);        g_font        = NULL; }
         if (g_bg_brush)    { DeleteObject(g_bg_brush);    g_bg_brush    = NULL; }
         if (g_log_brush)   { DeleteObject(g_log_brush);   g_log_brush   = NULL; }
@@ -501,7 +753,7 @@ EXPORT int PluginOnEvent(const char *event, int eventLen,
         std::string tgName = json_extract(pl.c_str(), (int)pl.size(), "targetName");
         std::string title  = json_extract(pl.c_str(), (int)pl.size(), "title");
         bool closable      = json_extract_bool(pl.c_str(), (int)pl.size(), "closable", true);
-        bool onTop          = json_extract_bool(pl.c_str(), (int)pl.size(), "alwaysOnTop", false);
+        bool onTop         = json_extract_bool(pl.c_str(), (int)pl.size(), "alwaysOnTop", false);
 
         EnterCriticalSection(&g_cs);
         if (!opName.empty()) strncpy(g_config.operatorName, opName.c_str(), sizeof(g_config.operatorName) - 1);
@@ -525,6 +777,55 @@ EXPORT int PluginOnEvent(const char *event, int eventLen,
             char *dup = _strdup(display.c_str());
             PostMessageA(g_hwnd, WM_CHAT_APPEND, 0, (LPARAM)dup);
         }
+        return 0;
+    }
+
+    if (ev == "chat_attachment") {
+        std::string from = json_extract(pl.c_str(), (int)pl.size(), "from");
+        std::string name = json_extract(pl.c_str(), (int)pl.size(), "name");
+        std::string b64  = json_extract(pl.c_str(), (int)pl.size(), "dataB64");
+        if (from.empty()) from = g_config.operatorName;
+        if (name.empty()) name = "file";
+        if (b64.empty()) {
+            std::string err = "[chat] attachment from " + from + " had no data\r\n";
+            post_log_line(err);
+            return 0;
+        }
+
+        std::vector<unsigned char> bytes = base64_decode(b64.data(), b64.size());
+        if (bytes.empty()) {
+            std::string err = "[chat] failed to decode attachment from " + from + "\r\n";
+            post_log_line(err);
+            return 0;
+        }
+
+        std::string dir = get_save_dir();
+        if (dir.empty()) {
+            post_log_line("[chat] could not resolve temp directory\r\n");
+            return 0;
+        }
+        std::string safe = sanitize_filename(name);
+        std::string full = unique_path(dir, safe);
+
+        FILE *f = fopen(full.c_str(), "wb");
+        if (!f) {
+            std::string err = "[chat] could not write " + full + "\r\n";
+            post_log_line(err);
+            return 0;
+        }
+        size_t wrote = fwrite(bytes.data(), 1, bytes.size(), f);
+        fclose(f);
+        if (wrote != bytes.size()) {
+            std::string err = "[chat] short write to " + full + "\r\n";
+            post_log_line(err);
+            return 0;
+        }
+
+        char header[128];
+        sprintf(header, "%s sent file: %s (%zu bytes)\r\n",
+                from.c_str(), name.c_str(), bytes.size());
+        std::string line = std::string(header) + "  Saved to: " + full + "\r\n";
+        post_log_line(line);
         return 0;
     }
 

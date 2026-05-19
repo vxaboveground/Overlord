@@ -152,6 +152,13 @@
   background: #303848;
 }
 
+.chat-btn-icon {
+  padding: 8px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* Status */
 .chat-status {
   display: flex;
@@ -231,6 +238,52 @@
 
 .chat-msg-text {
   color: #dce1ea;
+}
+
+.chat-msg-attachment {
+  margin-top: 6px;
+}
+
+.chat-msg-image {
+  display: block;
+  max-width: 100%;
+  max-height: 280px;
+  border-radius: 6px;
+  border: 1px solid #2a3346;
+  background: #0f131b;
+  cursor: zoom-in;
+}
+
+.chat-msg-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #0f131b;
+  border: 1px solid #2a3346;
+  color: #cfd6e2;
+  text-decoration: none;
+  font-size: 12px;
+  max-width: 100%;
+}
+
+.chat-msg-file:hover {
+  background: #141a25;
+  border-color: #3a4a60;
+}
+
+.chat-msg-file i {
+  color: #8a96aa;
+}
+
+.chat-msg-file-name {
+  font-weight: 500;
+  word-break: break-all;
+}
+
+.chat-msg-file-size {
+  color: #6b7a8d;
 }
 
 .chat-msg-time {
