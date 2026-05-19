@@ -191,6 +191,8 @@ export async function handleUsersRoutes(
         return Response.json({ error: "Cannot change your own role" }, { status: 400 });
       }
 
+      const beforeUser = getUserById(userId);
+      const previousRole = beforeUser?.role ?? null;
       const result = updateUserRole(userId, role);
 
       if (result.success) {
@@ -207,8 +209,14 @@ export async function handleUsersRoutes(
           timestamp: Date.now(),
           username: authedUser.username,
           ip,
-          action: AuditAction.COMMAND,
-          details: `Updated role for user: ${targetUser?.username} to ${role}`,
+          action: AuditAction.USER_ROLE_CHANGE,
+          details: JSON.stringify({
+            targetUserId: userId,
+            targetUsername: targetUser?.username,
+            from: previousRole,
+            to: role,
+            revokedSessions: existingSessions.length,
+          }),
           success: true,
         });
 
@@ -376,6 +384,7 @@ export async function handleUsersRoutes(
 
       const body = await req.json();
       const canBuild = !!body?.canBuild;
+      const previous = Boolean(targetUser.can_build);
       const result = setUserCanBuild(userId, canBuild);
       if (!result.success) {
         return Response.json({ error: result.error }, { status: 400 });
@@ -386,8 +395,13 @@ export async function handleUsersRoutes(
         timestamp: Date.now(),
         username: authedUser.username,
         ip,
-        action: AuditAction.COMMAND,
-        details: `${canBuild ? "Granted" : "Revoked"} build permission for ${targetUser.username}`,
+        action: AuditAction.USER_BUILD_TOGGLE,
+        details: JSON.stringify({
+          targetUserId: userId,
+          targetUsername: targetUser.username,
+          from: previous,
+          to: canBuild,
+        }),
         success: true,
       });
 
@@ -404,6 +418,7 @@ export async function handleUsersRoutes(
 
       const body = await req.json();
       const canUploadFiles = !!body?.canUploadFiles;
+      const previous = Boolean(targetUser.can_upload_files);
       const result = setUserCanUploadFiles(userId, canUploadFiles);
       if (!result.success) {
         return Response.json({ error: result.error }, { status: 400 });
@@ -414,8 +429,13 @@ export async function handleUsersRoutes(
         timestamp: Date.now(),
         username: authedUser.username,
         ip,
-        action: AuditAction.COMMAND,
-        details: `${canUploadFiles ? "Granted" : "Revoked"} file upload permission for ${targetUser.username}`,
+        action: AuditAction.USER_UPLOAD_TOGGLE,
+        details: JSON.stringify({
+          targetUserId: userId,
+          targetUsername: targetUser.username,
+          from: previous,
+          to: canUploadFiles,
+        }),
         success: true,
       });
 
@@ -455,9 +475,16 @@ export async function handleUsersRoutes(
         }
       }
 
+      const before = getUserFeaturePermissions(userId);
       const result = setUserFeaturePermissions(userId, validated);
       if (!result.success) {
         return Response.json({ error: result.error }, { status: 400 });
+      }
+      const after = getUserFeaturePermissions(userId);
+
+      const changes: Record<string, { from: boolean; to: boolean }> = {};
+      for (const f of Object.keys(after) as Array<keyof typeof after>) {
+        if (before[f] !== after[f]) changes[f as string] = { from: before[f], to: after[f] };
       }
 
       const ip = server.requestIP(req)?.address || "unknown";
@@ -465,12 +492,16 @@ export async function handleUsersRoutes(
         timestamp: Date.now(),
         username: authedUser.username,
         ip,
-        action: AuditAction.COMMAND,
-        details: `Updated feature permissions for ${targetUser.username}: ${JSON.stringify(validated)}`,
+        action: AuditAction.USER_FEATURE_PERMISSIONS_CHANGE,
+        details: JSON.stringify({
+          targetUserId: userId,
+          targetUsername: targetUser.username,
+          changes,
+        }),
         success: true,
       });
 
-      return Response.json({ success: true, permissions: getUserFeaturePermissions(userId) });
+      return Response.json({ success: true, permissions: after });
     }
 
     if (req.method === "DELETE" && url.pathname.match(/^\/api\/users\/\d+\/feature-permissions$/)) {
@@ -481,9 +512,16 @@ export async function handleUsersRoutes(
         return Response.json({ error: "User not found" }, { status: 404 });
       }
 
+      const before = getUserFeaturePermissions(userId);
       const result = resetUserFeaturePermissions(userId);
       if (!result.success) {
         return Response.json({ error: result.error }, { status: 400 });
+      }
+      const after = getUserFeaturePermissions(userId);
+
+      const changes: Record<string, { from: boolean; to: boolean }> = {};
+      for (const f of Object.keys(after) as Array<keyof typeof after>) {
+        if (before[f] !== after[f]) changes[f as string] = { from: before[f], to: after[f] };
       }
 
       const ip = server.requestIP(req)?.address || "unknown";
@@ -491,8 +529,13 @@ export async function handleUsersRoutes(
         timestamp: Date.now(),
         username: authedUser.username,
         ip,
-        action: AuditAction.COMMAND,
-        details: `Reset feature permissions for ${targetUser.username} to defaults`,
+        action: AuditAction.USER_FEATURE_PERMISSIONS_CHANGE,
+        details: JSON.stringify({
+          targetUserId: userId,
+          targetUsername: targetUser.username,
+          reset: true,
+          changes,
+        }),
         success: true,
       });
 

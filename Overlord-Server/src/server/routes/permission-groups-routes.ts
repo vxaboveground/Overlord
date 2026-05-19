@@ -52,6 +52,15 @@ function sanitizePermissions(raw: unknown): string[] {
   );
 }
 
+function diffArrays<T>(before: readonly T[], after: readonly T[]): { added: T[]; removed: T[] } {
+  const b = new Set(before);
+  const a = new Set(after);
+  return {
+    added: after.filter((x) => !b.has(x)),
+    removed: before.filter((x) => !a.has(x)),
+  };
+}
+
 type RequestIpProvider = {
   requestIP: (req: Request) => { address?: string } | null | undefined;
 };
@@ -110,8 +119,13 @@ export async function handlePermissionGroupsRoutes(
       timestamp: Date.now(),
       username: authed.username,
       ip: server.requestIP(req)?.address || "unknown",
-      action: AuditAction.COMMAND,
-      details: `Created permission group "${result.group!.name}" with ${result.group!.permissions.length} permissions`,
+      action: AuditAction.PERMISSION_GROUP_CREATE,
+      details: JSON.stringify({
+        groupId: result.group!.id,
+        name: result.group!.name,
+        description: result.group!.description,
+        permissions: result.group!.permissions,
+      }),
       success: true,
     });
 
@@ -139,6 +153,9 @@ export async function handlePermissionGroupsRoutes(
     if (req.method === "PATCH" || req.method === "PUT") {
       let body: any;
       try { body = await req.json(); } catch { return Response.json({ error: "Invalid JSON" }, { status: 400 }); }
+      const before = getPermissionGroup(groupId);
+      if (!before) return Response.json({ error: "Not found" }, { status: 404 });
+
       const updates: Parameters<typeof updatePermissionGroup>[1] = {};
       if (body?.name !== undefined) updates.name = String(body.name);
       if (body?.description !== undefined) updates.description = body.description === null ? null : String(body.description);
@@ -146,12 +163,27 @@ export async function handlePermissionGroupsRoutes(
       const result = updatePermissionGroup(groupId, updates);
       if (!result.success) return Response.json({ error: result.error }, { status: 400 });
 
+      const after = result.group!;
+      const permsDiff = diffArrays(before.permissions, after.permissions);
+      const auditDetails: Record<string, unknown> = {
+        groupId,
+        name: after.name,
+      };
+      if (before.name !== after.name) auditDetails.nameChanged = { from: before.name, to: after.name };
+      if (before.description !== after.description) {
+        auditDetails.descriptionChanged = { from: before.description, to: after.description };
+      }
+      if (permsDiff.added.length || permsDiff.removed.length) {
+        auditDetails.permissionsAdded = permsDiff.added;
+        auditDetails.permissionsRemoved = permsDiff.removed;
+      }
+
       logAudit({
         timestamp: Date.now(),
         username: authed.username,
         ip: server.requestIP(req)?.address || "unknown",
-        action: AuditAction.COMMAND,
-        details: `Updated permission group "${result.group!.name}"`,
+        action: AuditAction.PERMISSION_GROUP_UPDATE,
+        details: JSON.stringify(auditDetails),
         success: true,
       });
       return Response.json({ group: result.group });
@@ -166,8 +198,12 @@ export async function handlePermissionGroupsRoutes(
         timestamp: Date.now(),
         username: authed.username,
         ip: server.requestIP(req)?.address || "unknown",
-        action: AuditAction.COMMAND,
-        details: `Deleted permission group "${existing?.name ?? groupId}"`,
+        action: AuditAction.PERMISSION_GROUP_DELETE,
+        details: JSON.stringify({
+          groupId,
+          name: existing?.name ?? null,
+          permissions: existing?.permissions ?? [],
+        }),
         success: true,
       });
       return Response.json({ ok: true });
@@ -200,15 +236,24 @@ export async function handlePermissionGroupsRoutes(
       const ids = Array.isArray(body?.groupIds)
         ? body.groupIds.map((g: any) => Number(g)).filter((g: number) => Number.isFinite(g))
         : [];
+      const targetUser = getUserById(targetUserId);
+      const before = getUserGroupIds(targetUserId);
       const result = setUserGroups(targetUserId, ids);
       if (!result.success) return Response.json({ error: result.error }, { status: 400 });
 
+      const groupDiff = diffArrays(before, ids);
       logAudit({
         timestamp: Date.now(),
         username: authed.username,
         ip: server.requestIP(req)?.address || "unknown",
-        action: AuditAction.COMMAND,
-        details: `Assigned ${ids.length} permission group(s) to user #${targetUserId}`,
+        action: AuditAction.USER_GROUPS_CHANGE,
+        details: JSON.stringify({
+          targetUserId,
+          targetUsername: targetUser?.username,
+          groupsAdded: groupDiff.added,
+          groupsRemoved: groupDiff.removed,
+          groupsAfter: ids,
+        }),
         success: true,
       });
       return Response.json({ ok: true, groupIds: ids });
@@ -239,15 +284,24 @@ export async function handlePermissionGroupsRoutes(
       let body: any;
       try { body = await req.json(); } catch { return Response.json({ error: "Invalid JSON" }, { status: 400 }); }
       const perms = sanitizePermissions(body?.permissions);
+      const targetUser = getUserById(targetUserId);
+      const before = Array.from(getUserExtraPermissions(targetUserId));
       const result = setUserExtraPermissions(targetUserId, perms);
       if (!result.success) return Response.json({ error: result.error }, { status: 400 });
 
+      const permsDiff = diffArrays(before, perms);
       logAudit({
         timestamp: Date.now(),
         username: authed.username,
         ip: server.requestIP(req)?.address || "unknown",
-        action: AuditAction.COMMAND,
-        details: `Set ${perms.length} extra permission(s) on user #${targetUserId}`,
+        action: AuditAction.USER_EXTRA_PERMISSIONS_CHANGE,
+        details: JSON.stringify({
+          targetUserId,
+          targetUsername: targetUser?.username,
+          permissionsAdded: permsDiff.added,
+          permissionsRemoved: permsDiff.removed,
+          permissionsAfter: perms,
+        }),
         success: true,
       });
       return Response.json({ ok: true, permissions: perms });

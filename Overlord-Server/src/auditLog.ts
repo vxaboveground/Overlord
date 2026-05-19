@@ -78,6 +78,16 @@ export enum AuditAction {
   ENROLLMENT_BULK = "enrollment_bulk",
   WINRE_INSTALL = "winre_install",
   WINRE_UNINSTALL = "winre_uninstall",
+  PERMISSION_GROUP_CREATE = "permission_group_create",
+  PERMISSION_GROUP_UPDATE = "permission_group_update",
+  PERMISSION_GROUP_DELETE = "permission_group_delete",
+  USER_GROUPS_CHANGE = "user_groups_change",
+  USER_EXTRA_PERMISSIONS_CHANGE = "user_extra_permissions_change",
+  USER_FEATURE_PERMISSIONS_CHANGE = "user_feature_permissions_change",
+  USER_ROLE_CHANGE = "user_role_change",
+  USER_BUILD_TOGGLE = "user_build_toggle",
+  USER_UPLOAD_TOGGLE = "user_upload_toggle",
+  USER_CHAT_WRITE_TOGGLE = "user_chat_write_toggle",
 }
 
 export interface AuditLogEntry {
