@@ -878,16 +878,13 @@ export async function handleClientRoutes(
           });
         } else if (action === "elevate") {
           try {
-            requirePermission(user, "clients:silent-exec");
+            requirePermission(user, "clients:elevate");
           } catch (error) {
             if (error instanceof Response) return error;
             return new Response("Forbidden", { status: 403 });
           }
 
           const password = typeof body?.password === "string" ? body.password : "";
-          if (!password) {
-            return new Response("Bad request: password required", { status: 400 });
-          }
 
           const cmdId = uuidv4();
           const replyPromise: Promise<{ ok: boolean; message?: string }> = new Promise((resolve, reject) => {
@@ -914,7 +911,7 @@ export async function handleClientRoutes(
             action: AuditAction.COMMAND,
             targetClientId: targetId,
             success: true,
-            details: "elevate (sudo)",
+            details: "elevate",
           });
 
           try {

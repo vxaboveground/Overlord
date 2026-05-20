@@ -37,6 +37,7 @@ export const ALLOWED_CLIENT_MESSAGE_TYPES = new Set([
   "hvnc_installed_apps_result",
   "hvnc_dxgi_status",
   "hvnc_browser_launch_status",
+  "hvnc_window_list_result",
   "clipboard_content",
   "proxy_data",
   "proxy_close",

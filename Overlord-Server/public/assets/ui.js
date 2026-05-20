@@ -47,7 +47,7 @@ const MENU_GROUPS = [
       { label: "Set Group",              icon: "fa-solid fa-layer-group",       icolor: "text-blue-300",  action: "set-group" },
       { label: "Mute Notifications",    icon: "fa-solid fa-bell-slash",        icolor: "text-amber-300", action: "toggle-mute" },
       { divider: true },
-      { label: "Elevate (macOS)",       icon: "fa-solid fa-arrow-up-right-dots", icolor: "text-green-400", action: "elevate" },
+      { label: "Elevate",               icon: "fa-solid fa-arrow-up-right-dots", icolor: "text-green-400", action: "elevate" },
       { divider: true },
       { label: "Disconnect",            icon: "fa-solid fa-plug-circle-xmark", icolor: "text-red-400",   action: "disconnect" },
       { label: "Uninstall",             icon: "fa-solid fa-trash",             icolor: "text-red-300",   action: "uninstall" },

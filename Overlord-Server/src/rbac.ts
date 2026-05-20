@@ -87,6 +87,10 @@ const PERMISSIONS = {
     description: "Change server-level settings (TLS, security, registration, notifications, appearance, etc.)",
     roles: ["admin"],
   },
+  "clients:elevate": {
+    description: "Elevate agent privileges (UAC on Windows, sudo on macOS)",
+    roles: ["admin"],
+  },
   "clients:winre": {
     description: "Install or uninstall WinRE persistence on clients",
     roles: ["admin"],

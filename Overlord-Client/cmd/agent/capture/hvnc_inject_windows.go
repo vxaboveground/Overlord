@@ -104,8 +104,9 @@ func monitorProcessCrash(pid uint32, label string, notify func(step string, succ
 	}
 	defer procCloseHandle.Call(hProc)
 
-	ret, _, _ := procWaitForSingleObject.Call(hProc, 8000)
+	ret, _, _ := procWaitForSingleObject.Call(hProc, 20000)
 	if ret != 0 {
+		notify("healthy", true, fmt.Sprintf("%s (PID %d) still running after 20s", label, pid))
 		return
 	}
 

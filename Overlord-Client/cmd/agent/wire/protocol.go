@@ -325,6 +325,33 @@ type HVNCBrowserLaunchStatus struct {
 	Detail  string `msgpack:"detail"`
 }
 
+type HVNCWindowEntry struct {
+	Title       string `msgpack:"title"`
+	X           int    `msgpack:"x"`
+	Y           int    `msgpack:"y"`
+	Width       int    `msgpack:"width"`
+	Height      int    `msgpack:"height"`
+	PID         uint32 `msgpack:"pid"`
+	ProcessName string `msgpack:"processName"`
+	Monitor     int    `msgpack:"monitor"`
+}
+
+type HVNCMonitorEntry struct {
+	Index   int    `msgpack:"index"`
+	Name    string `msgpack:"name"`
+	X       int    `msgpack:"x"`
+	Y       int    `msgpack:"y"`
+	Width   int    `msgpack:"width"`
+	Height  int    `msgpack:"height"`
+	Primary bool   `msgpack:"primary"`
+}
+
+type HVNCWindowListResult struct {
+	Type     string             `msgpack:"type"`
+	Windows  []HVNCWindowEntry  `msgpack:"windows"`
+	Monitors []HVNCMonitorEntry `msgpack:"monitors"`
+}
+
 type ClipboardContent struct {
 	Type   string `msgpack:"type"`
 	Text   string `msgpack:"text"`

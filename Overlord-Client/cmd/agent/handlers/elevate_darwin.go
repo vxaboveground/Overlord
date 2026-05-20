@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"overlord-client/cmd/agent/mutex"
 	agentRuntime "overlord-client/cmd/agent/runtime"
 	"overlord-client/cmd/agent/wire"
 )
@@ -76,6 +77,7 @@ func HandleElevate(ctx context.Context, env *agentRuntime.Env, cmdID string, pas
 		})
 	}
 
+	mutex.ReleaseGlobal()
 	log.Printf("[elevate] started elevated process pid=%d", cmd.Process.Pid)
 
 	_ = wire.WriteMsg(ctx, env.Conn, wire.CommandResult{

