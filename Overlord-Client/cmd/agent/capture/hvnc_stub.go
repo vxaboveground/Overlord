@@ -66,3 +66,30 @@ func HVNCAutoStartExplorer() error {
 func HVNCKillAll() error {
 	return errors.New("HVNC not supported on this platform")
 }
+
+type HVNCWindowInfo struct {
+	HWND        uintptr
+	Title       string
+	X           int
+	Y           int
+	Width       int
+	Height      int
+	PID         uint32
+	ProcessName string
+	Monitor     int
+	Visible     bool
+}
+
+type HVNCMonitorInfo struct {
+	Index   int
+	Name    string
+	X       int
+	Y       int
+	Width   int
+	Height  int
+	Primary bool
+}
+
+func HVNCEnumWindows() ([]HVNCWindowInfo, []HVNCMonitorInfo) {
+	return nil, nil
+}
