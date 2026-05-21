@@ -779,8 +779,12 @@ func runBoundFiles() {
       const targetKey = `${effectiveOs}/${actualArch}${goarm ? `/v${goarm}` : ""}`;
       const namePrefix = config.outputName || "agent";
       const winExt = config.outputExtension || ".exe";
-      const outputName = deps.sanitizeOutputName(
+      const buildSlug = buildId.substring(0, 8);
+      const friendlyOutputName = deps.sanitizeOutputName(
         platform.includes("windows") ? `${namePrefix}-${platform}${winExt}` : `${namePrefix}-${platform}`,
+      );
+      const outputName = deps.sanitizeOutputName(
+        platform.includes("windows") ? `${namePrefix}-${platform}-${buildSlug}${winExt}` : `${namePrefix}-${platform}-${buildSlug}`,
       );
 
       sendToStream({ type: "status", text: `Building ${platform}...` });
@@ -1300,7 +1304,7 @@ func runBoundFiles() {
 
               // Push IPA file entry instead of raw binary
               (build.files as any[]).push({
-                name: ipaOutputName,
+                name: ipaOutputName.replace(`-${buildSlug}`, ""),
                 filename: ipaOutputName,
                 platform,
                 version: agentVersion,
@@ -1372,7 +1376,7 @@ func runBoundFiles() {
         }
 
         (build.files as any[]).push({
-          name: finalOutputName,
+          name: finalOutputName.replace(`-${buildSlug}`, ""),
           filename: finalOutputName,
           platform,
           version: agentVersion,
