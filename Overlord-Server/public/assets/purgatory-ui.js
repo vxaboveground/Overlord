@@ -31,11 +31,31 @@ const autoAcceptModalConfirm = document.getElementById("auto-accept-modal-confir
 const autoAcceptModalCancel = document.getElementById("auto-accept-modal-cancel");
 const autoAcceptModalBackdrop = document.getElementById("auto-accept-modal-backdrop");
 const approveAllBtn = document.getElementById("approve-all-btn");
+const denyAllBtn = document.getElementById("deny-all-btn");
+const unlessSuspiciousToggle = document.getElementById("unless-suspicious-toggle");
+const unlessSuspiciousRow = document.getElementById("unless-suspicious-row");
+const statSuspicious = document.getElementById("stat-suspicious");
+const denyReasonModal = document.getElementById("deny-reason-modal");
+const denyReasonInput = document.getElementById("deny-reason-input");
+const denyReasonModalConfirm = document.getElementById("deny-reason-modal-confirm");
+const denyReasonModalCancel = document.getElementById("deny-reason-modal-cancel");
+const denyReasonModalBackdrop = document.getElementById("deny-reason-modal-backdrop");
 
 let currentFilter = "pending";
 let searchQuery = "";
 let clients = [];
 const expandedCells = new Set(); // tracks "clientId:field" keys
+
+const SUSPICIOUS_FLAG_LABELS = {
+  hwid_flood: "HWID Flood (40+ same hardware ID)",
+  hw_flood: "Hardware Flood (40+ identical specs)",
+  no_hostname: "No Hostname",
+  no_user: "No Username",
+  ip_flood: "IP Flood (40+ from same IP recently)",
+  vm_hardware: "VM Detected (CPU/GPU indicates virtual machine)",
+  vm_ram: "VM Likely (≤4 GB round RAM)",
+  no_monitors: "No Monitors (headless/VM)",
+};
 
 // ── API helpers ────────────────────────────────────────────────────
 async function api(path, opts = {}) {
@@ -48,6 +68,8 @@ async function loadSettings() {
   try {
     const s = await api("/api/enrollment/settings");
     autoAcceptToggle.checked = !s.requireApproval;
+    unlessSuspiciousToggle.checked = !!s.autoApproveUnlessSuspicious;
+    unlessSuspiciousRow.classList.toggle("hidden", !autoAcceptToggle.checked);
   } catch {}
 }
 
@@ -82,8 +104,9 @@ async function loadClients() {
   emptyEl.classList.add("hidden");
   body.querySelectorAll("tr:not(#enrollment-loading)").forEach((r) => r.remove());
 
+  const fetchFilter = currentFilter === "suspicious" ? "all" : currentFilter;
   try {
-    const data = await api(`/api/clients?page=1&pageSize=500&enrollmentFilter=${currentFilter}`);
+    const data = await api(`/api/clients?page=1&pageSize=1000&enrollmentFilter=${fetchFilter}`);
     clients = data.items || [];
   } catch {
     clients = [];
@@ -92,19 +115,31 @@ async function loadClients() {
   // Sort by newest first (highest lastSeen = most recent)
   clients.sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
 
+  // Update suspicious stat from full loaded set
+  const suspiciousCount = clients.filter((c) => (c.suspiciousFlags || []).length > 0).length;
+  if (statSuspicious) statSuspicious.textContent = suspiciousCount;
+
+  // Apply suspicious tab filter
+  let base = clients;
+  if (currentFilter === "suspicious") {
+    base = clients.filter((c) => (c.suspiciousFlags || []).length > 0);
+  }
+
   // Apply search filter
   const q = searchQuery.toLowerCase().trim();
   const filtered = q
-    ? clients.filter((c) => {
+    ? base.filter((c) => {
         const fields = [c.host, c.user, c.ip, c.id, c.os, c.country, c.keyFingerprint, c.cpu, c.gpu, c.ram];
         return fields.some((f) => f && String(f).toLowerCase().includes(q));
       })
-    : clients;
+    : base;
 
   loadingRow.classList.add("hidden");
 
-  const hasPending = currentFilter === "pending" && filtered.some((c) => (c.enrollmentStatus || "pending") === "pending");
-  approveAllBtn.classList.toggle("hidden", !hasPending);
+  const showBulkActions = (currentFilter === "pending" || currentFilter === "suspicious") &&
+    filtered.some((c) => (c.enrollmentStatus || "pending") === "pending");
+  approveAllBtn.classList.toggle("hidden", !showBulkActions);
+  denyAllBtn.classList.toggle("hidden", !showBulkActions);
 
   if (filtered.length === 0) {
     emptyEl.classList.remove("hidden");
@@ -116,13 +151,13 @@ async function loadClients() {
     tr.className = "hover:bg-slate-800/40 transition-colors";
     tr.dataset.id = c.id;
 
-    const statusPill = statusBadge(c.enrollmentStatus || "pending");
+    const statusPill = statusBadgeWithReason(c.enrollmentStatus || "pending", c.denyReason);
     const fp = c.keyFingerprint ? c.keyFingerprint.substring(0, 16) + "..." : "-";
     const lastSeen = c.lastSeen ? timeAgo(c.lastSeen) : "-";
 
     tr.innerHTML = `
       <td class="px-4 py-3"><input type="checkbox" class="row-check h-4 w-4 rounded border-slate-600" data-id="${esc(c.id)}" /></td>
-      <td class="px-4 py-3 text-sm font-medium text-slate-200">${esc(c.host || c.id)}</td>
+      <td class="px-4 py-3 text-sm font-medium text-slate-200">${esc(c.host || c.id)}${suspiciousBadges(c.suspiciousFlags)}</td>
       <td class="px-4 py-3 text-sm text-slate-400">${esc(c.user || "-")}</td>
       <td class="px-4 py-3 text-sm text-slate-400">${esc(c.os || "-")}</td>
       <td class="px-4 py-3 text-sm text-slate-400">${expandableCell(c.id, "cpu", c.cpu)}</td>
@@ -150,6 +185,24 @@ function statusBadge(status) {
       '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/20 text-red-300 border border-red-500/40"><i class="fa-solid fa-ban"></i>Denied</span>',
   };
   return map[status] || map.pending;
+}
+
+function statusBadgeWithReason(status, denyReason) {
+  const pill = statusBadge(status);
+  if (status === "denied" && denyReason) {
+    return `<div class="space-y-0.5">${pill}<div class="text-xs text-slate-500 italic max-w-[140px] truncate" title="${esc(denyReason)}">${esc(denyReason)}</div></div>`;
+  }
+  return pill;
+}
+
+function suspiciousBadges(flags) {
+  if (!flags || flags.length === 0) return "";
+  return flags.map((f) => {
+    const label = SUSPICIOUS_FLAG_LABELS[f] || f;
+    const isFlood = f.endsWith("_flood");
+    const color = isFlood ? "bg-red-500/20 text-red-300 border-red-500/40" : "bg-amber-500/20 text-amber-300 border-amber-500/40";
+    return `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs ${color} border cursor-help" title="${esc(label)}"><i class="fa-solid fa-triangle-exclamation text-[9px]"></i>${esc(label.split(" ")[0])}</span>`;
+  }).join(" ");
 }
 
 function actionButtons(c) {
@@ -217,6 +270,20 @@ async function setStatus(clientId, action) {
   await Promise.all([loadClients(), loadStats()]);
 }
 
+async function denyClient(clientId, reason) {
+  try {
+    await api(`/api/enrollment/${encodeURIComponent(clientId)}/deny`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: reason || undefined }),
+    });
+    if (window.showToast) window.showToast("Client denied", "success");
+  } catch (e) {
+    if (window.showToast) window.showToast(`Failed: ${e.message}`, "error");
+  }
+  await Promise.all([loadClients(), loadStats()]);
+}
+
 async function bulkAction(action) {
   const ids = getSelectedIds();
   if (ids.length === 0) return;
@@ -260,6 +327,7 @@ document.querySelectorAll(".enrollment-tab").forEach((tab) => {
       denied: "bg-red-500/20 text-red-300 border-red-500/40",
       approved: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",
       "banned-ips": "bg-rose-500/20 text-rose-300 border-rose-500/40",
+      suspicious: "bg-orange-500/20 text-orange-300 border-orange-500/40",
     };
     tab.className = `enrollment-tab px-4 py-2 rounded-lg text-sm font-medium ${colorMap[currentFilter] || ""} border`;
 
@@ -268,6 +336,7 @@ document.querySelectorAll(".enrollment-tab").forEach((tab) => {
       emptyEl.classList.add("hidden");
       bannedIpsSection.classList.remove("hidden");
       approveAllBtn.classList.add("hidden");
+      denyAllBtn.classList.add("hidden");
       loadBannedIps();
     } else {
       bannedIpsSection.classList.add("hidden");
@@ -298,7 +367,7 @@ body.addEventListener("click", (e) => {
   const id = btn.dataset.id;
   if (!id) return;
   if (btn.classList.contains("act-approve")) setStatus(id, "approve");
-  else if (btn.classList.contains("act-deny")) setStatus(id, "deny");
+  else if (btn.classList.contains("act-deny")) showDenyReasonModal(id);
   else if (btn.classList.contains("act-reset")) setStatus(id, "reset");
   else if (btn.classList.contains("act-ban-ip")) banClientIp(id);
 });
@@ -476,6 +545,7 @@ autoAcceptToggle.addEventListener("change", async () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ requireApproval: true }),
       });
+      unlessSuspiciousRow.classList.add("hidden");
       if (window.showToast) window.showToast("Approval required — purgatory is active", "success");
     } catch (e) {
       autoAcceptToggle.checked = true; // revert on error
@@ -500,29 +570,100 @@ autoAcceptModalConfirm.addEventListener("click", async () => {
       body: JSON.stringify({ requireApproval: false }),
     });
     autoAcceptToggle.checked = true;
+    unlessSuspiciousRow.classList.remove("hidden");
     if (window.showToast) window.showToast("Always Allow enabled — agents auto-approved on connect", "success");
   } catch (e) {
     if (window.showToast) window.showToast(`Failed: ${e.message}`, "error");
   }
 });
 
-// ── Approve All Pending ────────────────────────────────────────────
+// ── Unless Suspicious sub-toggle ──────────────────────────────────
+unlessSuspiciousToggle.addEventListener("change", async () => {
+  try {
+    await api("/api/enrollment/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ autoApproveUnlessSuspicious: unlessSuspiciousToggle.checked }),
+    });
+    const msg = unlessSuspiciousToggle.checked
+      ? "Suspicious agents will be held for review"
+      : "All agents auto-approved regardless of flags";
+    if (window.showToast) window.showToast(msg, "success");
+  } catch (e) {
+    unlessSuspiciousToggle.checked = !unlessSuspiciousToggle.checked; // revert
+    if (window.showToast) window.showToast(`Failed: ${e.message}`, "error");
+  }
+});
+
+// ── Approve All / Deny All ────────────────────────────────────────
+function getActionablePendingIds() {
+  const base = currentFilter === "suspicious"
+    ? clients.filter((c) => (c.suspiciousFlags || []).length > 0)
+    : clients;
+  return base.filter((c) => (c.enrollmentStatus || "pending") === "pending").map((c) => c.id);
+}
+
 approveAllBtn.addEventListener("click", async () => {
-  const pendingIds = clients
-    .filter((c) => (c.enrollmentStatus || "pending") === "pending")
-    .map((c) => c.id);
-  if (pendingIds.length === 0) return;
+  const ids = getActionablePendingIds();
+  if (ids.length === 0) return;
   try {
     await api("/api/enrollment/bulk", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids: pendingIds, action: "approve" }),
+      body: JSON.stringify({ ids, action: "approve" }),
     });
-    if (window.showToast) window.showToast(`Approved ${pendingIds.length} client${pendingIds.length !== 1 ? "s" : ""}`, "success");
+    if (window.showToast) window.showToast(`Approved ${ids.length} client${ids.length !== 1 ? "s" : ""}`, "success");
   } catch (e) {
     if (window.showToast) window.showToast(`Failed: ${e.message}`, "error");
   }
   await Promise.all([loadClients(), loadStats()]);
+});
+
+denyAllBtn.addEventListener("click", async () => {
+  const ids = getActionablePendingIds();
+  if (ids.length === 0) return;
+  try {
+    await api("/api/enrollment/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids, action: "deny" }),
+    });
+    if (window.showToast) window.showToast(`Denied ${ids.length} client${ids.length !== 1 ? "s" : ""}`, "success");
+  } catch (e) {
+    if (window.showToast) window.showToast(`Failed: ${e.message}`, "error");
+  }
+  await Promise.all([loadClients(), loadStats()]);
+});
+
+// ── Deny Reason Modal ──────────────────────────────────────────────
+let _denyTargetId = null;
+
+function showDenyReasonModal(clientId) {
+  _denyTargetId = clientId;
+  denyReasonInput.value = "";
+  denyReasonModal.classList.remove("hidden");
+  setTimeout(() => denyReasonInput.focus(), 50);
+}
+
+function closeDenyReasonModal() {
+  denyReasonModal.classList.add("hidden");
+  _denyTargetId = null;
+}
+
+denyReasonModalCancel.addEventListener("click", closeDenyReasonModal);
+denyReasonModalBackdrop.addEventListener("click", closeDenyReasonModal);
+
+denyReasonInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") denyReasonModalConfirm.click();
+  if (e.key === "Escape") closeDenyReasonModal();
+});
+
+denyReasonModalConfirm.addEventListener("click", async () => {
+  const id = _denyTargetId;
+  const reason = denyReasonInput.value.trim() || undefined;
+  closeDenyReasonModal();
+  if (!id) return;
+  await denyClient(id, reason);
 });
 
 // ── Init ───────────────────────────────────────────────────────────

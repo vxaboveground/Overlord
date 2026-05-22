@@ -58,6 +58,7 @@ export interface Config {
   };
   enrollment: {
     requireApproval: boolean;
+    autoApproveUnlessSuspicious: boolean;
   };
   appearance: {
     customCSS: string;
@@ -142,6 +143,7 @@ const DEFAULT_CONFIG: Config = {
   },
   enrollment: {
     requireApproval: true,
+    autoApproveUnlessSuspicious: false,
   },
   appearance: {
     customCSS: "",
@@ -510,6 +512,8 @@ export function loadConfig(): Config {
         process.env.OVERLORD_ENROLLMENT_REQUIRE_APPROVAL !== undefined
           ? String(process.env.OVERLORD_ENROLLMENT_REQUIRE_APPROVAL).toLowerCase() === "true"
           : (fileConfig.enrollment?.requireApproval ?? DEFAULT_CONFIG.enrollment.requireApproval),
+      autoApproveUnlessSuspicious:
+        fileConfig.enrollment?.autoApproveUnlessSuspicious ?? DEFAULT_CONFIG.enrollment.autoApproveUnlessSuspicious,
     },
     appearance: {
       customCSS: fileConfig.appearance?.customCSS || DEFAULT_CONFIG.appearance.customCSS,
@@ -693,6 +697,7 @@ export async function updateEnrollmentConfig(
     ...current.enrollment,
     ...updates,
     requireApproval: updates.requireApproval !== undefined ? Boolean(updates.requireApproval) : current.enrollment.requireApproval,
+    autoApproveUnlessSuspicious: updates.autoApproveUnlessSuspicious !== undefined ? Boolean(updates.autoApproveUnlessSuspicious) : current.enrollment.autoApproveUnlessSuspicious,
   };
 
   configCache = {

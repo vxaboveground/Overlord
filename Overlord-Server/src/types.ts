@@ -73,6 +73,8 @@ export type ListItem = Omit<ClientInfo, 'ws'> & {
   online: boolean;
   hasThumbnail: boolean;
   thumbnailVersion: number;
+  suspiciousFlags: string[];
+  denyReason?: string | null;
 };
 
 export type ListResult = {

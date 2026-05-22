@@ -9,7 +9,8 @@ async function getGeoip() {
 }
 import { logAudit, AuditAction } from "../../auditLog";
 import * as clientManager from "../../clientManager";
-import { clientExists, setOnlineState, upsertClientRow, getClientEnrollmentStatus, setClientEnrollmentStatus, lookupClientByPublicKey, getClientPublicKeyById, getBuildByTag } from "../../db";
+import { clientExists, setOnlineState, upsertClientRow, getClientEnrollmentStatus, setClientEnrollmentStatus, lookupClientByPublicKey, getClientPublicKeyById, getBuildByTag, computeClientSuspiciousFlags } from "../../db";
+import { getConfig } from "../../config";
 import { logger } from "../../logger";
 import { metrics } from "../../metrics";
 import { decodeMessage, encodeMessage, type WireMessage, type Hello, type Ping } from "../../protocol";
@@ -419,6 +420,33 @@ export async function handleWebSocketMessage(
         }
 
         if (enrollmentStatus === "pending") {
+          const enrollConfig = getConfig().enrollment;
+
+          if (!enrollConfig.requireApproval) {
+            let blocked = false;
+            if (enrollConfig.autoApproveUnlessSuspicious) {
+              const flags = computeClientSuspiciousFlags({
+                hwid: typeof (payload as any).hwid === "string" ? (payload as any).hwid : null,
+                cpu: typeof (payload as any).cpu === "string" ? (payload as any).cpu : null,
+                gpu: typeof (payload as any).gpu === "string" ? (payload as any).gpu : null,
+                ram: typeof (payload as any).ram === "string" ? (payload as any).ram : null,
+                os: typeof (payload as any).os === "string" ? (payload as any).os : null,
+                host: typeof (payload as any).host === "string" ? (payload as any).host : null,
+                user: typeof (payload as any).user === "string" ? (payload as any).user : null,
+                ip: ip || null,
+              });
+              if (flags.length > 0) {
+                blocked = true;
+                logger.info(`[purgatory] auto-approve blocked for ${resolvedId} — suspicious: ${flags.join(", ")}`);
+              }
+            }
+            if (!blocked) {
+              enrollmentStatus = "approved";
+              logger.info(`[purgatory] auto-approved ${resolvedId} (requireApproval=false)`);
+            }
+          }
+
+          if (enrollmentStatus !== "approved") {
           const geoip = await getGeoip();
           const geo = ip ? geoip.lookup(ip) : undefined;
           const countryRaw = geo?.country || (payload as any).country || "ZZ";
@@ -476,6 +504,7 @@ export async function handleWebSocketMessage(
           }
           setTimeout(() => { try { ws.close(4001, "pending"); } catch {} }, 100);
           return;
+          }
         }
 
         const existingClient = clientManager.getClient(resolvedId);

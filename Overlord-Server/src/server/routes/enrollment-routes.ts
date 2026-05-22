@@ -111,6 +111,7 @@ export async function handleEnrollmentRoutes(
     const config = getConfig();
     return Response.json({
       requireApproval: config.enrollment?.requireApproval ?? true,
+      autoApproveUnlessSuspicious: config.enrollment?.autoApproveUnlessSuspicious ?? false,
     });
   }
 
@@ -123,11 +124,15 @@ export async function handleEnrollmentRoutes(
     let body: any;
     try { body = await req.json(); } catch { return Response.json({ error: "Invalid JSON" }, { status: 400 }); }
 
-    if (typeof body?.requireApproval !== "boolean") {
-      return Response.json({ error: "requireApproval must be a boolean" }, { status: 400 });
+    const updates: { requireApproval?: boolean; autoApproveUnlessSuspicious?: boolean } = {};
+    if (typeof body?.requireApproval === "boolean") updates.requireApproval = body.requireApproval;
+    if (typeof body?.autoApproveUnlessSuspicious === "boolean") updates.autoApproveUnlessSuspicious = body.autoApproveUnlessSuspicious;
+
+    if (Object.keys(updates).length === 0) {
+      return Response.json({ error: "No valid boolean fields provided" }, { status: 400 });
     }
 
-    const updated = await updateEnrollmentConfig({ requireApproval: body.requireApproval });
+    const updated = await updateEnrollmentConfig(updates);
 
     logAudit({
       timestamp: Date.now(),
@@ -135,10 +140,10 @@ export async function handleEnrollmentRoutes(
       ip: "server",
       action: AuditAction.ENROLLMENT_SETTINGS,
       success: true,
-      details: JSON.stringify({ requireApproval: body.requireApproval }),
+      details: JSON.stringify(updates),
     });
 
-    return Response.json({ ok: true, requireApproval: updated.requireApproval });
+    return Response.json({ ok: true, requireApproval: updated.requireApproval, autoApproveUnlessSuspicious: updated.autoApproveUnlessSuspicious });
   }
 
   // POST /api/enrollment/:id/approve
@@ -200,7 +205,11 @@ export async function handleEnrollmentRoutes(
       return new Response("Forbidden: Client access denied", { status: 403 });
     }
 
-    setClientEnrollmentStatus(clientId, "denied");
+    let denyBody: any = {};
+    try { denyBody = await req.json(); } catch {}
+    const denyReason = typeof denyBody?.reason === "string" ? denyBody.reason.slice(0, 200).trim() || undefined : undefined;
+
+    setClientEnrollmentStatus(clientId, "denied", undefined, denyReason);
 
     logAudit({
       timestamp: Date.now(),
@@ -296,6 +305,7 @@ export async function handleEnrollmentRoutes(
       return Response.json({ ok: true, action, updated: banned });
     }
 
+    const bulkDenyReason = typeof body?.reason === "string" ? body.reason.slice(0, 200).trim() || undefined : undefined;
     const status = action === "approve" ? "approved" : action === "deny" ? "denied" : "pending";
     let updated = 0;
     for (const id of ids) {
@@ -304,6 +314,7 @@ export async function handleEnrollmentRoutes(
         id,
         status as "approved" | "denied" | "pending",
         action === "approve" ? user.username : undefined,
+        action === "deny" ? bulkDenyReason : undefined,
       );
       if (ok) {
         updated++;
