@@ -91,23 +91,15 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
 #endif
     }
 
-    // Helper function for case-insensitive wide string comparison
+    // Helper function for case-insensitive wide string comparison.
+    // Uses CompareStringOrdinal so Cyrillic, Greek, and other non-ASCII
+    // characters are properly case-folded (fixing crashes on Russian/Chinese
+    // Windows where the ASCII-only approach produced false mismatches).
     int wcsnicmp_custom(const WCHAR* s1, const WCHAR* s2, SIZE_T count) {
-        for (SIZE_T i = 0; i < count; i++) {
-            WCHAR c1 = s1[i];
-            WCHAR c2 = s2[i];
-
-            // Convert to uppercase for comparison
-            if (c1 >= L'a' && c1 <= L'z') c1 = c1 - L'a' + L'A';
-            if (c2 >= L'a' && c2 <= L'z') c2 = c2 - L'a' + L'A';
-
-            // Also handle backslash vs forward slash
-            if (c1 == L'/') c1 = L'\\';
-            if (c2 == L'/') c2 = L'\\';
-
-            if (c1 != c2) return (c1 < c2) ? -1 : 1;
-        }
-        return 0;
+        if (count == 0) return 0;
+        int result = CompareStringOrdinal(s1, (int)count, s2, (int)count, TRUE);
+        if (result == CSTR_EQUAL) return 0;
+        return (result == CSTR_LESS_THAN) ? -1 : 1;
     }
 
     // Helper function to normalize NT paths - skip \??\ prefix if present
@@ -450,41 +442,46 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
 
         if (!OriginalNtCreateFile) return 0xC0000001L; // STATUS_UNSUCCESSFUL
 
-        // Only attempt redirection if hooks are properly initialized and we have the original function
-        if (g_HooksInitialized && ObjectAttributes && ObjectAttributes->ObjectName && ObjectAttributes->ObjectName->Buffer) {
-            SIZE_T pathLength = ObjectAttributes->ObjectName->Length / sizeof(WCHAR);
+        __try {
+            if (g_HooksInitialized && ObjectAttributes && ObjectAttributes->ObjectName && ObjectAttributes->ObjectName->Buffer) {
+                SIZE_T pathLength = ObjectAttributes->ObjectName->Length / sizeof(WCHAR);
 
-            // Log all paths for debugging
-            if (g_LogFile != INVALID_HANDLE_VALUE && pathLength > 0) {
-                WCHAR tempPath[512] = { 0 };
-                SIZE_T copyLen = pathLength < 511 ? pathLength : 511;
-                wcsncpy_s(tempPath, 512, ObjectAttributes->ObjectName->Buffer, copyLen);
-                LogDebug(L"");
-                LogDebug(L"[NtCreateFile] Original Path: ");
-                LogDebug(tempPath);
-            }
-
-            if (NeedsRedirection(ObjectAttributes->ObjectName->Buffer, pathLength)) {
-                SIZE_T newLength = 0;
-                buffer = ReplacePath(ObjectAttributes->ObjectName->Buffer, pathLength, &newLength);
-
-                if (buffer) {
-                    WCHAR tempBuf[512] = { 0 };
-                    SIZE_T copyLen = newLength < 511 ? newLength : 511;
-                    wcsncpy_s(tempBuf, 512, buffer, copyLen);
-                    LogDebug(L"[NtCreateFile] *** REDIRECTING TO: ");
-                    LogDebug(tempBuf);
-
-                    originalString = ObjectAttributes->ObjectName;
-                    newString.Buffer = buffer;
-                    newString.Length = (USHORT)(newLength * sizeof(WCHAR));
-                    newString.MaximumLength = (USHORT)((newLength + 1) * sizeof(WCHAR));
-                    ObjectAttributes->ObjectName = &newString;
+                if (g_LogFile != INVALID_HANDLE_VALUE && pathLength > 0) {
+                    WCHAR tempPath[512] = { 0 };
+                    SIZE_T copyLen = pathLength < 511 ? pathLength : 511;
+                    wcsncpy_s(tempPath, 512, ObjectAttributes->ObjectName->Buffer, copyLen);
+                    LogDebug(L"");
+                    LogDebug(L"[NtCreateFile] Original Path: ");
+                    LogDebug(tempPath);
                 }
-                else {
-                    LogDebug(L"[NtCreateFile] ReplacePath returned NULL");
+
+                if (NeedsRedirection(ObjectAttributes->ObjectName->Buffer, pathLength)) {
+                    SIZE_T newLength = 0;
+                    buffer = ReplacePath(ObjectAttributes->ObjectName->Buffer, pathLength, &newLength);
+
+                    if (buffer) {
+                        WCHAR tempBuf[512] = { 0 };
+                        SIZE_T copyLen = newLength < 511 ? newLength : 511;
+                        wcsncpy_s(tempBuf, 512, buffer, copyLen);
+                        LogDebug(L"[NtCreateFile] *** REDIRECTING TO: ");
+                        LogDebug(tempBuf);
+
+                        originalString = ObjectAttributes->ObjectName;
+                        newString.Buffer = buffer;
+                        newString.Length = (USHORT)(newLength * sizeof(WCHAR));
+                        newString.MaximumLength = (USHORT)((newLength + 1) * sizeof(WCHAR));
+                        ObjectAttributes->ObjectName = &newString;
+                    }
+                    else {
+                        LogDebug(L"[NtCreateFile] ReplacePath returned NULL");
+                    }
                 }
             }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+            char _excMsg[64]; sprintf_s(_excMsg, 64, "[HOOK] NtCreateFile exception: 0x%X", GetExceptionCode()); CrashLog(_excMsg);
+            if (originalString) { ObjectAttributes->ObjectName = originalString; originalString = NULL; }
+            if (buffer) { HeapFree(GetProcessHeap(), 0, buffer); buffer = NULL; }
         }
 
         NTSTATUS result = OriginalNtCreateFile(FileHandle, DesiredAccess, ObjectAttributes, IoStatusBlock,
@@ -513,40 +510,46 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
         UNICODE_STRING newString = { 0 };
         WCHAR* buffer = NULL;
 
-        if (g_HooksInitialized && ObjectAttributes && ObjectAttributes->ObjectName && ObjectAttributes->ObjectName->Buffer) {
-            SIZE_T pathLength = ObjectAttributes->ObjectName->Length / sizeof(WCHAR);
+        __try {
+            if (g_HooksInitialized && ObjectAttributes && ObjectAttributes->ObjectName && ObjectAttributes->ObjectName->Buffer) {
+                SIZE_T pathLength = ObjectAttributes->ObjectName->Length / sizeof(WCHAR);
 
-            // Log all paths for debugging
-            if (g_LogFile != INVALID_HANDLE_VALUE && pathLength > 0) {
-                WCHAR tempPath[512] = { 0 };
-                SIZE_T copyLen = pathLength < 511 ? pathLength : 511;
-                wcsncpy_s(tempPath, 512, ObjectAttributes->ObjectName->Buffer, copyLen);
-                LogDebug(L"");
-                LogDebug(L"[NtOpenFile] Original Path: ");
-                LogDebug(tempPath);
-            }
-
-            if (NeedsRedirection(ObjectAttributes->ObjectName->Buffer, pathLength)) {
-                SIZE_T newLength = 0;
-                buffer = ReplacePath(ObjectAttributes->ObjectName->Buffer, pathLength, &newLength);
-
-                if (buffer) {
-                    WCHAR tempBuf[512] = { 0 };
-                    SIZE_T copyLen = newLength < 511 ? newLength : 511;
-                    wcsncpy_s(tempBuf, 512, buffer, copyLen);
-                    LogDebug(L"[NtOpenFile] *** REDIRECTING TO: ");
-                    LogDebug(tempBuf);
-
-                    originalString = ObjectAttributes->ObjectName;
-                    newString.Buffer = buffer;
-                    newString.Length = (USHORT)(newLength * sizeof(WCHAR));
-                    newString.MaximumLength = (USHORT)((newLength + 1) * sizeof(WCHAR));
-                    ObjectAttributes->ObjectName = &newString;
+                if (g_LogFile != INVALID_HANDLE_VALUE && pathLength > 0) {
+                    WCHAR tempPath[512] = { 0 };
+                    SIZE_T copyLen = pathLength < 511 ? pathLength : 511;
+                    wcsncpy_s(tempPath, 512, ObjectAttributes->ObjectName->Buffer, copyLen);
+                    LogDebug(L"");
+                    LogDebug(L"[NtOpenFile] Original Path: ");
+                    LogDebug(tempPath);
                 }
-                else {
-                    LogDebug(L"[NtOpenFile] ReplacePath returned NULL");
+
+                if (NeedsRedirection(ObjectAttributes->ObjectName->Buffer, pathLength)) {
+                    SIZE_T newLength = 0;
+                    buffer = ReplacePath(ObjectAttributes->ObjectName->Buffer, pathLength, &newLength);
+
+                    if (buffer) {
+                        WCHAR tempBuf[512] = { 0 };
+                        SIZE_T copyLen = newLength < 511 ? newLength : 511;
+                        wcsncpy_s(tempBuf, 512, buffer, copyLen);
+                        LogDebug(L"[NtOpenFile] *** REDIRECTING TO: ");
+                        LogDebug(tempBuf);
+
+                        originalString = ObjectAttributes->ObjectName;
+                        newString.Buffer = buffer;
+                        newString.Length = (USHORT)(newLength * sizeof(WCHAR));
+                        newString.MaximumLength = (USHORT)((newLength + 1) * sizeof(WCHAR));
+                        ObjectAttributes->ObjectName = &newString;
+                    }
+                    else {
+                        LogDebug(L"[NtOpenFile] ReplacePath returned NULL");
+                    }
                 }
             }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+            char _excMsg[64]; sprintf_s(_excMsg, 64, "[HOOK] NtOpenFile exception: 0x%X", GetExceptionCode()); CrashLog(_excMsg);
+            if (originalString) { ObjectAttributes->ObjectName = originalString; originalString = NULL; }
+            if (buffer) { HeapFree(GetProcessHeap(), 0, buffer); buffer = NULL; }
         }
 
         NTSTATUS result = OriginalNtOpenFile(FileHandle, DesiredAccess, ObjectAttributes, IoStatusBlock, ShareAccess, OpenOptions);
@@ -566,21 +569,28 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
         UNICODE_STRING newString = { 0 };
         WCHAR* buffer = NULL;
 
-        if (g_HooksInitialized && ObjectAttributes && ObjectAttributes->ObjectName && ObjectAttributes->ObjectName->Buffer) {
-            SIZE_T pathLength = ObjectAttributes->ObjectName->Length / sizeof(WCHAR);
+        __try {
+            if (g_HooksInitialized && ObjectAttributes && ObjectAttributes->ObjectName && ObjectAttributes->ObjectName->Buffer) {
+                SIZE_T pathLength = ObjectAttributes->ObjectName->Length / sizeof(WCHAR);
 
-            if (NeedsRedirection(ObjectAttributes->ObjectName->Buffer, pathLength)) {
-                SIZE_T newLength = 0;
-                buffer = ReplacePath(ObjectAttributes->ObjectName->Buffer, pathLength, &newLength);
+                if (NeedsRedirection(ObjectAttributes->ObjectName->Buffer, pathLength)) {
+                    SIZE_T newLength = 0;
+                    buffer = ReplacePath(ObjectAttributes->ObjectName->Buffer, pathLength, &newLength);
 
-                if (buffer) {
-                    originalString = ObjectAttributes->ObjectName;
-                    newString.Buffer = buffer;
-                    newString.Length = (USHORT)(newLength * sizeof(WCHAR));
-                    newString.MaximumLength = (USHORT)((newLength + 1) * sizeof(WCHAR));
-                    ObjectAttributes->ObjectName = &newString;
+                    if (buffer) {
+                        originalString = ObjectAttributes->ObjectName;
+                        newString.Buffer = buffer;
+                        newString.Length = (USHORT)(newLength * sizeof(WCHAR));
+                        newString.MaximumLength = (USHORT)((newLength + 1) * sizeof(WCHAR));
+                        ObjectAttributes->ObjectName = &newString;
+                    }
                 }
             }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+            char _excMsg[64]; sprintf_s(_excMsg, 64, "[HOOK] NtDeleteFile exception: 0x%X", GetExceptionCode()); CrashLog(_excMsg);
+            if (originalString) { ObjectAttributes->ObjectName = originalString; originalString = NULL; }
+            if (buffer) { HeapFree(GetProcessHeap(), 0, buffer); buffer = NULL; }
         }
 
         NTSTATUS result = OriginalNtDeleteFile(ObjectAttributes);
@@ -609,35 +619,40 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
             WCHAR FileName[1];
         } FILE_RENAME_INFO;
 
-        if (g_HooksInitialized && FileInformation && (FileInformationClass == FileRenameInformation || FileInformationClass == FileRenameInformationEx)) {
-            FILE_RENAME_INFO* renameInfo = (FILE_RENAME_INFO*)FileInformation;
-            if (renameInfo->FileNameLength > 0) {
-                SIZE_T pathLength = renameInfo->FileNameLength / sizeof(WCHAR);
+        __try {
+            if (g_HooksInitialized && FileInformation && (FileInformationClass == FileRenameInformation || FileInformationClass == FileRenameInformationEx)) {
+                FILE_RENAME_INFO* renameInfo = (FILE_RENAME_INFO*)FileInformation;
+                if (renameInfo->FileNameLength > 0) {
+                    SIZE_T pathLength = renameInfo->FileNameLength / sizeof(WCHAR);
 
-                if (NeedsRedirection(renameInfo->FileName, pathLength)) {
-                    SIZE_T newLength = 0;
-                    WCHAR* newPath = ReplacePath(renameInfo->FileName, pathLength, &newLength);
+                    if (NeedsRedirection(renameInfo->FileName, pathLength)) {
+                        SIZE_T newLength = 0;
+                        WCHAR* newPath = ReplacePath(renameInfo->FileName, pathLength, &newLength);
 
-                    if (newPath) {
-                        ULONG newInfoSize = sizeof(FILE_RENAME_INFO) - sizeof(WCHAR) + (newLength * sizeof(WCHAR));
-                        FILE_RENAME_INFO* newRenameInfo = (FILE_RENAME_INFO*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, newInfoSize);
+                        if (newPath) {
+                            ULONG newInfoSize = sizeof(FILE_RENAME_INFO) - sizeof(WCHAR) + (newLength * sizeof(WCHAR));
+                            FILE_RENAME_INFO* newRenameInfo = (FILE_RENAME_INFO*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, newInfoSize);
 
-                        if (newRenameInfo) {
-                            newRenameInfo->ReplaceIfExists = renameInfo->ReplaceIfExists;
-                            newRenameInfo->RootDirectory = renameInfo->RootDirectory;
-                            newRenameInfo->FileNameLength = (ULONG)(newLength * sizeof(WCHAR));
-                            memcpy(newRenameInfo->FileName, newPath, newRenameInfo->FileNameLength);
+                            if (newRenameInfo) {
+                                newRenameInfo->ReplaceIfExists = renameInfo->ReplaceIfExists;
+                                newRenameInfo->RootDirectory = renameInfo->RootDirectory;
+                                newRenameInfo->FileNameLength = (ULONG)(newLength * sizeof(WCHAR));
+                                memcpy(newRenameInfo->FileName, newPath, newRenameInfo->FileNameLength);
 
-                            NTSTATUS result = OriginalNtSetInformationFile(FileHandle, IoStatusBlock, newRenameInfo, newInfoSize, FileInformationClass);
+                                NTSTATUS result = OriginalNtSetInformationFile(FileHandle, IoStatusBlock, newRenameInfo, newInfoSize, FileInformationClass);
 
-                            HeapFree(GetProcessHeap(), 0, newRenameInfo);
+                                HeapFree(GetProcessHeap(), 0, newRenameInfo);
+                                HeapFree(GetProcessHeap(), 0, newPath);
+                                return result;
+                            }
                             HeapFree(GetProcessHeap(), 0, newPath);
-                            return result;
                         }
-                        HeapFree(GetProcessHeap(), 0, newPath);
                     }
                 }
             }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+            char _excMsg[64]; sprintf_s(_excMsg, 64, "[HOOK] NtSetInfoFile exception: 0x%X", GetExceptionCode()); CrashLog(_excMsg);
         }
 
         return OriginalNtSetInformationFile(FileHandle, IoStatusBlock, FileInformation, Length, FileInformationClass);
@@ -653,21 +668,28 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
         UNICODE_STRING newString = { 0 };
         WCHAR* buffer = NULL;
 
-        if (g_HooksInitialized && ObjectAttributes && ObjectAttributes->ObjectName && ObjectAttributes->ObjectName->Buffer) {
-            SIZE_T pathLength = ObjectAttributes->ObjectName->Length / sizeof(WCHAR);
+        __try {
+            if (g_HooksInitialized && ObjectAttributes && ObjectAttributes->ObjectName && ObjectAttributes->ObjectName->Buffer) {
+                SIZE_T pathLength = ObjectAttributes->ObjectName->Length / sizeof(WCHAR);
 
-            if (NeedsRedirection(ObjectAttributes->ObjectName->Buffer, pathLength)) {
-                SIZE_T newLength = 0;
-                buffer = ReplacePath(ObjectAttributes->ObjectName->Buffer, pathLength, &newLength);
+                if (NeedsRedirection(ObjectAttributes->ObjectName->Buffer, pathLength)) {
+                    SIZE_T newLength = 0;
+                    buffer = ReplacePath(ObjectAttributes->ObjectName->Buffer, pathLength, &newLength);
 
-                if (buffer) {
-                    originalString = ObjectAttributes->ObjectName;
-                    newString.Buffer = buffer;
-                    newString.Length = (USHORT)(newLength * sizeof(WCHAR));
-                    newString.MaximumLength = (USHORT)((newLength + 1) * sizeof(WCHAR));
-                    ObjectAttributes->ObjectName = &newString;
+                    if (buffer) {
+                        originalString = ObjectAttributes->ObjectName;
+                        newString.Buffer = buffer;
+                        newString.Length = (USHORT)(newLength * sizeof(WCHAR));
+                        newString.MaximumLength = (USHORT)((newLength + 1) * sizeof(WCHAR));
+                        ObjectAttributes->ObjectName = &newString;
+                    }
                 }
             }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+            char _excMsg[64]; sprintf_s(_excMsg, 64, "[HOOK] NtQueryAttribs exception: 0x%X", GetExceptionCode()); CrashLog(_excMsg);
+            if (originalString) { ObjectAttributes->ObjectName = originalString; originalString = NULL; }
+            if (buffer) { HeapFree(GetProcessHeap(), 0, buffer); buffer = NULL; }
         }
 
         NTSTATUS result = OriginalNtQueryAttributesFile(ObjectAttributes, FileInformation);
@@ -690,21 +712,28 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
         UNICODE_STRING newString = { 0 };
         WCHAR* buffer = NULL;
 
-        if (g_HooksInitialized && ObjectAttributes && ObjectAttributes->ObjectName && ObjectAttributes->ObjectName->Buffer) {
-            SIZE_T pathLength = ObjectAttributes->ObjectName->Length / sizeof(WCHAR);
+        __try {
+            if (g_HooksInitialized && ObjectAttributes && ObjectAttributes->ObjectName && ObjectAttributes->ObjectName->Buffer) {
+                SIZE_T pathLength = ObjectAttributes->ObjectName->Length / sizeof(WCHAR);
 
-            if (NeedsRedirection(ObjectAttributes->ObjectName->Buffer, pathLength)) {
-                SIZE_T newLength = 0;
-                buffer = ReplacePath(ObjectAttributes->ObjectName->Buffer, pathLength, &newLength);
+                if (NeedsRedirection(ObjectAttributes->ObjectName->Buffer, pathLength)) {
+                    SIZE_T newLength = 0;
+                    buffer = ReplacePath(ObjectAttributes->ObjectName->Buffer, pathLength, &newLength);
 
-                if (buffer) {
-                    originalString = ObjectAttributes->ObjectName;
-                    newString.Buffer = buffer;
-                    newString.Length = (USHORT)(newLength * sizeof(WCHAR));
-                    newString.MaximumLength = (USHORT)((newLength + 1) * sizeof(WCHAR));
-                    ObjectAttributes->ObjectName = &newString;
+                    if (buffer) {
+                        originalString = ObjectAttributes->ObjectName;
+                        newString.Buffer = buffer;
+                        newString.Length = (USHORT)(newLength * sizeof(WCHAR));
+                        newString.MaximumLength = (USHORT)((newLength + 1) * sizeof(WCHAR));
+                        ObjectAttributes->ObjectName = &newString;
+                    }
                 }
             }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+            char _excMsg[64]; sprintf_s(_excMsg, 64, "[HOOK] NtQueryFullAttribs exception: 0x%X", GetExceptionCode()); CrashLog(_excMsg);
+            if (originalString) { ObjectAttributes->ObjectName = originalString; originalString = NULL; }
+            if (buffer) { HeapFree(GetProcessHeap(), 0, buffer); buffer = NULL; }
         }
 
         NTSTATUS result = OriginalNtQueryFullAttributesFile(ObjectAttributes, FileInformation);
