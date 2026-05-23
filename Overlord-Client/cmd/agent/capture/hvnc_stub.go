@@ -23,7 +23,7 @@ func SetHVNCUIAEnabled(enabled bool) {}
 
 func GetHVNCUIAEnabled() bool { return false }
 
-func hvncCaptureDisplay(display int) (*image.RGBA, error) {
+func BackstageCaptureDisplay(display int) (*image.RGBA, error) {
 	return nil, errors.New("HVNC not supported on this platform")
 }
 

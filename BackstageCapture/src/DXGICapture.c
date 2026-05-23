@@ -1,5 +1,5 @@
 //===============================================================================================//
-// HVNCCapture — DXGI SwapChain::Present hook implementation.
+// BackstageCapture — DXGI SwapChain::Present hook implementation.
 //
 // Compiled as C++ (CompileAsCpp in vcxproj). Uses C++ COM calling convention
 // (obj->Method(...) rather than obj->lpVtbl->Method(obj, ...)).
@@ -145,13 +145,13 @@ static BOOL EnsureSharedMemory(UINT width, UINT height) {
 
     g_ShmHandle = CreateFileMappingW(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, sizeHigh, sizeLow, wShmName);
     if (!g_ShmHandle) {
-        DebugLog("[HVNCCapture] CreateFileMappingW failed: %lu\n", GetLastError());
+        DebugLog("[BackstageCapture] CreateFileMappingW failed: %lu\n", GetLastError());
         return FALSE;
     }
 
     g_ShmView = MapViewOfFile(g_ShmHandle, FILE_MAP_WRITE, 0, 0, needed);
     if (!g_ShmView) {
-        DebugLog("[HVNCCapture] MapViewOfFile failed: %lu\n", GetLastError());
+        DebugLog("[BackstageCapture] MapViewOfFile failed: %lu\n", GetLastError());
         CloseHandle(g_ShmHandle);
         g_ShmHandle = NULL;
         return FALSE;
@@ -167,7 +167,7 @@ static BOOL EnsureSharedMemory(UINT width, UINT height) {
         g_FrameEvent = CreateEventW(NULL, FALSE, FALSE, wEvtName);
     }
 
-    DebugLog("[HVNCCapture] Shared memory created: %s (%zu bytes, %ux%u)\n", shmName, needed, width, height);
+    DebugLog("[BackstageCapture] Shared memory created: %s (%zu bytes, %ux%u)\n", shmName, needed, width, height);
     return TRUE;
 }
 
@@ -210,12 +210,12 @@ static BOOL EnsureStaging(ID3D11Device* device, UINT width, UINT height, DXGI_FO
 
     HRESULT hr = device->CreateTexture2D(&desc, NULL, &g_Staging[0]);
     if (FAILED(hr)) {
-        DebugLog("[HVNCCapture] CreateTexture2D staging[0] failed: 0x%08x fmt=%u\n", hr, (unsigned)stageFmt);
+        DebugLog("[BackstageCapture] CreateTexture2D staging[0] failed: 0x%08x fmt=%u\n", hr, (unsigned)stageFmt);
         return FALSE;
     }
     hr = device->CreateTexture2D(&desc, NULL, &g_Staging[1]);
     if (FAILED(hr)) {
-        DebugLog("[HVNCCapture] CreateTexture2D staging[1] failed: 0x%08x fmt=%u\n", hr, (unsigned)stageFmt);
+        DebugLog("[BackstageCapture] CreateTexture2D staging[1] failed: 0x%08x fmt=%u\n", hr, (unsigned)stageFmt);
         g_Staging[0]->Release(); g_Staging[0] = NULL;
         return FALSE;
     }
@@ -223,7 +223,7 @@ static BOOL EnsureStaging(ID3D11Device* device, UINT width, UINT height, DXGI_FO
     g_StagingW = width;
     g_StagingH = height;
     g_StagingFmt = fmt;
-    DebugLog("[HVNCCapture] Staging textures created: %ux%u fmt=%u\n", width, height, (unsigned)stageFmt);
+    DebugLog("[BackstageCapture] Staging textures created: %ux%u fmt=%u\n", width, height, (unsigned)stageFmt);
     return TRUE;
 }
 
@@ -372,7 +372,7 @@ static void CaptureFrameInner(IDXGISwapChain* pSwapChain) {
         return;  // GPU hasn't finished the previous copy — skip
     }
     if (FAILED(hr)) {
-        DebugLog("[HVNCCapture] Map failed: 0x%08x\n", hr);
+        DebugLog("[BackstageCapture] Map failed: 0x%08x\n", hr);
         return;
     }
 
@@ -416,7 +416,7 @@ static void CaptureFrame(IDXGISwapChain* pSwapChain) {
         CaptureFrameInner(pSwapChain);
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
-        DebugLog("[HVNCCapture] SEH exception 0x%08x in CaptureFrame — skipping frame\n",
+        DebugLog("[BackstageCapture] SEH exception 0x%08x in CaptureFrame — skipping frame\n",
                  GetExceptionCode());
     }
     LeaveCriticalSection(&g_Lock);
@@ -460,7 +460,7 @@ static BOOL GetDXGIPresent(void** ppPresent, void** ppPresent1, void** ppResizeB
     HMODULE hD3D11 = GetModuleHandleA("d3d11.dll");
     if (!hD3D11) hD3D11 = LoadLibraryA("d3d11.dll");
     if (!hD3D11) {
-        DebugLog("[HVNCCapture] d3d11.dll not available\n");
+        DebugLog("[BackstageCapture] d3d11.dll not available\n");
         return FALSE;
     }
 
@@ -472,7 +472,7 @@ static BOOL GetDXGIPresent(void** ppPresent, void** ppPresent1, void** ppResizeB
     PFN_D3D11CreateDeviceAndSwapChain pCreate =
         (PFN_D3D11CreateDeviceAndSwapChain)GetProcAddress(hD3D11, "D3D11CreateDeviceAndSwapChain");
     if (!pCreate) {
-        DebugLog("[HVNCCapture] D3D11CreateDeviceAndSwapChain not found\n");
+        DebugLog("[BackstageCapture] D3D11CreateDeviceAndSwapChain not found\n");
         return FALSE;
     }
 
@@ -506,7 +506,7 @@ static BOOL GetDXGIPresent(void** ppPresent, void** ppPresent1, void** ppResizeB
     }
 
     if (FAILED(hr) || !pSwapChain) {
-        DebugLog("[HVNCCapture] Failed to create dummy swapchain: 0x%08x\n", hr);
+        DebugLog("[BackstageCapture] Failed to create dummy swapchain: 0x%08x\n", hr);
         if (pCtx) pCtx->Release();
         if (pDevice) pDevice->Release();
         if (pSwapChain) pSwapChain->Release();
@@ -533,7 +533,7 @@ static BOOL GetDXGIPresent(void** ppPresent, void** ppPresent1, void** ppResizeB
     pDevice->Release();
     pSwapChain->Release();
 
-    DebugLog("[HVNCCapture] vtable Present=%p Present1=%p ResizeBuffers=%p\n",
+    DebugLog("[BackstageCapture] vtable Present=%p Present1=%p ResizeBuffers=%p\n",
              *ppPresent, *ppPresent1, *ppResizeBuffers);
     return TRUE;
 }
@@ -550,7 +550,7 @@ void InstallDXGICapture(void) {
 
     MH_STATUS status = MH_Initialize();
     if (status != MH_OK && status != MH_ERROR_ALREADY_INITIALIZED) {
-        DebugLog("[HVNCCapture] MH_Initialize failed: %d\n", status);
+        DebugLog("[BackstageCapture] MH_Initialize failed: %d\n", status);
         return;
     }
 
@@ -559,7 +559,7 @@ void InstallDXGICapture(void) {
     void* pResizeBuffers = NULL;
 
     if (!GetDXGIPresent(&pPresent, &pPresent1, &pResizeBuffers)) {
-        DebugLog("[HVNCCapture] Failed to discover DXGI vtable\n");
+        DebugLog("[BackstageCapture] Failed to discover DXGI vtable\n");
         return;
     }
 
@@ -567,9 +567,9 @@ void InstallDXGICapture(void) {
         status = MH_CreateHook(pPresent, (LPVOID)HookedPresent, (LPVOID*)&g_OrigPresent);
         if (status == MH_OK) {
             MH_EnableHook(pPresent);
-            DebugLog("[HVNCCapture] Present hooked at %p\n", pPresent);
+            DebugLog("[BackstageCapture] Present hooked at %p\n", pPresent);
         } else {
-            DebugLog("[HVNCCapture] MH_CreateHook Present failed: %d\n", status);
+            DebugLog("[BackstageCapture] MH_CreateHook Present failed: %d\n", status);
         }
     }
 
@@ -577,9 +577,9 @@ void InstallDXGICapture(void) {
         status = MH_CreateHook(pPresent1, (LPVOID)HookedPresent1, (LPVOID*)&g_OrigPresent1);
         if (status == MH_OK) {
             MH_EnableHook(pPresent1);
-            DebugLog("[HVNCCapture] Present1 hooked at %p\n", pPresent1);
+            DebugLog("[BackstageCapture] Present1 hooked at %p\n", pPresent1);
         } else {
-            DebugLog("[HVNCCapture] MH_CreateHook Present1 failed: %d\n", status);
+            DebugLog("[BackstageCapture] MH_CreateHook Present1 failed: %d\n", status);
         }
     }
 
@@ -587,13 +587,13 @@ void InstallDXGICapture(void) {
         status = MH_CreateHook(pResizeBuffers, (LPVOID)HookedResizeBuffers, (LPVOID*)&g_OrigResizeBuffers);
         if (status == MH_OK) {
             MH_EnableHook(pResizeBuffers);
-            DebugLog("[HVNCCapture] ResizeBuffers hooked at %p\n", pResizeBuffers);
+            DebugLog("[BackstageCapture] ResizeBuffers hooked at %p\n", pResizeBuffers);
         } else {
-            DebugLog("[HVNCCapture] MH_CreateHook ResizeBuffers failed: %d\n", status);
+            DebugLog("[BackstageCapture] MH_CreateHook ResizeBuffers failed: %d\n", status);
         }
     }
 
-    DebugLog("[HVNCCapture] DXGI hooks installed (PID %lu)\n", GetCurrentProcessId());
+    DebugLog("[BackstageCapture] DXGI hooks installed (PID %lu)\n", GetCurrentProcessId());
 }
 
 void RemoveDXGICapture(void) {
@@ -622,7 +622,7 @@ void RemoveDXGICapture(void) {
         g_LockInitialized = FALSE;
     }
 
-    DebugLog("[HVNCCapture] Cleaned up\n");
+    DebugLog("[BackstageCapture] Cleaned up\n");
 }
 
 #ifdef __cplusplus

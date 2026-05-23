@@ -13,7 +13,7 @@ import (
 )
 
 // hvncFrameHeader mirrors the C HVNCFrameHeader struct.
-// must be kept in sync with HVNCCapture/src/DXGICapture.h.
+// must be kept in sync with BackstageCapture/src/DXGICapture.h.
 type hvncFrameHeader struct {
 	Magic       uint32
 	Version     uint32

