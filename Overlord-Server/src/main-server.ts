@@ -5,7 +5,7 @@ import { fileURLToPath } from "url";
 import path from "path";
 import fs from "fs/promises";
 import { existsSync } from "node:fs";
-import { upsertClientRow, setOnlineState, listClients, markAllClientsOffline, getBuild, getAllBuilds, deleteExpiredBuilds, deleteBuild, getNotificationScreenshot, deleteClientRow, getClientIp, banIp, isIpBanned, clientExists, deleteExpiredSharedFiles, getChatHistory, insertChatMessage, getOnlineClientCountForUser, deleteExpiredChatMessages, recordBuildClaim, getClientMetricsSummary, pruneOldNotifications, isClientNotificationsMuted } from "./db";
+import { upsertClientRow, setOnlineState, listClients, markAllClientsOffline, getBuild, getAllBuilds, deleteExpiredBuilds, deleteBuild, getNotificationScreenshot, deleteClientRow, getClientIp, banIp, isIpBanned, clientExists, deleteExpiredSharedFiles, deleteExpiredChatMessages, getClientMetricsSummary, pruneOldNotifications, isClientNotificationsMuted } from "./db";
 import { handleFrame, handleHello, handlePing, handlePong } from "./wsHandlers";
 import { getMessageByteLength, getMaxPayloadLimit, isAllowedClientMessageType } from "./wsValidation";
 import { ClientInfo, ClientRole } from "./types";
@@ -13,8 +13,7 @@ import { v4 as uuidv4 } from "uuid";
 import { authenticateRequest } from "./auth";
 import { loadConfig, getConfig } from "./config";
 import { flushAuditLogsSync } from "./auditLog";
-import { getUserById, getUsersForNotificationDelivery, getUsersForNotificationDeliveryByClientOwnership, isClientOwnedByUser, canUserAccessClient, setUserClientAccessRule, setUserClientAccessScope, getUserClientAccessScope } from "./users";
-import { hasPermission } from "./rbac";
+import { getUserById, getUsersForNotificationDelivery, getUsersForNotificationDeliveryByClientOwnership, isClientOwnedByUser, canUserAccessClient } from "./users";
 import { requireAuth, requirePermission } from "./rbac";
 import { metrics } from "./metrics";
 import { ensureDataDir } from "./paths";
@@ -149,6 +148,8 @@ import * as clientManager from "./clientManager";
 import * as sessionManager from "./sessions/sessionManager";
 import type { SocketData } from "./sessions/types";
 import { SERVER_VERSION } from "./version";
+import { handleChatViewerOpen, handleChatViewerMessage } from "./server/ws-chat";
+import { handleBuildTagConnection } from "./server/build-tag";
 
 
 metrics.setSnapshotEnricher((snapshot) => {
@@ -527,33 +528,6 @@ async function startServer() {
     registration: {},
   };
 
-  function handleBuildTagConnection(
-    clientId: string,
-    buildId: string | null,
-    builtByUserId: number | undefined,
-    keyFingerprint: string,
-  ) {
-    if (!buildId || !builtByUserId) return;
-
-    const isFirstClaim = recordBuildClaim(buildId, keyFingerprint);
-    if (!isFirstClaim) return;
-
-    const user = getUserById(builtByUserId);
-    if (!user) return;
-
-    if (user.role === "admin") return;
-
-    const currentScope = getUserClientAccessScope(builtByUserId);
-    if (currentScope === "none") {
-      setUserClientAccessScope(builtByUserId, "allowlist");
-    }
-
-    if (currentScope === "none" || currentScope === "allowlist") {
-      setUserClientAccessRule(builtByUserId, clientId, "allow");
-      logger.info(`[build-tag] Auto-added client ${clientId} to user ${user.username}'s allowlist (build: ${buildId.substring(0, 8)}, fp: ${keyFingerprint.substring(0, 12)}...)`);
-    }
-  }
-
   const lifecycleDeps = {
     maxClientPayloadBytes: MAX_WS_MESSAGE_BYTES_CLIENT,
     maxViewerPayloadBytes: MAX_WS_MESSAGE_BYTES_VIEWER,
@@ -584,54 +558,8 @@ async function startServer() {
       });
     },
     handleNotificationViewerOpen: notificationPluginHandlers.handleNotificationViewerOpen,
-    handleChatViewerOpen: (ws: import("bun").ServerWebSocket<SocketData>) => {
-      const id = crypto.randomUUID();
-      ws.data.sessionId = id;
-      const userId = ws.data.userId;
-      const userRole = ws.data.userRole || "viewer";
-      const user = userId ? getUserById(userId) : null;
-      const username = user?.username || "Unknown";
-      sessionManager.addChatSession({
-        id,
-        viewer: ws,
-        createdAt: Date.now(),
-        userId: userId || 0,
-        username,
-        userRole,
-      });
-      const retDays = getConfig().chat?.retentionDays ?? 30;
-      const retMs = retDays > 0 ? retDays * 24 * 60 * 60 * 1000 : undefined;
-      const history = getChatHistory(undefined, 50, retMs);
-      const enrichedHistory = history.map((m) => ({
-        ...m,
-        onlineClients: m.userId ? getOnlineClientCountForUser(m.userId) : 0,
-      }));
-      const canWrite = userId ? hasPermission(userRole as any, "chat:write", userId) : false;
-      ws.send(JSON.stringify({ type: "chat_ready", history: enrichedHistory, canWrite, userId: userId || 0 }));
-    },
-    handleChatViewerMessage: (ws: import("bun").ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) => {
-      try {
-        const text = typeof raw === "string" ? raw : new TextDecoder().decode(raw as ArrayBuffer);
-        const parsed = JSON.parse(text);
-        if (parsed.type !== "chat_send" || typeof parsed.message !== "string") return;
-        const userId = ws.data.userId;
-        const userRole = ws.data.userRole || "viewer";
-        if (!userId || !hasPermission(userRole as any, "chat:write", userId)) {
-          ws.send(JSON.stringify({ type: "chat_error", error: "Permission denied" }));
-          return;
-        }
-        const msg = parsed.message.trim();
-        if (!msg || msg.length > 2000) {
-          ws.send(JSON.stringify({ type: "chat_error", error: msg ? "Message too long (max 2000 chars)" : "Message is empty" }));
-          return;
-        }
-        const user = getUserById(userId);
-        const username = user?.username || "Unknown";
-        const record = insertChatMessage(userId, username, userRole, msg);
-        const onlineClients = getOnlineClientCountForUser(userId);
-        sessionManager.broadcastChatMessage(JSON.stringify({ type: "chat_message", ...record, onlineClients }));
-      } catch {}
-    },
+    handleChatViewerOpen,
+    handleChatViewerMessage,
     handleConsoleViewerMessage,
     handleRemoteDesktopViewerMessage,
     handleWebcamViewerMessage,
@@ -718,7 +646,10 @@ async function startServer() {
       metrics,
       CORS_HEADERS,
       routes: [
-        (req, url) => handleRegistrationRoutes(req, url, routeDeps.registration),
+        (req, url, srv) => handleRegistrationRoutes(req, url, {
+          ...routeDeps.registration,
+          requestIP: (srv as any).requestIP,
+        }),
         (req, url, srv) => handleAuthRoutes(req, url, srv as any),
         (req, url, srv) => handleNotificationsConfigRoutes(req, url, srv as any, routeDeps.notificationsConfig),
         (req, url) => handleAutoScriptsRoutes(req, url),
@@ -735,7 +666,10 @@ async function startServer() {
         (req, url, srv) => handleFileDownloadRoutes(req, url, srv as any, routeDeps.fileDownload),
         (req, url) => handlePluginRoutes(req, url, routeDeps.plugin),
         (req, url) => handleFileShareRoutes(req, url, routeDeps.fileShare),
-        (req, url) => handleMiscRoutes(req, url, routeDeps.misc),
+        (req, url, srv) => handleMiscRoutes(req, url, {
+          ...routeDeps.misc,
+          requestIP: (srv as any).requestIP,
+        }),
         (req, url) => handleAssetsRoutes(req, url, routeDeps.assets),
         (req, url) => handlePageRoutes(req, url, routeDeps.page),
         (req, url) => handleWebrtcRoutes(req, url),

@@ -14,12 +14,12 @@ async function getSharp(): Promise<any> {
   }
 }
 
-const THUMBNAIL_WIDTH = Math.max(64, Number(process.env.OVERLORD_THUMBNAIL_WIDTH || 400));
-const THUMBNAIL_HEIGHT = Math.max(48, Number(process.env.OVERLORD_THUMBNAIL_HEIGHT || 225));
+const THUMBNAIL_WIDTH = Math.max(64, Number(process.env.OVERLORD_THUMBNAIL_WIDTH || 1920));
+const THUMBNAIL_HEIGHT = Math.max(48, Number(process.env.OVERLORD_THUMBNAIL_HEIGHT || 1080));
 const THUMBNAIL_QUALITY = Math.min(95, Math.max(40, Number(process.env.OVERLORD_THUMBNAIL_QUALITY || 88)));
 const MAX_THUMBNAIL_SOURCE_BYTES = Math.max(
   256 * 1024,
-  Number(process.env.OVERLORD_THUMBNAIL_MAX_SOURCE_BYTES || 8 * 1024 * 1024),
+  Number(process.env.OVERLORD_THUMBNAIL_MAX_SOURCE_BYTES || 16 * 1024 * 1024),
 );
 const THUMBNAIL_CACHE_MAX = Math.max(
   64,

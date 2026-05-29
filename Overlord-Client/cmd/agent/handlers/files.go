@@ -11,6 +11,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"hash"
 	"hash/crc32"
@@ -19,6 +20,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -124,14 +126,68 @@ func HandleFileList(ctx context.Context, env *agentRuntime.Env, cmdID string, pa
 	}
 
 	result := wire.FileListResult{
-		Type:      "file_list_result",
-		CommandID: cmdID,
-		Path:      path,
-		Entries:   entries,
-		Error:     errMsg,
+		Type:             "file_list_result",
+		CommandID:        cmdID,
+		Path:             path,
+		Entries:          entries,
+		Error:            errMsg,
+		AccessDenied:     isFileAccessDenied(err),
+		CanRequestAccess: canRequestFolderAccess(err),
+		AccessHelp:       folderAccessHelp(err),
 	}
 
 	return wire.WriteMsg(ctx, env.Conn, result)
+}
+
+func isFileAccessDenied(err error) bool {
+	return err != nil && errors.Is(err, os.ErrPermission)
+}
+
+func canRequestFolderAccess(err error) bool {
+	return runtime.GOOS == "darwin" && isFileAccessDenied(err)
+}
+
+func folderAccessHelp(err error) string {
+	if !canRequestFolderAccess(err) {
+		return ""
+	}
+	return "macOS blocked this folder. Ask the user to allow access in Privacy & Security, then refresh this folder."
+}
+
+func HandleFileRequestAccess(ctx context.Context, env *agentRuntime.Env, cmdID string, path string) error {
+	if runtime.GOOS != "darwin" {
+		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{
+			Type:      "command_result",
+			CommandID: cmdID,
+			OK:        false,
+			Message:   "folder access requests are only available on macOS",
+		})
+	}
+
+	if strings.TrimSpace(path) == "" {
+		path = "."
+	}
+	if absPath, err := filepath.Abs(path); err == nil {
+		path = absPath
+	}
+
+	settingsURL := "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"
+	if err := exec.CommandContext(ctx, "open", settingsURL).Run(); err != nil {
+		_ = exec.CommandContext(ctx, "open", "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles").Run()
+		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{
+			Type:      "command_result",
+			CommandID: cmdID,
+			OK:        false,
+			Message:   fmt.Sprintf("could not open macOS Privacy settings: %v", err),
+		})
+	}
+
+	return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{
+		Type:      "command_result",
+		CommandID: cmdID,
+		OK:        true,
+		Message:   fmt.Sprintf("opened macOS Privacy settings for folder access; ask the user to allow access for this app, then refresh %s", path),
+	})
 }
 
 func listWindowsDrives(ctx context.Context, env *agentRuntime.Env, cmdID string) error {

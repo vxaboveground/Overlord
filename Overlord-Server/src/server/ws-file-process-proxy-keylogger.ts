@@ -111,6 +111,10 @@ export function handleFileBrowserViewerMessage(ws: ServerWebSocket<SocketData>, 
         target.ws.send(encodeMessage({ type: "command", commandType: "file_write", id: routedId, payload: actualPayload } as any));
         metrics.recordCommand("file_write");
         break;
+      case "file_request_access":
+        target.ws.send(encodeMessage({ type: "command", commandType: "file_request_access", id: routedId, payload: actualPayload } as any));
+        metrics.recordCommand("file_request_access");
+        break;
       case "file_search":
         target.ws.send(encodeMessage({ type: "command", commandType: "file_search", id: routedId, payload: actualPayload } as any));
         metrics.recordCommand("file_search");

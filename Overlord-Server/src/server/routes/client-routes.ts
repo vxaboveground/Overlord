@@ -19,12 +19,6 @@ import {
   setClientTag,
   setOnlineState,
   unbanIp,
-  listGroups,
-  getGroup,
-  createGroup,
-  updateGroup,
-  deleteGroup,
-  setClientGroup,
   deleteNotificationsForClient,
 } from "../../db";
 import { metrics } from "../../metrics";
@@ -37,6 +31,8 @@ import {
 } from "../../users";
 import { notifyDashboardViewers } from "../../sessions/sessionManager";
 import { clearThumbnail } from "../../thumbnails";
+import { handleClientCommandRoute } from "./client-command-routes";
+import { handleClientGroupRoutes } from "./client-group-routes";
 
 type RequestIpProvider = {
   requestIP: (req: Request) => { address?: string } | null | undefined;
@@ -69,11 +65,7 @@ export async function handleClientRoutes(
   server: RequestIpProvider,
   deps: ClientRouteDeps,
 ): Promise<Response | null> {
-  if (
-    !url.pathname.startsWith("/api/clients") &&
-    !url.pathname.startsWith("/api/groups") &&
-    !url.pathname.match(/^\/api\/clients\/.+\/command$/)
-  ) {
+  if (!url.pathname.startsWith("/api/clients") && !url.pathname.startsWith("/api/groups")) {
     return null;
   }
 
@@ -92,72 +84,38 @@ export async function handleClientRoutes(
     const enrollmentFilter = url.searchParams.get("enrollmentFilter") || "approved";
     const groupFilter = url.searchParams.get("group") || "all";
     const isEnrollmentRequest = url.searchParams.has("enrollmentFilter");
+
     if (user.role === "admin") {
       const result = listClients({ page, pageSize, search, sort, statusFilter, osFilter, countryFilter, enrollmentFilter, groupFilter });
       return Response.json(result, { headers: deps.CORS_HEADERS });
     }
 
     if (user.role === "operator" && isEnrollmentRequest) {
-      const result = listClients({
-        page,
-        pageSize,
-        search,
-        sort,
-        statusFilter,
-        osFilter,
-        countryFilter,
-        enrollmentFilter,
-        groupFilter,
-        builtByUserId: user.userId,
-        requireBuildOwner: true,
-      });
+      const result = listClients({ page, pageSize, search, sort, statusFilter, osFilter, countryFilter, enrollmentFilter, groupFilter, builtByUserId: user.userId, requireBuildOwner: true });
       return Response.json(result, { headers: deps.CORS_HEADERS });
     }
 
     const scope = getUserClientAccessScope(user.userId);
     if (scope === "none") {
-      return Response.json(
-        { page, pageSize, total: 0, online: 0, items: [] },
-        { headers: deps.CORS_HEADERS },
-      );
+      return Response.json({ page, pageSize, total: 0, online: 0, items: [] }, { headers: deps.CORS_HEADERS });
     }
 
-    const allowedClientIds =
-      scope === "allowlist"
-        ? listUserClientRuleIdsByAccess(user.userId, "allow")
-        : undefined;
-    const deniedClientIds =
-      scope === "denylist"
-        ? listUserClientRuleIdsByAccess(user.userId, "deny")
-        : undefined;
+    const allowedClientIds = scope === "allowlist" ? listUserClientRuleIdsByAccess(user.userId, "allow") : undefined;
+    const deniedClientIds = scope === "denylist" ? listUserClientRuleIdsByAccess(user.userId, "deny") : undefined;
 
-    const result = listClients({
-      page,
-      pageSize,
-      search,
-      sort,
-      statusFilter,
-      osFilter,
-      countryFilter,
-      enrollmentFilter,
-      groupFilter,
-      allowedClientIds,
-      deniedClientIds,
-    });
+    const result = listClients({ page, pageSize, search, sort, statusFilter, osFilter, countryFilter, enrollmentFilter, groupFilter, allowedClientIds, deniedClientIds });
     return Response.json(result, { headers: deps.CORS_HEADERS });
   }
 
   if (url.pathname === "/api/clients/countries") {
     const user = await authenticateRequest(req);
     if (!user) return new Response("Unauthorized", { status: 401 });
-    const countries = listDistinctCountries();
-    return Response.json({ countries }, { headers: deps.CORS_HEADERS });
+    return Response.json({ countries: listDistinctCountries() }, { headers: deps.CORS_HEADERS });
   }
 
   if (url.pathname === "/api/clients/banned-ips") {
     const user = await authenticateRequest(req);
     if (!user) return new Response("Unauthorized", { status: 401 });
-
     try {
       requirePermission(user, "network:manage-bans");
     } catch (error) {
@@ -171,30 +129,13 @@ export async function handleClientRoutes(
 
     if (req.method === "DELETE") {
       const ipToUnban = (url.searchParams.get("ip") || "").trim();
-      if (!ipToUnban) {
-        return Response.json({ error: "Missing ip query parameter" }, { status: 400 });
-      }
-
-      if (!/^[0-9a-fA-F:.]{3,64}$/.test(ipToUnban)) {
-        return Response.json({ error: "Invalid IP format" }, { status: 400 });
-      }
-
-      if (!isIpBanned(ipToUnban)) {
-        return Response.json({ error: "IP is not banned" }, { status: 404 });
-      }
+      if (!ipToUnban) return Response.json({ error: "Missing ip query parameter" }, { status: 400 });
+      if (!/^[0-9a-fA-F:.]{3,64}$/.test(ipToUnban)) return Response.json({ error: "Invalid IP format" }, { status: 400 });
+      if (!isIpBanned(ipToUnban)) return Response.json({ error: "IP is not banned" }, { status: 404 });
 
       unbanIp(ipToUnban);
-
       const ip = server.requestIP(req)?.address || "unknown";
-      logAudit({
-        timestamp: Date.now(),
-        username: user.username,
-        ip,
-        action: AuditAction.COMMAND,
-        details: `Unbanned IP ${ipToUnban}`,
-        success: true,
-      });
-
+      logAudit({ timestamp: Date.now(), username: user.username, ip, action: AuditAction.COMMAND, details: `Unbanned IP ${ipToUnban}`, success: true });
       return Response.json({ ok: true }, { headers: deps.CORS_HEADERS });
     }
   }
@@ -203,59 +144,35 @@ export async function handleClientRoutes(
   if (req.method === "POST" && banMatch) {
     const user = await authenticateRequest(req);
     if (!user) return new Response("Unauthorized", { status: 401 });
-    try {
-      requirePermission(user, "clients:control");
-    } catch (error) {
+    try { requirePermission(user, "clients:control"); } catch (error) {
       if (error instanceof Response) return error;
       return new Response("Forbidden", { status: 403 });
     }
-
     const targetId = banMatch[1];
-    try {
-      requireClientAccess(user, targetId);
-    } catch (error) {
+    try { requireClientAccess(user, targetId); } catch (error) {
       if (error instanceof Response) return error;
       return new Response("Forbidden", { status: 403 });
     }
     const target = clientManager.getClient(targetId);
     const targetIp = target?.ip || getClientIp(targetId);
-    if (!targetIp) {
-      return Response.json({ error: "Client IP not found" }, { status: 404 });
-    }
+    if (!targetIp) return Response.json({ error: "Client IP not found" }, { status: 404 });
 
     banIp(targetIp, `Banned by ${user.username} for client ${targetId}`);
-
     if (target) {
-      try {
-        target.ws.close(4003, "banned");
-      } catch {}
+      try { target.ws.close(4003, "banned"); } catch { }
       setOnlineState(targetId, false);
     }
-
     const ip = server.requestIP(req)?.address || "unknown";
-    logAudit({
-      timestamp: Date.now(),
-      username: user.username,
-      ip,
-      action: AuditAction.COMMAND,
-      targetClientId: targetId,
-      details: `Banned IP ${targetIp}`,
-      success: true,
-    });
-
+    logAudit({ timestamp: Date.now(), username: user.username, ip, action: AuditAction.COMMAND, targetClientId: targetId, details: `Banned IP ${targetIp}`, success: true });
     return Response.json({ ok: true, ip: targetIp });
   }
 
   const thumbnailMatch = url.pathname.match(/^\/api\/clients\/(.+)\/thumbnail$/);
   if (req.method === "POST" && thumbnailMatch) {
     const user = await authenticateRequest(req);
-    if (!user) {
-      return new Response("Unauthorized", { status: 401 });
-    }
+    if (!user) return new Response("Unauthorized", { status: 401 });
     const clientId = thumbnailMatch[1];
-    try {
-      requireClientAccess(user, clientId);
-    } catch (error) {
+    try { requireClientAccess(user, clientId); } catch (error) {
       if (error instanceof Response) return error;
       return new Response("Forbidden", { status: 403 });
     }
@@ -265,14 +182,7 @@ export async function handleClientRoutes(
     const beforeVersion = getThumbnailVersion(clientId);
     if (target?.online) {
       const commandId = uuidv4();
-      target.ws.send(
-        encodeMessage({
-          type: "command",
-          commandType: "screenshot",
-          id: commandId,
-          payload: { mode: "notification", allDisplays: true },
-        }),
-      );
+      target.ws.send(encodeMessage({ type: "command", commandType: "screenshot", id: commandId, payload: { mode: "notification", allDisplays: true } }));
       metrics.recordCommand("screenshot");
     }
     const fresh = target?.online ? await waitForThumbnail(clientId, 2500) : false;
@@ -283,63 +193,37 @@ export async function handleClientRoutes(
     }
     clearThumbnailRequest(clientId);
     const version = getThumbnailVersion(clientId);
-    return Response.json(
-      { ok: true, updated: version > beforeVersion, version },
-      { headers: deps.CORS_HEADERS },
-    );
+    return Response.json({ ok: true, updated: version > beforeVersion, version }, { headers: deps.CORS_HEADERS });
   }
 
   if (req.method === "GET" && thumbnailMatch) {
     const user = await authenticateRequest(req);
-    if (!user) {
-      return new Response("Unauthorized", { status: 401 });
-    }
+    if (!user) return new Response("Unauthorized", { status: 401 });
     const clientId = thumbnailMatch[1];
-    try {
-      requireClientAccess(user, clientId);
-    } catch (error) {
+    try { requireClientAccess(user, clientId); } catch (error) {
       if (error instanceof Response) return error;
       return new Response("Forbidden", { status: 403 });
     }
     const { getThumbnailRecord } = await import("../../thumbnails");
     const record = getThumbnailRecord(clientId);
-    if (!record) {
-      return new Response("Not Found", { status: 404 });
-    }
+    if (!record) return new Response("Not Found", { status: 404 });
     return new Response(record.bytes as unknown as BodyInit, {
       status: 200,
-      headers: {
-        "Content-Type": record.contentType,
-        "Content-Length": String(record.bytes.byteLength),
-        "Cache-Control": "no-store",
-      },
+      headers: { "Content-Type": record.contentType, "Content-Length": String(record.bytes.byteLength), "Cache-Control": "no-store" },
     });
   }
 
   if (req.method === "DELETE" && url.pathname === "/api/clients/offline") {
     const user = await authenticateRequest(req);
     if (!user) return new Response("Unauthorized", { status: 401 });
-
-    try {
-      requirePermission(user, "clients:control");
-    } catch (error) {
+    try { requirePermission(user, "clients:control"); } catch (error) {
       if (error instanceof Response) return error;
       return new Response("Forbidden", { status: 403 });
     }
-
     const count = deleteOfflineClientRows();
     notifyDashboardViewers();
-
     const ip = server.requestIP(req)?.address || "unknown";
-    logAudit({
-      timestamp: Date.now(),
-      username: user.username,
-      ip,
-      action: AuditAction.COMMAND,
-      details: `wipe_offline_clients: removed ${count}`,
-      success: true,
-    });
-
+    logAudit({ timestamp: Date.now(), username: user.username, ip, action: AuditAction.COMMAND, details: `wipe_offline_clients: removed ${count}`, success: true });
     return Response.json({ ok: true, count }, { headers: deps.CORS_HEADERS });
   }
 
@@ -347,59 +231,33 @@ export async function handleClientRoutes(
   if (req.method === "DELETE" && clientDeleteMatch) {
     const user = await authenticateRequest(req);
     if (!user) return new Response("Unauthorized", { status: 401 });
-
-    try {
-      requirePermission(user, "clients:control");
-    } catch (error) {
+    try { requirePermission(user, "clients:control"); } catch (error) {
       if (error instanceof Response) return error;
       return new Response("Forbidden", { status: 403 });
     }
-
     const targetId = clientDeleteMatch[1];
-    try {
-      requireClientAccess(user, targetId);
-    } catch (error) {
+    try { requireClientAccess(user, targetId); } catch (error) {
       if (error instanceof Response) return error;
       return new Response("Forbidden", { status: 403 });
     }
     const target = clientManager.getClient(targetId);
     const isOnlineInDb = getClientOnlineState(targetId);
     if (target?.online || isOnlineInDb === true) {
-      return Response.json(
-        { error: "Client is online. Remove from dashboard is only allowed for offline clients." },
-        { status: 409 },
-      );
+      return Response.json({ error: "Client is online. Remove from dashboard is only allowed for offline clients." }, { status: 409 });
     }
     const existsInDb = clientExists(targetId);
-    if (!target && !existsInDb) {
-      return Response.json({ error: "Client not found" }, { status: 404 });
-    }
+    if (!target && !existsInDb) return Response.json({ error: "Client not found" }, { status: 404 });
 
     if (target) {
-      try {
-        target.ws.close(4000, "removed");
-      } catch {
-        // Connection may already be closed.
-      }
+      try { target.ws.close(4000, "removed"); } catch { }
       clientManager.deleteClient(targetId);
       setOnlineState(targetId, false);
     }
-
     deleteClientRow(targetId);
     clearThumbnail(targetId);
     notifyDashboardViewers();
-
     const ip = server.requestIP(req)?.address || "unknown";
-    logAudit({
-      timestamp: Date.now(),
-      username: user.username,
-      ip,
-      action: AuditAction.COMMAND,
-      targetClientId: targetId,
-      details: "remove_dashboard",
-      success: true,
-    });
-
+    logAudit({ timestamp: Date.now(), username: user.username, ip, action: AuditAction.COMMAND, targetClientId: targetId, details: "remove_dashboard", success: true });
     return Response.json({ ok: true }, { headers: deps.CORS_HEADERS });
   }
 
@@ -407,60 +265,27 @@ export async function handleClientRoutes(
   if (req.method === "PATCH" && clientNicknameMatch) {
     const user = await authenticateRequest(req);
     if (!user) return new Response("Unauthorized", { status: 401 });
-
-    try {
-      requirePermission(user, "clients:metadata");
-      requireFeatureAccess(user, "client_metadata");
-    } catch (error) {
+    try { requirePermission(user, "clients:metadata"); requireFeatureAccess(user, "client_metadata"); } catch (error) {
       if (error instanceof Response) return error;
       return new Response("Forbidden", { status: 403 });
     }
-
     const targetId = clientNicknameMatch[1];
-    try {
-      requireClientAccess(user, targetId);
-    } catch (error) {
+    try { requireClientAccess(user, targetId); } catch (error) {
       if (error instanceof Response) return error;
       return new Response("Forbidden", { status: 403 });
     }
-    if (!clientExists(targetId)) {
-      return Response.json({ error: "Client not found" }, { status: 404 });
-    }
-
+    if (!clientExists(targetId)) return Response.json({ error: "Client not found" }, { status: 404 });
     let body: any = {};
-    try {
-      body = await req.json();
-    } catch {
-      return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-    }
-
+    try { body = await req.json(); } catch { return Response.json({ error: "Invalid JSON body" }, { status: 400 }); }
     const rawNickname = typeof body?.nickname === "string" ? body.nickname : "";
     const trimmed = rawNickname.trim();
-    if (trimmed.length > 64) {
-      return Response.json(
-        { error: "Nickname must be 64 characters or fewer" },
-        { status: 400 },
-      );
-    }
-
+    if (trimmed.length > 64) return Response.json({ error: "Nickname must be 64 characters or fewer" }, { status: 400 });
     const nickname = trimmed.length ? trimmed : null;
     const updated = setClientNickname(targetId, nickname);
-    if (!updated) {
-      return Response.json({ error: "Client not found" }, { status: 404 });
-    }
+    if (!updated) return Response.json({ error: "Client not found" }, { status: 404 });
     notifyDashboardViewers();
-
     const ip = server.requestIP(req)?.address || "unknown";
-    logAudit({
-      timestamp: Date.now(),
-      username: user.username,
-      ip,
-      action: AuditAction.COMMAND,
-      targetClientId: targetId,
-      details: nickname ? `set_nickname:${nickname}` : "clear_nickname",
-      success: true,
-    });
-
+    logAudit({ timestamp: Date.now(), username: user.username, ip, action: AuditAction.COMMAND, targetClientId: targetId, details: nickname ? `set_nickname:${nickname}` : "clear_nickname", success: true });
     return Response.json({ ok: true, nickname }, { headers: deps.CORS_HEADERS });
   }
 
@@ -468,68 +293,30 @@ export async function handleClientRoutes(
   if (req.method === "PATCH" && clientTagMatch) {
     const user = await authenticateRequest(req);
     if (!user) return new Response("Unauthorized", { status: 401 });
-
-    try {
-      requirePermission(user, "clients:metadata");
-      requireFeatureAccess(user, "client_metadata");
-    } catch (error) {
+    try { requirePermission(user, "clients:metadata"); requireFeatureAccess(user, "client_metadata"); } catch (error) {
       if (error instanceof Response) return error;
       return new Response("Forbidden", { status: 403 });
     }
-
     const targetId = clientTagMatch[1];
-    try {
-      requireClientAccess(user, targetId);
-    } catch (error) {
+    try { requireClientAccess(user, targetId); } catch (error) {
       if (error instanceof Response) return error;
       return new Response("Forbidden", { status: 403 });
     }
-    if (!clientExists(targetId)) {
-      return Response.json({ error: "Client not found" }, { status: 404 });
-    }
-
+    if (!clientExists(targetId)) return Response.json({ error: "Client not found" }, { status: 404 });
     let body: any = {};
-    try {
-      body = await req.json();
-    } catch {
-      return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-    }
-
+    try { body = await req.json(); } catch { return Response.json({ error: "Invalid JSON body" }, { status: 400 }); }
     const rawTag = typeof body?.tag === "string" ? body.tag : "";
     const rawNote = typeof body?.note === "string" ? body.note : "";
     const tag = rawTag.trim();
-    if (tag.length > 64) {
-      return Response.json(
-        { error: "Tag must be 64 characters or fewer" },
-        { status: 400 },
-      );
-    }
-
+    if (tag.length > 64) return Response.json({ error: "Tag must be 64 characters or fewer" }, { status: 400 });
     const normalizedTag = tag.length ? tag : null;
     const note = normalizedTag ? rawNote : null;
     const updated = setClientTag(targetId, normalizedTag, note);
-    if (!updated) {
-      return Response.json({ error: "Client not found" }, { status: 404 });
-    }
+    if (!updated) return Response.json({ error: "Client not found" }, { status: 404 });
     notifyDashboardViewers();
-
     const ip = server.requestIP(req)?.address || "unknown";
-    logAudit({
-      timestamp: Date.now(),
-      username: user.username,
-      ip,
-      action: AuditAction.COMMAND,
-      targetClientId: targetId,
-      details: normalizedTag
-        ? `set_custom_tag:${normalizedTag} (note_len=${note?.length || 0})`
-        : "clear_custom_tag",
-      success: true,
-    });
-
-    return Response.json(
-      { ok: true, tag: normalizedTag, note: note ?? null },
-      { headers: deps.CORS_HEADERS },
-    );
+    logAudit({ timestamp: Date.now(), username: user.username, ip, action: AuditAction.COMMAND, targetClientId: targetId, details: normalizedTag ? `set_custom_tag:${normalizedTag} (note_len=${note?.length || 0})` : "clear_custom_tag", success: true });
+    return Response.json({ ok: true, tag: normalizedTag, note: note ?? null }, { headers: deps.CORS_HEADERS });
   }
 
   if (req.method === "PATCH" && url.pathname === "/api/clients/bulk-notifications-muted") {
@@ -539,21 +326,14 @@ export async function handleClientRoutes(
       if (error instanceof Response) return error;
       return new Response("Forbidden", { status: 403 });
     }
-
     let body: any = {};
-    try { body = await req.json(); } catch {
-      return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-    }
-
+    try { body = await req.json(); } catch { return Response.json({ error: "Invalid JSON body" }, { status: 400 }); }
     const clientIds = body?.clientIds;
     if (!Array.isArray(clientIds) || clientIds.length === 0 || clientIds.some((id: any) => typeof id !== "string")) {
       return Response.json({ error: "clientIds must be a non-empty array of strings" }, { status: 400 });
     }
-    if (clientIds.length > 500) {
-      return Response.json({ error: "Too many clients (max 500)" }, { status: 400 });
-    }
+    if (clientIds.length > 500) return Response.json({ error: "Too many clients (max 500)" }, { status: 400 });
     const muted = !!body?.muted;
-
     let updated = 0;
     let cleared = 0;
     for (const cid of clientIds) {
@@ -562,7 +342,6 @@ export async function handleClientRoutes(
       cleared += deleteNotificationsForClient(cid);
       deps.broadcastNotificationsCleared(cid);
     }
-
     notifyDashboardViewers();
     const ip = server.requestIP(req)?.address || "unknown";
     logAudit({ timestamp: Date.now(), username: user.username, ip, action: AuditAction.COMMAND, details: `bulk_set_notifications_muted:${muted}:${updated}/${clientIds.length} (cleared ${cleared})`, success: true });
@@ -577,43 +356,22 @@ export async function handleClientRoutes(
       if (error instanceof Response) return error;
       return new Response("Forbidden", { status: 403 });
     }
-
     const targetId = muteMatch[1];
-    try {
-      requireClientAccess(user, targetId);
-    } catch (error) {
+    try { requireClientAccess(user, targetId); } catch (error) {
       if (error instanceof Response) return error;
       return new Response("Forbidden", { status: 403 });
     }
-    if (!clientExists(targetId)) {
-      return Response.json({ error: "Client not found" }, { status: 404 });
-    }
-
+    if (!clientExists(targetId)) return Response.json({ error: "Client not found" }, { status: 404 });
     let body: any = {};
-    try { body = await req.json(); } catch {
-      return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-    }
-
+    try { body = await req.json(); } catch { return Response.json({ error: "Invalid JSON body" }, { status: 400 }); }
     const muted = !!body?.muted;
     const updated = setClientNotificationsMuted(targetId, muted);
-    if (!updated) {
-      return Response.json({ error: "Client not found" }, { status: 404 });
-    }
+    if (!updated) return Response.json({ error: "Client not found" }, { status: 404 });
     const cleared = deleteNotificationsForClient(targetId);
     deps.broadcastNotificationsCleared(targetId);
     notifyDashboardViewers();
-
     const ip = server.requestIP(req)?.address || "unknown";
-    logAudit({
-      timestamp: Date.now(),
-      username: user.username,
-      ip,
-      action: AuditAction.COMMAND,
-      targetClientId: targetId,
-      details: `${muted ? "mute_notifications" : "unmute_notifications"} (cleared ${cleared})`,
-      success: true,
-    });
-
+    logAudit({ timestamp: Date.now(), username: user.username, ip, action: AuditAction.COMMAND, targetClientId: targetId, details: `${muted ? "mute_notifications" : "unmute_notifications"} (cleared ${cleared})`, success: true });
     return Response.json({ ok: true, muted, cleared }, { headers: deps.CORS_HEADERS });
   }
 
@@ -621,490 +379,25 @@ export async function handleClientRoutes(
   if (req.method === "PATCH" && bookmarkMatch) {
     const user = await authenticateRequest(req);
     if (!user) return new Response("Unauthorized", { status: 401 });
-
     const targetId = bookmarkMatch[1];
-    try {
-      requireClientAccess(user, targetId);
-    } catch (error) {
+    try { requireClientAccess(user, targetId); } catch (error) {
       if (error instanceof Response) return error;
       return new Response("Forbidden", { status: 403 });
     }
-    if (!clientExists(targetId)) {
-      return Response.json({ error: "Client not found" }, { status: 404 });
-    }
-
+    if (!clientExists(targetId)) return Response.json({ error: "Client not found" }, { status: 404 });
     let body: any = {};
-    try {
-      body = await req.json();
-    } catch {
-      return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-    }
-
+    try { body = await req.json(); } catch { return Response.json({ error: "Invalid JSON body" }, { status: 400 }); }
     const bookmarked = !!body?.bookmarked;
     const updated = setClientBookmark(targetId, bookmarked);
-    if (!updated) {
-      return Response.json({ error: "Client not found" }, { status: 404 });
-    }
-
+    if (!updated) return Response.json({ error: "Client not found" }, { status: 404 });
     return Response.json({ ok: true, bookmarked }, { headers: deps.CORS_HEADERS });
   }
 
-  if (req.method === "POST") {
-    const cmdMatch = url.pathname.match(/^\/api\/clients\/(.+)\/command$/);
-    if (cmdMatch) {
-      const user = await authenticateRequest(req);
-      if (!user) return new Response("Unauthorized", { status: 401 });
+  const cmdResult = await handleClientCommandRoute(req, url, server, deps);
+  if (cmdResult !== null) return cmdResult;
 
-      try {
-        requirePermission(user, "clients:control");
-      } catch (error) {
-        if (error instanceof Response) return error;
-        return new Response("Forbidden", { status: 403 });
-      }
-
-      const targetId = cmdMatch[1];
-      try {
-        requireClientAccess(user, targetId);
-      } catch (error) {
-        if (error instanceof Response) return error;
-        return new Response("Forbidden", { status: 403 });
-      }
-      const target = clientManager.getClient(targetId);
-      const ip = server.requestIP(req)?.address || "unknown";
-
-      if (!target) return new Response("Not found", { status: 404 });
-      try {
-        const body = await req.json();
-        const action = body?.action;
-
-        let success = true;
-        if (action === "ping") {
-          const nonce = Date.now() + Math.floor(Math.random() * 1000);
-          target.lastPingSent = Date.now();
-          target.lastPingNonce = nonce;
-          target.ws.send(encodeMessage({ type: "ping", ts: nonce }));
-        } else if (action === "ping_bulk") {
-          const count = Math.max(1, Math.min(1000, Number(body?.count || 1)));
-          for (let i = 0; i < count; i++) {
-          }
-        } else if (action === "disconnect") {
-          try {
-            requirePermission(user, "clients:disconnect");
-            requireFeatureAccess(user, "disconnect");
-          } catch (error) {
-            if (error instanceof Response) return error;
-            return new Response("Forbidden", { status: 403 });
-          }
-          target.ws.send(encodeMessage({ type: "command", commandType: "disconnect", id: uuidv4() }));
-          metrics.recordCommand("disconnect");
-          logAudit({
-            timestamp: Date.now(),
-            username: user.username,
-            ip,
-            action: AuditAction.DISCONNECT,
-            targetClientId: targetId,
-            success: true,
-          });
-        } else if (action === "reconnect") {
-          try {
-            requirePermission(user, "clients:reconnect");
-            requireFeatureAccess(user, "reconnect");
-          } catch (error) {
-            if (error instanceof Response) return error;
-            return new Response("Forbidden", { status: 403 });
-          }
-          target.ws.send(encodeMessage({ type: "command", commandType: "reconnect", id: uuidv4() }));
-          metrics.recordCommand("reconnect");
-          logAudit({
-            timestamp: Date.now(),
-            username: user.username,
-            ip,
-            action: AuditAction.RECONNECT,
-            targetClientId: targetId,
-            success: true,
-          });
-        } else if (action === "screenshot") {
-          target.ws.send(
-            encodeMessage({
-              type: "command",
-              commandType: "screenshot",
-              id: uuidv4(),
-              payload: { mode: "notification", allDisplays: true },
-            }),
-          );
-          metrics.recordCommand("screenshot");
-          logAudit({
-            timestamp: Date.now(),
-            username: user.username,
-            ip,
-            action: AuditAction.SCREENSHOT,
-            targetClientId: targetId,
-            success: true,
-          });
-        } else if (action === "desktop_start") {
-          target.ws.send(encodeMessage({ type: "command", commandType: "desktop_start", id: uuidv4() }));
-          metrics.recordCommand("desktop_start");
-        } else if (action === "script_exec") {
-          const scriptContent = body?.script || "";
-          const scriptType = body?.scriptType || "powershell";
-          const cmdId = uuidv4();
-
-          const resultPromise = new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-              deps.pendingScripts.delete(cmdId);
-              reject(new Error("Script execution timed out after 5 minutes"));
-            }, 5 * 60 * 1000);
-
-            deps.pendingScripts.set(cmdId, { resolve, reject, timeout, clientId: targetId });
-          });
-
-          target.ws.send(encodeMessage({
-            type: "command",
-            commandType: "script_exec",
-            id: cmdId,
-            payload: { script: scriptContent, type: scriptType },
-          }));
-
-          metrics.recordCommand("script_exec");
-          logAudit({
-            timestamp: Date.now(),
-            username: user.username,
-            ip,
-            action: AuditAction.SCRIPT_EXECUTE,
-            targetClientId: targetId,
-            success: true,
-            details: `script_exec (${scriptType})`,
-          });
-
-          try {
-            const result = await resultPromise;
-            return Response.json(result);
-          } catch (error: any) {
-            return Response.json({ ok: false, error: error.message }, { status: 500 });
-          }
-        } else if (action === "voice_capabilities") {
-          const cmdId = uuidv4();
-          const replyPromise: Promise<{ ok: boolean; message?: string }> = new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-              deps.pendingCommandReplies.delete(cmdId);
-              reject(new Error("Voice capability probe timed out"));
-            }, 30_000);
-            deps.pendingCommandReplies.set(cmdId, { resolve, reject, timeout, clientId: targetId });
-          });
-
-          target.ws.send(
-            encodeMessage({
-              type: "command",
-              commandType: "voice_capabilities",
-              id: cmdId,
-            }),
-          );
-
-          try {
-            const result = await replyPromise;
-            let caps: any = null;
-            if (result.message) {
-              try {
-                caps = JSON.parse(result.message);
-              } catch {
-                caps = null;
-              }
-            }
-            return Response.json({ ok: result.ok, capabilities: caps, response: result.message || "" }, { headers: deps.CORS_HEADERS });
-          } catch (error: any) {
-            return Response.json({ ok: false, error: error.message || "Voice capability probe failed" }, { status: 504 });
-          }
-        } else if (action === "silent_exec") {
-          try {
-            requirePermission(user, "clients:silent-exec");
-          } catch (error) {
-            if (error instanceof Response) return error;
-            return new Response("Forbidden", { status: 403 });
-          }
-
-          const command = typeof body?.command === "string" ? body.command.trim() : "";
-          const args = typeof body?.args === "string" ? body.args : "";
-          const cwd = typeof body?.cwd === "string" ? body.cwd : "";
-
-          if (!command) {
-            return new Response("Bad request", { status: 400 });
-          }
-
-          const cmdId = uuidv4();
-          target.ws.send(
-            encodeMessage({
-              type: "command",
-              commandType: "silent_exec",
-              id: cmdId,
-              payload: { command, args, cwd },
-            }),
-          );
-          metrics.recordCommand("silent_exec");
-          logAudit({
-            timestamp: Date.now(),
-            username: user.username,
-            ip,
-            action: AuditAction.SILENT_EXECUTE,
-            targetClientId: targetId,
-            success: true,
-            details: JSON.stringify({ command, args, cwd }),
-          });
-        } else if (action === "uninstall") {
-          try {
-            requirePermission(user, "clients:uninstall");
-            requireFeatureAccess(user, "uninstall");
-          } catch (error) {
-            if (error instanceof Response) return error;
-            return new Response("Forbidden", { status: 403 });
-          }
-          target.ws.send(encodeMessage({ type: "command", commandType: "uninstall", id: uuidv4() }));
-          metrics.recordCommand("uninstall");
-          clientManager.deleteClient(targetId);
-          deleteClientRow(targetId);
-          clearThumbnail(targetId);
-          logAudit({
-            timestamp: Date.now(),
-            username: user.username,
-            ip,
-            action: AuditAction.UNINSTALL,
-            targetClientId: targetId,
-            details: "Agent uninstall requested - persistence will be removed",
-            success: true,
-          });
-        } else if (action === "elevate") {
-          try {
-            requirePermission(user, "clients:elevate");
-          } catch (error) {
-            if (error instanceof Response) return error;
-            return new Response("Forbidden", { status: 403 });
-          }
-
-          const password = typeof body?.password === "string" ? body.password : "";
-
-          const cmdId = uuidv4();
-          const replyPromise: Promise<{ ok: boolean; message?: string }> = new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-              deps.pendingCommandReplies.delete(cmdId);
-              reject(new Error("Elevation timed out"));
-            }, 30_000);
-            deps.pendingCommandReplies.set(cmdId, { resolve, reject, timeout, clientId: targetId });
-          });
-
-          target.ws.send(
-            encodeMessage({
-              type: "command",
-              commandType: "elevate",
-              id: cmdId,
-              payload: { password },
-            }),
-          );
-          metrics.recordCommand("elevate");
-          logAudit({
-            timestamp: Date.now(),
-            username: user.username,
-            ip,
-            action: AuditAction.COMMAND,
-            targetClientId: targetId,
-            success: true,
-            details: "elevate",
-          });
-
-          try {
-            const result = await replyPromise;
-            return Response.json({ ok: result.ok, message: result.message || "" }, { headers: deps.CORS_HEADERS });
-          } catch (error: any) {
-            return Response.json({ ok: false, error: error.message || "Elevation failed" }, { status: 504 });
-          }
-        } else {
-          success = false;
-          return new Response("Bad request", { status: 400 });
-        }
-
-        logAudit({
-          timestamp: Date.now(),
-          username: user.username,
-          ip,
-          action: AuditAction.COMMAND,
-          targetClientId: targetId,
-          details: action,
-          success,
-        });
-
-        return Response.json({ ok: true });
-      } catch (error) {
-        logAudit({
-          timestamp: Date.now(),
-          username: user.username,
-          ip,
-          action: AuditAction.COMMAND,
-          targetClientId: targetId,
-          success: false,
-          errorMessage: String(error),
-        });
-        return new Response("Bad request", { status: 400 });
-      }
-    }
-  }
-
-  if (url.pathname === "/api/groups") {
-    const user = await authenticateRequest(req);
-    if (!user) return new Response("Unauthorized", { status: 401 });
-
-    if (req.method === "GET") {
-      return Response.json({ groups: listGroups() }, { headers: deps.CORS_HEADERS });
-    }
-
-    if (req.method === "POST") {
-      try { requirePermission(user, "clients:control"); } catch (error) {
-        if (error instanceof Response) return error;
-        return new Response("Forbidden", { status: 403 });
-      }
-
-      let body: any = {};
-      try { body = await req.json(); } catch {
-        return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-      }
-
-      const name = typeof body?.name === "string" ? body.name.trim() : "";
-      const color = typeof body?.color === "string" ? body.color.trim() : "#3b82f6";
-      if (!name || name.length > 64) {
-        return Response.json({ error: "Name is required and must be 64 characters or fewer" }, { status: 400 });
-      }
-      if (!/^#[0-9a-fA-F]{6}$/.test(color)) {
-        return Response.json({ error: "Color must be a valid hex code (#RRGGBB)" }, { status: 400 });
-      }
-
-      const group = createGroup(name, color);
-      const ip = server.requestIP(req)?.address || "unknown";
-      logAudit({ timestamp: Date.now(), username: user.username, ip, action: AuditAction.COMMAND, details: `create_group:${name}`, success: true });
-      return Response.json(group, { status: 201, headers: deps.CORS_HEADERS });
-    }
-  }
-
-  const groupIdMatch = url.pathname.match(/^\/api\/groups\/(\d+)$/);
-  if (groupIdMatch) {
-    const user = await authenticateRequest(req);
-    if (!user) return new Response("Unauthorized", { status: 401 });
-    try { requirePermission(user, "clients:control"); } catch (error) {
-      if (error instanceof Response) return error;
-      return new Response("Forbidden", { status: 403 });
-    }
-
-    const groupId = Number(groupIdMatch[1]);
-
-    if (req.method === "PATCH") {
-      let body: any = {};
-      try { body = await req.json(); } catch {
-        return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-      }
-
-      const existing = getGroup(groupId);
-      if (!existing) return Response.json({ error: "Group not found" }, { status: 404 });
-
-      const name = typeof body?.name === "string" ? body.name.trim() : existing.name;
-      const color = typeof body?.color === "string" ? body.color.trim() : existing.color;
-      if (name.length === 0 || name.length > 64) {
-        return Response.json({ error: "Name must be 1-64 characters" }, { status: 400 });
-      }
-      if (!/^#[0-9a-fA-F]{6}$/.test(color)) {
-        return Response.json({ error: "Color must be a valid hex code (#RRGGBB)" }, { status: 400 });
-      }
-
-      const updated = updateGroup(groupId, name, color);
-      if (!updated) return Response.json({ error: "Group not found" }, { status: 404 });
-      notifyDashboardViewers();
-      const ip = server.requestIP(req)?.address || "unknown";
-      logAudit({ timestamp: Date.now(), username: user.username, ip, action: AuditAction.COMMAND, details: `update_group:${groupId}`, success: true });
-      return Response.json({ ok: true, id: groupId, name, color }, { headers: deps.CORS_HEADERS });
-    }
-
-    if (req.method === "DELETE") {
-      const deleted = deleteGroup(groupId);
-      if (!deleted) return Response.json({ error: "Group not found" }, { status: 404 });
-      notifyDashboardViewers();
-      const ip = server.requestIP(req)?.address || "unknown";
-      logAudit({ timestamp: Date.now(), username: user.username, ip, action: AuditAction.COMMAND, details: `delete_group:${groupId}`, success: true });
-      return Response.json({ ok: true }, { headers: deps.CORS_HEADERS });
-    }
-  }
-
-  if (req.method === "PATCH" && url.pathname === "/api/clients/bulk-group") {
-    const user = await authenticateRequest(req);
-    if (!user) return new Response("Unauthorized", { status: 401 });
-    try { requirePermission(user, "clients:metadata"); requireFeatureAccess(user, "client_metadata"); } catch (error) {
-      if (error instanceof Response) return error;
-      return new Response("Forbidden", { status: 403 });
-    }
-
-    let body: any = {};
-    try { body = await req.json(); } catch {
-      return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-    }
-
-    const clientIds = body?.clientIds;
-    if (!Array.isArray(clientIds) || clientIds.length === 0 || clientIds.some((id: any) => typeof id !== "string")) {
-      return Response.json({ error: "clientIds must be a non-empty array of strings" }, { status: 400 });
-    }
-    if (clientIds.length > 500) {
-      return Response.json({ error: "Too many clients (max 500)" }, { status: 400 });
-    }
-
-    const groupId = body?.groupId === null ? null : Number(body?.groupId);
-    if (groupId !== null && (isNaN(groupId) || groupId < 1)) {
-      return Response.json({ error: "Invalid groupId" }, { status: 400 });
-    }
-
-    let updated = 0;
-    for (const cid of clientIds) {
-      if (!canUserAccessClient(user.userId, user.role, cid)) continue;
-      if (setClientGroup(cid, groupId)) updated++;
-    }
-
-    notifyDashboardViewers();
-    const ip = server.requestIP(req)?.address || "unknown";
-    logAudit({ timestamp: Date.now(), username: user.username, ip, action: AuditAction.COMMAND, details: `bulk_set_group:${groupId ?? "none"}:${updated}/${clientIds.length}`, success: true });
-    return Response.json({ ok: true, updated, total: clientIds.length, groupId }, { headers: deps.CORS_HEADERS });
-  }
-
-  const clientGroupMatch = url.pathname.match(/^\/api\/clients\/([^/]+)\/group$/);
-  if (req.method === "PATCH" && clientGroupMatch) {
-    const user = await authenticateRequest(req);
-    if (!user) return new Response("Unauthorized", { status: 401 });
-    try { requirePermission(user, "clients:metadata"); requireFeatureAccess(user, "client_metadata"); } catch (error) {
-      if (error instanceof Response) return error;
-      return new Response("Forbidden", { status: 403 });
-    }
-
-    const targetId = clientGroupMatch[1];
-    try {
-      requireClientAccess(user, targetId);
-    } catch (error) {
-      if (error instanceof Response) return error;
-      return new Response("Forbidden", { status: 403 });
-    }
-    if (!clientExists(targetId)) {
-      return Response.json({ error: "Client not found" }, { status: 404 });
-    }
-
-    let body: any = {};
-    try { body = await req.json(); } catch {
-      return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-    }
-
-    const groupId = body?.groupId === null ? null : Number(body?.groupId);
-    if (groupId !== null && (isNaN(groupId) || groupId < 1)) {
-      return Response.json({ error: "Invalid groupId" }, { status: 400 });
-    }
-
-    const updated = setClientGroup(targetId, groupId);
-    if (!updated) {
-      return Response.json({ error: "Client not found or group does not exist" }, { status: 404 });
-    }
-    notifyDashboardViewers();
-    const ip = server.requestIP(req)?.address || "unknown";
-    logAudit({ timestamp: Date.now(), username: user.username, ip, action: AuditAction.COMMAND, targetClientId: targetId, details: groupId ? `set_group:${groupId}` : "clear_group", success: true });
-    return Response.json({ ok: true, groupId }, { headers: deps.CORS_HEADERS });
-  }
+  const groupResult = await handleClientGroupRoutes(req, url, server, deps);
+  if (groupResult !== null) return groupResult;
 
   return null;
 }

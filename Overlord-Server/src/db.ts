@@ -1792,7 +1792,7 @@ export function saveSavedScript(
   scriptType: string,
 ): SavedScriptRecord | null {
   const owner = db
-    .query<{ user_id: number }, [string]>(
+    .query<{ user_id: number }>(
       `SELECT user_id FROM saved_scripts WHERE id = ?`,
     )
     .get(id);

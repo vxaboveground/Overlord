@@ -1217,7 +1217,8 @@ function renderCurrentDirectory() {
 function handleFileList(msg) {
   if (msg.error) {
     clearVirtualizedListMode();
-    fileListEl.innerHTML = `<div class="px-4 py-6 text-center text-red-400"><i class="fa-solid fa-exclamation-triangle mr-2"></i>${escapeHtml(msg.error)}</div>`;
+    currentPath = msg.path || currentPath;
+    renderFileListError(msg);
     updateDirectorySummaryAndPaging(0, 0);
     return;
   }
@@ -1259,6 +1260,60 @@ function handleFileList(msg) {
   selectedFiles.clear();
   updateSelectionUI();
   renderCurrentDirectory();
+}
+
+function isMacFolderAccessError(msg) {
+  if (!msg || !msg.error) return false;
+  if (msg.canRequestAccess || msg.accessDenied) return true;
+  if (detectedOS !== "mac") return false;
+  return /permission denied|operation not permitted|not permitted|access denied/i.test(msg.error);
+}
+
+function renderFileListError(msg) {
+  const canRequestAccess = isMacFolderAccessError(msg);
+  const helpText = msg.accessHelp || "macOS blocked this folder. Ask the user to allow access in Privacy & Security, then refresh this folder.";
+  const actionHtml = canRequestAccess
+    ? `<div class="mt-4 flex flex-wrap items-center justify-center gap-2">
+        <button id="request-folder-access-btn" class="button primary text-sm px-4 py-2">
+          <i class="fa-solid fa-unlock-keyhole"></i> Request Access Again
+        </button>
+        <button id="retry-folder-access-btn" class="button ghost text-sm px-4 py-2">
+          <i class="fa-solid fa-rotate-right"></i> Retry
+        </button>
+      </div>
+      <div class="mt-3 text-xs text-amber-200/80 max-w-xl mx-auto">${escapeHtml(helpText)}</div>`
+    : "";
+
+  fileListEl.innerHTML = `
+    <div class="px-4 py-6 text-center ${canRequestAccess ? "text-amber-200" : "text-red-400"}">
+      <i class="fa-solid fa-exclamation-triangle mr-2"></i>${escapeHtml(msg.error)}
+      ${actionHtml}
+    </div>`;
+
+  const requestBtn = document.getElementById("request-folder-access-btn");
+  if (requestBtn) {
+    requestBtn.addEventListener("click", () => requestFolderAccess(msg.path || currentPath || "."));
+  }
+
+  const retryBtn = document.getElementById("retry-folder-access-btn");
+  if (retryBtn) {
+    retryBtn.addEventListener("click", () => listFiles(msg.path || currentPath || "."));
+  }
+}
+
+function requestFolderAccess(path) {
+  const commandId = `file-access-${Date.now()}`;
+  send({
+    type: "command",
+    commandType: "file_request_access",
+    id: commandId,
+    payload: { path: path || currentPath || "." },
+  });
+  trackCommandResult(commandId, {
+    successMessage: "Opened macOS Privacy settings. Ask the user to allow access, then retry.",
+    errorPrefix: "Access request failed",
+  });
+  notifyToast("Asking the Mac to open Privacy settings...", "info", 3500);
 }
 
 function shouldShowParentDirectory(path) {

@@ -113,17 +113,20 @@ type FileEntry struct {
 	// windows file attributes
 	Attrs uint32 `msgpack:"attrs,omitempty"`
 	// Drive / volume disk usage (populated only at root listings for drive entries).
-	FreeBytes  int64 `msgpack:"freeBytes,omitempty"`
-	TotalBytes int64 `msgpack:"totalBytes,omitempty"`
+	FreeBytes  int64  `msgpack:"freeBytes,omitempty"`
+	TotalBytes int64  `msgpack:"totalBytes,omitempty"`
 	FSType     string `msgpack:"fsType,omitempty"`
 }
 
 type FileListResult struct {
-	Type      string      `msgpack:"type"`
-	CommandID string      `msgpack:"commandId,omitempty"`
-	Path      string      `msgpack:"path"`
-	Entries   []FileEntry `msgpack:"entries"`
-	Error     string      `msgpack:"error,omitempty"`
+	Type             string      `msgpack:"type"`
+	CommandID        string      `msgpack:"commandId,omitempty"`
+	Path             string      `msgpack:"path"`
+	Entries          []FileEntry `msgpack:"entries"`
+	Error            string      `msgpack:"error,omitempty"`
+	AccessDenied     bool        `msgpack:"accessDenied,omitempty"`
+	CanRequestAccess bool        `msgpack:"canRequestAccess,omitempty"`
+	AccessHelp       string      `msgpack:"accessHelp,omitempty"`
 }
 
 type FileDownload struct {

@@ -75,6 +75,7 @@ export type CommandType =
   | "console_stop"
   | "console_resize"
   | "file_list"
+  | "file_request_access"
   | "file_download"
   | "file_upload"
   | "file_delete"
@@ -238,6 +239,9 @@ export type FileListResult = {
   path: string;
   entries: FileEntry[];
   error?: string;
+  accessDenied?: boolean;
+  canRequestAccess?: boolean;
+  accessHelp?: string;
 };
 
 export type FileDownload = {

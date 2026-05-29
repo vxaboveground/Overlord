@@ -15,8 +15,11 @@ import {
   notifyThumbnailGenerated,
   requestThumbnailRegen,
 } from "./thumbnails";
-import { upsertClientRow, type ClientDbRow } from "./db";
+import { upsertClientRow } from "./db";
 import { metrics } from "./metrics";
+import { markClientDbSynced, queueClientDbUpdate, shouldSyncClientToDb } from "./client-db-sync";
+
+export { clearClientSyncState } from "./client-db-sync";
 
 /** Strip control chars and clamp length on client-supplied info strings. */
 function sanitizeInfoString(val: unknown, maxLen = 256): string | undefined {
@@ -56,51 +59,6 @@ function sanitizeJsonField(
 }
 
 const MAX_PING_RTT_MS = 15_000;
-const CLIENT_DB_SYNC_INTERVAL_MS = Number(process.env.OVERLORD_CLIENT_DB_SYNC_MS || 5000);
-const lastClientDbSync = new Map<string, number>();
-const pendingClientDbUpdates = new Map<string, ClientDbRow>();
-
-function queueClientDbUpdate(partial: ClientDbRow): void {
-  const existing = pendingClientDbUpdates.get(partial.id);
-  if (!existing) {
-    pendingClientDbUpdates.set(partial.id, { ...partial });
-    return;
-  }
-  pendingClientDbUpdates.set(partial.id, {
-    ...existing,
-    ...partial,
-    id: partial.id,
-    lastSeen: partial.lastSeen ?? existing.lastSeen,
-    online: partial.online ?? existing.online,
-    pingMs: partial.pingMs ?? existing.pingMs,
-  });
-}
-
-function flushQueuedClientDbUpdates(): void {
-  if (pendingClientDbUpdates.size === 0) {
-    return;
-  }
-  for (const update of pendingClientDbUpdates.values()) {
-    upsertClientRow(update);
-  }
-  pendingClientDbUpdates.clear();
-}
-
-setInterval(flushQueuedClientDbUpdates, CLIENT_DB_SYNC_INTERVAL_MS);
-
-function shouldSyncClientToDb(clientId: string, now: number): boolean {
-  const last = lastClientDbSync.get(clientId) || 0;
-  if (now - last < CLIENT_DB_SYNC_INTERVAL_MS) {
-    return false;
-  }
-  lastClientDbSync.set(clientId, now);
-  return true;
-}
-
-export function clearClientSyncState(clientId: string): void {
-  lastClientDbSync.delete(clientId);
-  pendingClientDbUpdates.delete(clientId);
-}
 
 export async function handleHello(
   info: ClientInfo,
@@ -246,7 +204,7 @@ export function handlePong(info: ClientInfo, payload: WireMessage) {
       online: 1,
       isAdmin: info.isAdmin,
     });
-    lastClientDbSync.set(info.id, nowTs);
+    markClientDbSynced(info.id, nowTs);
 
     metrics.recordPing(rtt);
   } else {

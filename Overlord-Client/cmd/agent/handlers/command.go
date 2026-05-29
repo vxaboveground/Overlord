@@ -2011,6 +2011,9 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 	case "file_list":
 		path, _ := envelopePayloadString(envelope, "path")
 		return HandleFileList(ctx, env, cmdID, path)
+	case "file_request_access":
+		path, _ := envelopePayloadString(envelope, "path")
+		return HandleFileRequestAccess(ctx, env, cmdID, path)
 	case "file_download":
 		path, _ := envelopePayloadString(envelope, "path")
 		return HandleFileDownload(ctx, env, cmdID, path)
