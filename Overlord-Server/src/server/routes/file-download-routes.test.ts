@@ -254,6 +254,126 @@ describe("file upload route flow", () => {
       await removeTempDataDir(dataDir);
     }
   });
+
+  test("keeps staged upload payload available for agent range retry after interrupted pull", async () => {
+    const auth = await createAdminToken();
+    const clientId = `client-${Date.now().toString(36)}`;
+    const dataDir = await createTempDataDir();
+    const deps = makeRouteDeps(dataDir);
+    const payload = new Uint8Array(1024 * 1024 + 17);
+    crypto.getRandomValues(payload.subarray(0, Math.min(payload.length, 65536)));
+
+    clientManager.addClient(clientId, {
+      id: clientId,
+      lastSeen: Date.now(),
+      role: "client",
+      ws: { send: () => {} },
+    });
+
+    const prevDisableAgentAuth = process.env.OVERLORD_DISABLE_AGENT_AUTH;
+    process.env.OVERLORD_DISABLE_AGENT_AUTH = "true";
+
+    try {
+      const requestUrl = new URL("https://localhost/api/file/upload/request");
+      const requestRes = await handleFileDownloadRoutes(
+        new Request(requestUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${auth.token}`,
+          },
+          body: JSON.stringify({
+            clientId,
+            path: "C:\\Games\\retry.bin",
+            fileName: "retry.bin",
+          }),
+        }),
+        requestUrl,
+        mockServer,
+        deps,
+      );
+      const requestJson = await requestRes!.json() as any;
+
+      const stageUrl = new URL(`https://localhost${requestJson.uploadUrl}`);
+      const stageRes = await handleFileDownloadRoutes(
+        new Request(stageUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/octet-stream",
+            Authorization: `Bearer ${auth.token}`,
+          },
+          body: payload,
+        }),
+        stageUrl,
+        mockServer,
+        deps,
+      );
+      const stageJson = await stageRes!.json() as any;
+      const pullUrl = new URL(stageJson.pullUrl);
+
+      const firstPullRes = await handleFileDownloadRoutes(
+        new Request(pullUrl, {
+          method: "GET",
+          headers: { "x-overlord-client-id": clientId },
+        }),
+        pullUrl,
+        mockServer,
+        deps,
+      );
+      expect(firstPullRes).not.toBeNull();
+      expect(firstPullRes!.status).toBe(200);
+      const reader = firstPullRes!.body!.getReader();
+      const firstRead = await reader.read();
+      expect(firstRead.done).toBe(false);
+      const firstChunk = firstRead.value!;
+      expect(firstChunk.byteLength).toBeGreaterThan(0);
+      await reader.cancel();
+
+      const retryStart = firstChunk.byteLength;
+      const retryRes = await handleFileDownloadRoutes(
+        new Request(pullUrl, {
+          method: "GET",
+          headers: {
+            "x-overlord-client-id": clientId,
+            Range: `bytes=${retryStart}-`,
+          },
+        }),
+        pullUrl,
+        mockServer,
+        deps,
+      );
+      expect(retryRes).not.toBeNull();
+      expect(retryRes!.status).toBe(206);
+      expect(retryRes!.headers.get("Content-Range")).toBe(
+        `bytes ${retryStart}-${payload.length - 1}/${payload.length}`,
+      );
+      const retried = new Uint8Array(await retryRes!.arrayBuffer());
+      expect(retried.length).toBe(payload.length - retryStart);
+      expect(retried[0]).toBe(payload[retryStart]);
+      expect(retried[retried.length - 1]).toBe(payload[payload.length - 1]);
+
+      const pullAgainRes = await handleFileDownloadRoutes(
+        new Request(pullUrl, {
+          method: "GET",
+          headers: { "x-overlord-client-id": clientId },
+        }),
+        pullUrl,
+        mockServer,
+        deps,
+      );
+      expect(pullAgainRes).not.toBeNull();
+      expect(pullAgainRes!.status).toBe(404);
+    } finally {
+      if (prevDisableAgentAuth === undefined) {
+        delete process.env.OVERLORD_DISABLE_AGENT_AUTH;
+      } else {
+        process.env.OVERLORD_DISABLE_AGENT_AUTH = prevDisableAgentAuth;
+      }
+      clientManager.deleteClient(clientId);
+      deleteUser(auth.userId);
+      await removeTempDataDir(dataDir);
+    }
+  });
 });
 
 async function createOperatorToken(opts: { fileBrowserAllowed: boolean; clientScope?: "none" | "all" } = { fileBrowserAllowed: true, clientScope: "all" }) {

@@ -16,7 +16,7 @@ import {
   isSafeRemotePath,
   makeIncrementalPullStream,
   notifyPullWaiters,
-  streamFileAndDelete,
+  streamFileRangeWithCleanup,
   uploadIntents,
   uploadPulls,
   waitForPullProgress,
@@ -557,15 +557,21 @@ export async function handleFileDownloadRoutes(
     };
 
     if (pull.deleteFile) {
-      uploadPulls.delete(pullId);
-      clearTimeout(pull.timeout);
+      const cleanupPull = async () => {
+        const current = uploadPulls.get(pullId);
+        if (current === pull) {
+          uploadPulls.delete(pullId);
+          clearTimeout(pull.timeout);
+        }
+        await fs.unlink(pull.tmpPath).catch(() => {});
+      };
 
       if (pull.state && !rangeHeader) {
         const expected = pull.expectedTotal ?? pull.size;
         const stream = makeIncrementalPullStream(pull);
         const cleanupOnDone = stream.pipeThrough(new TransformStream({
           flush: async () => {
-            await fs.unlink(pull.tmpPath).catch(() => {});
+            await cleanupPull();
           },
         }));
         return new Response(cleanupOnDone, {
@@ -578,13 +584,53 @@ export async function handleFileDownloadRoutes(
           await waitForPullProgress(pull.state);
         }
         if (pull.state.error) {
-          await fs.unlink(pull.tmpPath).catch(() => {});
+          await cleanupPull();
           return new Response("Upload streaming failed", { status: 500 });
         }
       }
-      return new Response(streamFileAndDelete(pull.tmpPath), {
-        headers: { ...baseHeaders, "Content-Length": String(pull.size) },
-      });
+
+      if (rangeHeader) {
+        const match = /^bytes=(\d+)-(\d*)$/.exec(rangeHeader.trim());
+        if (!match) {
+          return new Response("Range Not Satisfiable", {
+            status: 416,
+            headers: { ...baseHeaders, "Content-Range": `bytes */${pull.size}` },
+          });
+        }
+        const start = Number(match[1]);
+        const end = match[2] === "" ? pull.size - 1 : Number(match[2]);
+        if (
+          !Number.isFinite(start) ||
+          !Number.isFinite(end) ||
+          start < 0 ||
+          end >= pull.size ||
+          start > end
+        ) {
+          return new Response("Range Not Satisfiable", {
+            status: 416,
+            headers: { ...baseHeaders, "Content-Range": `bytes */${pull.size}` },
+          });
+        }
+        const length = end - start + 1;
+        return new Response(
+          streamFileRangeWithCleanup(pull.tmpPath, start, end, cleanupPull),
+          {
+            status: 206,
+            headers: {
+              ...baseHeaders,
+              "Content-Range": `bytes ${start}-${end}/${pull.size}`,
+              "Content-Length": String(length),
+            },
+          },
+        );
+      }
+
+      return new Response(
+        streamFileRangeWithCleanup(pull.tmpPath, 0, Math.max(0, pull.size - 1), cleanupPull),
+        {
+          headers: { ...baseHeaders, "Content-Length": String(pull.size) },
+        },
+      );
     }
 
     if (rangeHeader) {

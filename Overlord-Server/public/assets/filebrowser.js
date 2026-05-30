@@ -1,5 +1,18 @@
 import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
 import { checkFeatureAccess } from "./feature-gate.js";
+import { createFileHexHashManager } from "./filebrowser-hex-hash.js";
+import { createFilePreviewModal } from "./filebrowser-preview-modal.js";
+import { createTransferPanel } from "./filebrowser-transfer-panel.js";
+import {
+  KNOWN_BINARY_EXTS,
+  PREVIEW_IMAGE_EXTS,
+  escapeHtml,
+  formatBytes,
+  getFileExt,
+  getParentPath,
+  isPreviewable,
+  shouldShowParentDirectory,
+} from "./filebrowser-utils.js";
 
 const clientId = window.location.pathname.split("/")[1];
 let ws = null;
@@ -11,8 +24,6 @@ let fileUploads = new Map();
 let fileUploadsById = new Map();
 let activeTransfers = new Map();
 let currentEditingFile = null;
-let currentPreviewBlobUrl = null;
-let currentPreviewPath = null;
 let lastSuccessfulResponse = 0;
 let pendingToast = null;
 const recentToasts = new Map();
@@ -43,8 +54,6 @@ const backBtn = document.getElementById("back-btn");
 const homeBtn = document.getElementById("home-btn");
 const pathInput = document.getElementById("path-input");
 const pathGoBtn = document.getElementById("path-go-btn");
-const transferPanel = document.getElementById("transfer-panel");
-const transferList = document.getElementById("transfer-list");
 const fileListPanel = document.getElementById("file-list-panel");
 const sortFieldEl = document.getElementById("sort-field");
 const sortOrderBtn = document.getElementById("sort-order-btn");
@@ -72,12 +81,6 @@ const editorStatus = document.getElementById("editor-status");
 const editorSaveBtn = document.getElementById("editor-save-btn");
 const editorCancelBtn = document.getElementById("editor-cancel-btn");
 const editorCloseBtn = document.getElementById("editor-close-btn");
-const filePreviewModal = document.getElementById("file-preview-modal");
-const previewFileNameEl = document.getElementById("preview-file-name");
-const previewContent = document.getElementById("preview-content");
-const previewCloseBtn = document.getElementById("preview-close-btn");
-const previewDownloadBtn = document.getElementById("preview-download-btn");
-const previewStatusEl = document.getElementById("preview-status");
 
 if (clientIdHeader) {
   clientIdHeader.textContent = `${clientId} - File Browser`;
@@ -364,168 +367,19 @@ function updateBreadcrumb(path) {
   });
 }
 
-function getFileExt(name = "") {
-  const idx = name.lastIndexOf(".");
-  if (idx < 0 || idx === name.length - 1) return "";
-  return name.slice(idx + 1).toLowerCase();
-}
-
-
-const PREVIEW_IMAGE_EXTS = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp"]);
-const PREVIEW_PDF_EXTS = new Set(["pdf"]);
-const PREVIEW_MAX_BYTES = 50 * 1024 * 1024;
-
-// list of binary files from chatgpt (I can't think of anything else either)
-const KNOWN_BINARY_EXTS = new Set([
-  "mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v",
-  "mp3", "wav", "flac", "ogg", "aac", "wma", "m4a",
-  "exe", "msi", "com", "app", "appimage",
-  "dll", "so", "dylib", "lib",
-  "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz",
-  "db", "sqlite", "sqlite3", "mdb",
-  "ttf", "otf", "woff", "woff2", "eot",
-  "iso", "img", "vhd", "vmdk",
-]);
-
-const IMAGE_MIME_MAP = {
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  png: "image/png",
-  gif: "image/gif",
-  webp: "image/webp",
-  bmp: "image/bmp",
-};
-
-function isPreviewable(name) {
-  const ext = getFileExt(name);
-  return PREVIEW_IMAGE_EXTS.has(ext) || PREVIEW_PDF_EXTS.has(ext);
-}
-
-function getPreviewMimeType(name) {
-  const ext = getFileExt(name);
-  if (PREVIEW_PDF_EXTS.has(ext)) return "application/pdf";
-  return IMAGE_MIME_MAP[ext] || null;
-}
-
-function closePreview() {
-  if (filePreviewModal) filePreviewModal.classList.remove("show");
-  if (currentPreviewBlobUrl) {
-    URL.revokeObjectURL(currentPreviewBlobUrl);
-    currentPreviewBlobUrl = null;
-  }
-  if (previewContent) previewContent.innerHTML = "";
-  if (previewStatusEl) previewStatusEl.textContent = "";
-  currentPreviewPath = null;
-}
-
-async function openFilePreview(path, knownSize) {
-  const fileName = path.split(/[\/\\]/).pop() || "";
-  const mimeType = getPreviewMimeType(fileName);
-  if (!mimeType) return;
-
-  if (typeof knownSize === "number" && knownSize > PREVIEW_MAX_BYTES) {
-    notifyToast(`File too large to preview (${formatBytes(knownSize)})`, "info", 4000);
-    return;
-  }
-
-  currentPreviewPath = path;
-  if (previewFileNameEl) previewFileNameEl.textContent = fileName;
-  if (previewContent) previewContent.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-slate-400 text-2xl"></i>';
-  if (previewStatusEl) previewStatusEl.textContent = "Loading...";
-  if (filePreviewModal) filePreviewModal.classList.add("show");
-
-  try {
-    const requestRes = await fetch("/api/file/download/request", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ clientId, path }),
-    });
-
-    if (!requestRes.ok) {
-      const text = await requestRes.text();
-      if (currentPreviewPath !== path) return;
-      if (previewContent) previewContent.innerHTML = `<div class="text-red-400 text-sm text-center p-6"><i class="fa-solid fa-exclamation-triangle mr-2"></i>${escapeHtml(text || "Failed to load preview")}</div>`;
-      if (previewStatusEl) previewStatusEl.textContent = "";
-      return;
-    }
-
-    const requestData = await requestRes.json();
-    const downloadUrl = typeof requestData?.downloadUrl === "string"
-      ? requestData.downloadUrl
-      : (requestData?.downloadId
-        ? `/api/file/download/${encodeURIComponent(requestData.downloadId)}`
-        : "");
-
-    if (!downloadUrl) {
-      if (currentPreviewPath !== path) return;
-      if (previewContent) previewContent.innerHTML = `<div class="text-red-400 text-sm text-center p-6"><i class="fa-solid fa-exclamation-triangle mr-2"></i>Failed to load preview</div>`;
-      if (previewStatusEl) previewStatusEl.textContent = "";
-      return;
-    }
-
-    const res = await fetch(downloadUrl, {
-      method: "GET",
-      credentials: "include",
-    });
-
-    if (!res.ok) {
-      const text = await res.text();
-      if (currentPreviewPath !== path) return;
-      if (previewContent) previewContent.innerHTML = `<div class="text-red-400 text-sm text-center p-6"><i class="fa-solid fa-exclamation-triangle mr-2"></i>${escapeHtml(text || "Failed to load preview")}</div>`;
-      if (previewStatusEl) previewStatusEl.textContent = "";
-      return;
-    }
-
-    // Reject oversized files before buffering to prevent OOM.
-    const contentLength = Number(res.headers.get("Content-Length") || 0);
-    if (contentLength > PREVIEW_MAX_BYTES) {
-      if (currentPreviewPath !== path) return;
-      if (previewContent) previewContent.innerHTML = `<div class="text-slate-400 text-sm text-center p-6"><i class="fa-solid fa-file mr-2"></i>File too large to preview (${escapeHtml(formatBytes(contentLength))})</div>`;
-      if (previewStatusEl) previewStatusEl.textContent = "";
-      return;
-    }
-
-    const arrayBuffer = await res.arrayBuffer();
-
-    if (currentPreviewPath !== path) return;
-
-    if (arrayBuffer.byteLength > PREVIEW_MAX_BYTES) {
-      if (previewContent) previewContent.innerHTML = `<div class="text-slate-400 text-sm text-center p-6"><i class="fa-solid fa-file mr-2"></i>File too large to preview (${escapeHtml(formatBytes(arrayBuffer.byteLength))})</div>`;
-      if (previewStatusEl) previewStatusEl.textContent = "";
-      return;
-    }
-
-    if (currentPreviewBlobUrl) {
-      URL.revokeObjectURL(currentPreviewBlobUrl);
-      currentPreviewBlobUrl = null;
-    }
-
-    const blob = new Blob([arrayBuffer], { type: mimeType });
-    currentPreviewBlobUrl = URL.createObjectURL(blob);
-
-    if (previewContent) {
-      previewContent.innerHTML = "";
-      if (PREVIEW_IMAGE_EXTS.has(getFileExt(fileName))) {
-        const img = document.createElement("img");
-        img.src = currentPreviewBlobUrl;
-        img.alt = "";
-        previewContent.appendChild(img);
-      } else {
-        const obj = document.createElement("object");
-        obj.data = currentPreviewBlobUrl;
-        obj.type = "application/pdf";
-        previewContent.appendChild(obj);
-      }
-    }
-
-    if (previewStatusEl) previewStatusEl.textContent = "";
-  } catch (err) {
-    if (currentPreviewPath !== path) return;
-    if (previewContent) previewContent.innerHTML = `<div class="text-red-400 text-sm text-center p-6"><i class="fa-solid fa-exclamation-triangle mr-2"></i>${escapeHtml(err.message || "Failed to load preview")}</div>`;
-    if (previewStatusEl) previewStatusEl.textContent = "";
-  }
-}
+const filePreviewModalManager = createFilePreviewModal({
+  clientId,
+  notifyToast,
+  onDownload: (path) => downloadFile(path),
+});
+let openFilePreview = filePreviewModalManager.openFilePreview;
+const transferPanelManager = createTransferPanel({
+  onCancel: (transferId) => cancelTransfer(transferId),
+});
+const {
+  addTransferToUI,
+  updateTransferProgress,
+} = transferPanelManager;
 
 const FILE_ICON_MAP = {
   // Images
@@ -1314,36 +1168,6 @@ function requestFolderAccess(path) {
     errorPrefix: "Access request failed",
   });
   notifyToast("Asking the Mac to open Privacy settings...", "info", 3500);
-}
-
-function shouldShowParentDirectory(path) {
-  if (!path || path === ".") {
-    return false;
-  }
-
-  return true;
-}
-
-function getParentPath(path) {
-  const normalized = path.replace(/\\/g, "/");
-  const parts = normalized.split("/").filter((p) => p);
-
-  if (parts.length === 1 && parts[0].match(/^[A-Za-z]:$/)) {
-    return ".";
-  }
-
-  if (parts.length <= 1) {
-    return ".";
-  }
-
-  parts.pop();
-  let parentPath = parts.join("/");
-
-  if (parentPath.match(/^[A-Za-z]:?$/)) {
-    return parentPath.replace(/^([A-Za-z]):?$/, "$1:\\");
-  }
-
-  return parentPath || ".";
 }
 
 function createParentRow(parentPath) {
@@ -2359,30 +2183,6 @@ function hideContextMenu() {
   contextMenu.classList.remove("show");
 }
 
-function formatBytes(bytes) {
-  if (bytes === 0 || bytes === 0n) return "0 B";
-  const sizes = ["B", "KB", "MB", "GB", "TB"];
-  if (typeof bytes === "bigint") {
-    const k = 1024n;
-    let i = 0;
-    let value = bytes;
-    while (value >= k && i < sizes.length - 1) {
-      value /= k;
-      i += 1;
-    }
-    return `${value.toString()} ${sizes[i]}`;
-  }
-  const k = 1024;
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
-}
-
-function escapeHtml(text) {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
-}
-
 refreshBtn.onclick = () => listFiles(currentPath);
 
 uploadBtn.onclick = () => fileInput.click();
@@ -2686,6 +2486,7 @@ const WS_UPLOAD_MAX_TOTAL = 8 * 1024 * 1024;
 const WS_UPLOAD_CHUNK_SIZE = 512 * 1024;
 const WS_UPLOAD_CONCURRENCY = 4;
 const WS_UPLOAD_ACK_TIMEOUT_MS = 90 * 1000;
+const PREFER_HTTP_UPLOAD_PULL = true;
 
 async function uploadFileViaWsChunks(file, path, transfer) {
   const total = file.size;
@@ -2787,16 +2588,41 @@ async function uploadFile(file) {
   activeTransfers.set(transferId, transfer);
   addTransferToUI(transfer);
 
-  const useWs = file.size <= WS_UPLOAD_MAX_TOTAL;
-
   try {
-    if (useWs) {
+    if (PREFER_HTTP_UPLOAD_PULL) {
+      await uploadFileViaHttpPull(file, path, transfer);
+    } else if (file.size <= WS_UPLOAD_MAX_TOTAL) {
       await uploadFileViaWsChunks(file, path, transfer);
     } else {
       await uploadFileViaHttpPull(file, path, transfer);
     }
     finishUpload(transfer);
   } catch (err) {
+    const canFallbackToWs = PREFER_HTTP_UPLOAD_PULL && file.size <= WS_UPLOAD_MAX_TOTAL && !transfer.cancelled;
+    if (canFallbackToWs) {
+      console.warn("[filebrowser] http upload failed, falling back to ws chunks", err);
+      notifyToast("HTTP upload failed; retrying through WebSocket...", "warning", 3500);
+      transfer.sent = 0;
+      transfer.receivedBytes = 0;
+      transfer.receivedChunks = 0;
+      transfer.expectedChunks = 0;
+      transfer.completed = false;
+      transfer.ackedOffsets.clear();
+      transfer.pendingAcks.forEach((pending) => {
+        clearTimeout(pending.timeoutId);
+        try { pending.reject(new Error("switching upload method")); } catch {}
+      });
+      transfer.pendingAcks.clear();
+      transfer.progress = 0;
+      updateTransferProgress(transfer.id, 0, 0, transfer.total);
+      try {
+        await uploadFileViaWsChunks(file, path, transfer);
+        finishUpload(transfer);
+        return;
+      } catch (fallbackErr) {
+        err = fallbackErr;
+      }
+    }
     console.error("Upload error:", err);
     removeTransfer(transferId);
     fileUploads.delete(path);
@@ -2961,17 +2787,20 @@ const previewThumbBox = document.getElementById("preview-thumb-box");
 const previewNameEl = document.getElementById("preview-name");
 const previewPathEl = document.getElementById("preview-path");
 const previewMetaList = document.getElementById("preview-meta-list");
-const previewTextHeadHost = document.getElementById("preview-text-head-host");
-const previewTextHead = document.getElementById("preview-text-head");
-const previewHexBtn = document.getElementById("preview-hex-btn");
-const previewHashBtn = document.getElementById("preview-hash-btn");
-const previewHashResult = document.getElementById("preview-hash-result");
-const previewHashValue = document.getElementById("preview-hash-value");
-const previewHashKnown = document.getElementById("preview-hash-known");
 
 let currentPreviewEntry = null;
-let lastPeekCommandId = null;
-let lastHashCommandId = null;
+const fileHexHashManager = createFileHexHashManager({
+  send,
+  notifyToast,
+  getCurrentPreviewEntry: () => currentPreviewEntry,
+});
+const {
+  handleFileHashResult,
+  handleFilePeekResult,
+  openHexViewer,
+  requestFileHash,
+  requestFilePeek,
+} = fileHexHashManager;
 
 function setPreviewPaneVisible(visible) {
   if (!previewPaneHost) return;
@@ -3000,9 +2829,8 @@ function clearPreviewPane() {
   previewActiveEl?.classList.add("hidden");
   if (previewThumbBox) previewThumbBox.innerHTML = "";
   if (previewMetaList) previewMetaList.innerHTML = "";
-  if (previewTextHead) previewTextHead.textContent = "";
-  previewTextHeadHost?.classList.add("hidden");
-  previewHashResult?.classList.add("hidden");
+  fileHexHashManager.resetPreviewTextHead();
+  fileHexHashManager.resetPreviewHash();
 }
 
 function renderPreviewMeta(entry) {
@@ -3054,8 +2882,7 @@ function showPreviewForEntry(entry) {
   }
 
   // Text head — only for likely-text files under 4KB peek window
-  previewTextHeadHost?.classList.add("hidden");
-  if (previewTextHead) previewTextHead.textContent = "";
+  fileHexHashManager.resetPreviewTextHead();
   if (!entry.isDir) {
     const ext = getFileExt(entry.name);
     if (!KNOWN_BINARY_EXTS.has(ext) && !PREVIEW_IMAGE_EXTS.has(ext) && !PREVIEW_PDF_EXTS.has(ext)) {
@@ -3063,235 +2890,8 @@ function showPreviewForEntry(entry) {
     }
   }
 
-  previewHashResult?.classList.add("hidden");
-  if (previewHashValue) previewHashValue.textContent = "";
-  if (previewHashKnown) {
-    previewHashKnown.classList.add("hidden");
-    previewHashKnown.textContent = "";
-  }
+  fileHexHashManager.resetPreviewHash();
 }
-
-// ── file_peek (hex viewer + text head) ──────────────────────────────────────
-const hexViewerModal = document.getElementById("hex-viewer-modal");
-const hexViewerFile = document.getElementById("hex-viewer-file");
-const hexViewerBody = document.getElementById("hex-viewer-body");
-const hexViewerInfo = document.getElementById("hex-viewer-info");
-const hexViewerCloseBtn = document.getElementById("hex-viewer-close-btn");
-const hexViewerCopyBtn = document.getElementById("hex-viewer-copy-btn");
-
-// commandId -> { kind: 'preview'|'hex', path, fileName }
-const peekRequests = new Map();
-let lastHexBytes = null;
-let lastHexFileName = "";
-
-function requestFilePeek(path, kind) {
-  const commandId = `peek-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const fileName = path.split(/[\/\\]/).pop() || "";
-  peekRequests.set(commandId, { kind, path, fileName });
-  lastPeekCommandId = commandId;
-  send({
-    type: "command",
-    commandType: "file_peek",
-    id: commandId,
-    payload: { path, bytes: 4096 },
-  });
-}
-
-function openHexViewer(path) {
-  if (!hexViewerModal) return;
-  const fileName = path.split(/[\/\\]/).pop() || "";
-  if (hexViewerFile) hexViewerFile.textContent = fileName;
-  if (hexViewerBody) hexViewerBody.innerHTML = '<div class="text-slate-400"><i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Loading...</div>';
-  if (hexViewerInfo) hexViewerInfo.textContent = "";
-  hexViewerModal.classList.add("show");
-  requestFilePeek(path, "hex");
-}
-
-function closeHexViewer() {
-  hexViewerModal?.classList.remove("show");
-}
-
-function decodeTextHead(bytes) {
-  // Try UTF-8 first; fall back to latin1.
-  try {
-    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-  } catch {
-    return new TextDecoder("latin1").decode(bytes);
-  }
-}
-
-function renderHexDump(bytes, totalSize) {
-  if (!hexViewerBody) return;
-  const len = bytes.length;
-  const rows = [];
-  for (let off = 0; off < len; off += 16) {
-    const chunk = bytes.slice(off, Math.min(off + 16, len));
-    const hexParts = [];
-    const asciiParts = [];
-    for (let i = 0; i < 16; i++) {
-      if (i < chunk.length) {
-        hexParts.push(chunk[i].toString(16).padStart(2, "0"));
-        const b = chunk[i];
-        if (b >= 0x20 && b <= 0x7e) {
-          asciiParts.push(`<span>${escapeHtml(String.fromCharCode(b))}</span>`);
-        } else {
-          asciiParts.push('<span class="np">.</span>');
-        }
-      } else {
-        hexParts.push("  ");
-        asciiParts.push(" ");
-      }
-      if (i === 7) hexParts.push("");
-    }
-    rows.push(
-      `<div class="hex-row">` +
-        `<span class="hex-off">${off.toString(16).padStart(8, "0")}</span>` +
-        `<span class="hex-bytes">${hexParts.join(" ")}</span>` +
-        `<span class="hex-ascii">${asciiParts.join("")}</span>` +
-      `</div>`
-    );
-  }
-  hexViewerBody.innerHTML = rows.join("");
-  if (hexViewerInfo) {
-    const peekStr = `${formatBytes(len)} peek`;
-    const totalStr = totalSize > 0 ? ` of ${formatBytes(totalSize)}` : "";
-    hexViewerInfo.textContent = peekStr + totalStr;
-  }
-  lastHexBytes = bytes;
-}
-
-function handleFilePeekResult(msg) {
-  const req = msg.commandId ? peekRequests.get(msg.commandId) : null;
-  if (!req) return;
-  peekRequests.delete(msg.commandId);
-
-  if (msg.error) {
-    if (req.kind === "hex") {
-      if (hexViewerBody) hexViewerBody.innerHTML = `<div class="text-red-400 p-3"><i class="fa-solid fa-exclamation-triangle mr-2"></i>${escapeHtml(msg.error)}</div>`;
-    }
-    if (req.kind === "preview" && currentPreviewEntry && currentPreviewEntry.path === req.path) {
-      previewTextHeadHost?.classList.add("hidden");
-    }
-    return;
-  }
-
-  let data = msg.data;
-  if (!data) data = new Uint8Array(0);
-  if (!(data instanceof Uint8Array)) {
-    try { data = new Uint8Array(data); } catch { data = new Uint8Array(0); }
-  }
-
-  if (req.kind === "hex") {
-    lastHexFileName = req.fileName;
-    renderHexDump(data, Number(msg.size || 0));
-    return;
-  }
-
-  // preview kind
-  if (!currentPreviewEntry || currentPreviewEntry.path !== req.path) return;
-  if (!msg.isText || data.length === 0) {
-    previewTextHeadHost?.classList.add("hidden");
-    return;
-  }
-  const text = decodeTextHead(data);
-  if (previewTextHead) previewTextHead.textContent = text;
-  previewTextHeadHost?.classList.remove("hidden");
-}
-
-hexViewerCloseBtn?.addEventListener("click", closeHexViewer);
-hexViewerModal?.addEventListener("click", (e) => {
-  if (e.target === hexViewerModal) closeHexViewer();
-});
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && hexViewerModal?.classList.contains("show")) {
-    closeHexViewer();
-  }
-});
-hexViewerCopyBtn?.addEventListener("click", async () => {
-  if (!lastHexBytes) return;
-  const hex = Array.from(lastHexBytes).map((b) => b.toString(16).padStart(2, "0")).join("");
-  try {
-    await navigator.clipboard.writeText(hex);
-    notifyToast("Hex copied to clipboard", "success", 2000);
-  } catch {
-    notifyToast("Clipboard copy failed", "error", 2500);
-  }
-});
-
-// ── file_hash + tiny known catalog ──────────────────────────────────────────
-// SHA-256 hex digests for a few well-known files (operator tip). Lowercase.
-const KNOWN_HASHES_SHA256 = {
-  // empty file
-  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855": "Empty file (0 bytes)",
-  // example placeholders — populate over time
-};
-
-// commandId -> { path, fileName, source: 'preview'|'context' }
-const hashRequests = new Map();
-
-function requestFileHash(path, source) {
-  const commandId = `hash-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const fileName = path.split(/[\/\\]/).pop() || "";
-  hashRequests.set(commandId, { path, fileName, source });
-  lastHashCommandId = commandId;
-  send({
-    type: "command",
-    commandType: "file_hash",
-    id: commandId,
-    payload: { path, algorithm: "sha256" },
-  });
-  notifyToast(`Hashing ${fileName}…`, "info", 2500);
-}
-
-function handleFileHashResult(msg) {
-  const req = msg.commandId ? hashRequests.get(msg.commandId) : null;
-  if (!req) return;
-  hashRequests.delete(msg.commandId);
-
-  if (msg.error) {
-    notifyToast(`Hash failed: ${msg.error}`, "error", 5000);
-    return;
-  }
-  const digest = (msg.digest || "").toLowerCase();
-  const known = KNOWN_HASHES_SHA256[digest];
-
-  // Update preview pane if it's showing this file
-  if (currentPreviewEntry && currentPreviewEntry.path === req.path && previewHashValue) {
-    previewHashValue.textContent = digest;
-    previewHashResult?.classList.remove("hidden");
-    if (previewHashKnown) {
-      if (known) {
-        previewHashKnown.textContent = `Known: ${known}`;
-        previewHashKnown.classList.remove("hidden");
-      } else {
-        previewHashKnown.classList.add("hidden");
-      }
-    }
-  }
-
-  const msgSuffix = known ? ` — matches known: ${known}` : "";
-  notifyToast(`SHA-256: ${digest.slice(0, 16)}…${msgSuffix}`, "success", 6000);
-  navigator.clipboard?.writeText(digest).catch(() => {});
-}
-
-previewHexBtn?.addEventListener("click", () => {
-  if (currentPreviewEntry && !currentPreviewEntry.isDir) {
-    openHexViewer(currentPreviewEntry.path);
-  }
-});
-previewHashBtn?.addEventListener("click", () => {
-  if (currentPreviewEntry && !currentPreviewEntry.isDir) {
-    requestFileHash(currentPreviewEntry.path, "preview");
-  }
-});
-previewHashValue?.addEventListener("click", async () => {
-  const v = previewHashValue.textContent || "";
-  if (!v) return;
-  try {
-    await navigator.clipboard.writeText(v);
-    notifyToast("SHA-256 copied", "success", 1500);
-  } catch {}
-});
 
 // ── Sidebar Quick Access ──
 let detectedHomePath = "";
@@ -3447,75 +3047,12 @@ function highlightSidebarActive() {
 updatePinnedSidebar();
 checkFeatureAccess("file_browser", clientId).then(ok => ok && connect());
 
-function addTransferToUI(transfer) {
-  const transferItem = document.createElement("div");
-  transferItem.id = `transfer-${transfer.id}`;
-  transferItem.className =
-    "transfer-item bg-slate-800/50 border border-slate-700 rounded-lg p-3";
-
-  const icon = transfer.type === "upload" ? "fa-upload" : "fa-download";
-  const color = transfer.type === "upload" ? "text-blue-400" : "text-green-400";
-
-  transferItem.innerHTML = `
-    <div class="flex items-center justify-between mb-2">
-      <div class="flex items-center gap-2 flex-1 min-w-0">
-        <i class="fa-solid ${icon} ${color}"></i>
-        <span class="text-sm truncate transfer-name"></span>
-      </div>
-      <button class="cancel-btn text-red-400 hover:text-red-300 px-2" type="button">
-        <i class="fa-solid fa-xmark"></i>
-      </button>
-    </div>
-    <div class="progress-bar-container w-full bg-slate-700 rounded-full h-2 mb-1">
-      <div class="progress-bar bg-blue-500 h-2 rounded-full transition-all duration-300" style="width: ${transfer.progress}%"></div>
-    </div>
-    <div class="flex justify-between text-xs text-slate-400">
-      <span class="progress-text">${transfer.progress}%</span>
-      <span class="size-text">${formatBytes(transfer.sent || transfer.received || 0)} / ${formatBytes(transfer.total)}</span>
-    </div>
-  `;
-
-  const nameEl = transferItem.querySelector(".transfer-name");
-  if (nameEl) {
-    nameEl.textContent = transfer.fileName;
-  }
-  const cancelBtn = transferItem.querySelector(".cancel-btn");
-  if (cancelBtn) {
-    cancelBtn.addEventListener("click", () => cancelTransfer(transfer.id));
-  }
-
-  transferList.appendChild(transferItem);
-  transferPanel.classList.remove("hidden");
-}
-
-function updateTransferProgress(transferId, progress, current, total) {
-  const transferItem = document.getElementById(`transfer-${transferId}`);
-  if (!transferItem) return;
-
-  const progressBar = transferItem.querySelector(".progress-bar");
-  const progressText = transferItem.querySelector(".progress-text");
-  const sizeText = transferItem.querySelector(".size-text");
-
-  if (progressBar) progressBar.style.width = `${progress}%`;
-  if (progressText) progressText.textContent = `${progress}%`;
-  if (sizeText)
-    sizeText.textContent = `${formatBytes(current)} / ${formatBytes(total)}`;
-}
-
 function removeTransfer(transferId) {
-  const transferItem = document.getElementById(`transfer-${transferId}`);
-  if (transferItem) {
-    transferItem.remove();
-  }
-
+  transferPanelManager.removeTransfer(transferId);
   activeTransfers.delete(transferId);
-
-  if (transferList.children.length === 0) {
-    transferPanel.classList.add("hidden");
-  }
 }
 
-window.cancelTransfer = function (transferId) {
+function cancelTransfer(transferId) {
   const transfer = activeTransfers.get(transferId);
   if (transfer) {
     transfer.cancelled = true;
@@ -3540,7 +3077,8 @@ window.cancelTransfer = function (transferId) {
 
     console.log("Transfer cancelled:", transferId);
   }
-};
+}
+window.cancelTransfer = cancelTransfer;
 
 function updateSelectionUI() {
   const count = selectedFiles.size;
@@ -3844,21 +3382,8 @@ editorSaveBtn.addEventListener("click", saveFileFromEditor);
 editorCancelBtn.addEventListener("click", closeEditor);
 editorCloseBtn.addEventListener("click", closeEditor);
 
-if (previewCloseBtn) previewCloseBtn.addEventListener("click", closePreview);
-if (previewDownloadBtn) previewDownloadBtn.addEventListener("click", () => {
-  if (currentPreviewPath) downloadFile(currentPreviewPath);
-});
-if (filePreviewModal) {
-  // Close on backdrop click.
-  filePreviewModal.addEventListener("click", (e) => {
-    if (e.target === filePreviewModal) closePreview();
-  });
-}
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && filePreviewModal && filePreviewModal.classList.contains("show")) {
-    closePreview();
-  }
-});
+filePreviewModalManager.bindControls();
+fileHexHashManager.bindControls();
 
 const editorRunBtn = document.getElementById("editor-run-btn");
 editorRunBtn.addEventListener("click", () => {

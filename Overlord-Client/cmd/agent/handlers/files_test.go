@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -507,6 +508,72 @@ func TestHandleFileUploadHTTP(t *testing.T) {
 	}
 	if !bytes.Equal(content, data) {
 		t.Fatalf("uploaded content mismatch")
+	}
+
+	if len(writer.msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(writer.msgs))
+	}
+	var result wire.CommandResult
+	if err := msgpack.Unmarshal(writer.msgs[0], &result); err != nil {
+		t.Fatalf("failed to unmarshal command result: %v", err)
+	}
+	if !result.OK {
+		t.Fatalf("expected OK=true, got false: %s", result.Message)
+	}
+}
+
+func TestHandleFileUploadHTTP_ResumesWithRangeAfterShortRead(t *testing.T) {
+	data := bytes.Repeat([]byte("range-retry-"), 128*1024)
+	firstLen := len(data) / 3
+	var requests int
+	var sawRange string
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if requests == 1 {
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
+			_, _ = w.Write(data[:firstLen])
+			return
+		}
+
+		sawRange = r.Header.Get("Range")
+		expectedRange := fmt.Sprintf("bytes=%d-", firstLen)
+		if sawRange != expectedRange {
+			t.Fatalf("expected resume range %q, got %q", expectedRange, sawRange)
+		}
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)-firstLen))
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", firstLen, len(data)-1, len(data)))
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write(data[firstLen:])
+	}))
+	defer ts.Close()
+
+	tmpDir := t.TempDir()
+	destPath := filepath.Join(tmpDir, "uploaded-http-resume.bin")
+
+	writer := &testWriter{}
+	env := &rt.Env{
+		Conn: writer,
+		Cfg:  config.Config{TLSInsecureSkipVerify: true},
+	}
+
+	if err := HandleFileUploadHTTP(context.Background(), env, "cmd-http-upload-resume", destPath, ts.URL+"/file", int64(len(data))); err != nil {
+		t.Fatalf("HandleFileUploadHTTP failed: %v", err)
+	}
+
+	if requests < 2 {
+		t.Fatalf("expected retry request, got %d request(s)", requests)
+	}
+	if sawRange == "" {
+		t.Fatal("expected retry request to include Range header")
+	}
+
+	content, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("failed reading uploaded file: %v", err)
+	}
+	if !bytes.Equal(content, data) {
+		t.Fatalf("uploaded content mismatch after resume")
 	}
 
 	if len(writer.msgs) != 1 {

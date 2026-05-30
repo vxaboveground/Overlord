@@ -202,6 +202,45 @@ export function streamFileAndDelete(tmpPath: string): ReadableStream<Uint8Array>
   });
 }
 
+export function streamFileRangeWithCleanup(
+  tmpPath: string,
+  start: number,
+  endInclusive: number,
+  cleanupOnComplete: () => void | Promise<void>,
+): ReadableStream<Uint8Array> {
+  let cancelled = false;
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      let fh: FileHandle | null = null;
+      try {
+        fh = await fs.open(tmpPath, "r");
+        let pos = start;
+        const READ_CHUNK = 256 * 1024;
+        while (!cancelled && pos <= endInclusive) {
+          const remaining = endInclusive - pos + 1;
+          const buf = new Uint8Array(Math.min(remaining, READ_CHUNK));
+          const { bytesRead } = await fh.read(buf, 0, buf.length, pos);
+          if (bytesRead === 0) break;
+          controller.enqueue(bytesRead === buf.length ? buf : buf.subarray(0, bytesRead));
+          pos += bytesRead;
+        }
+        if (cancelled) return;
+        await cleanupOnComplete();
+        controller.close();
+      } catch (err) {
+        try { controller.error(err); } catch {}
+      } finally {
+        if (fh) {
+          try { await fh.close(); } catch {}
+        }
+      }
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+}
+
 export async function cleanupFileTransferTempFiles(dataDir: string): Promise<void> {
   const uploadsDir = path.join(dataDir, "uploads");
   const downloadsDir = path.join(dataDir, "downloads");
