@@ -1,5 +1,4 @@
 import type { ServerWebSocket } from "bun";
-import { decode as msgpackDecode, encode as msgpackEncode } from "@msgpack/msgpack";
 import { v4 as uuidv4 } from "uuid";
 import { AuditAction, logAudit } from "../auditLog";
 import * as clientManager from "../clientManager";
@@ -10,6 +9,7 @@ import * as sessionManager from "../sessions/sessionManager";
 import type { SocketData } from "../sessions/types";
 import { normalizeFileUploadPayload } from "../fileTransfers";
 import { canUserAccessClient } from "../users";
+import { decodeViewerPayload, safeSendViewer } from "./ws-viewer-utils";
 
 type FileBrowserViewer = {
   id: string;
@@ -37,30 +37,6 @@ const fileBrowserCommandSessions = new Map<string, string>();
 function trackFileBrowserCommand(commandId: string, sessionId: string): void {
   fileBrowserCommandSessions.set(commandId, sessionId);
   setTimeout(() => fileBrowserCommandSessions.delete(commandId), 10 * 60 * 1000);
-}
-
-function decodeViewerPayload(raw: string | ArrayBuffer | Uint8Array): any | null {
-  if (typeof raw === "string") {
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return null;
-    }
-  }
-  try {
-    const buf = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
-    return msgpackDecode(buf);
-  } catch {
-    return null;
-  }
-}
-
-function safeSendViewer(ws: ServerWebSocket<SocketData>, payload: unknown) {
-  try {
-    ws.send(msgpackEncode(payload));
-  } catch (err) {
-    logger.error("[viewer] send failed", err);
-  }
 }
 
 export function handleFileBrowserViewerOpen(ws: ServerWebSocket<SocketData>) {

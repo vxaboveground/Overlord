@@ -8,7 +8,7 @@ import type { SocketData } from "../sessions/types";
 import type { ClientInfo } from "../types";
 import { logAudit, AuditAction } from "../auditLog";
 import { normalizeClientOs } from "./deploy-utils";
-import { createUploadPull } from "./routes/file-download-routes";
+import { createUploadPull } from "./file-transfer-state";
 
 export function dispatchAutoDeploysForConnection(
   info: ClientInfo,

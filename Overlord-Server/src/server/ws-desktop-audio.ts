@@ -7,10 +7,12 @@ import type { DesktopAudioViewer, SocketData } from "../sessions/types";
 import { canUserAccessClient } from "../users";
 import { issueWebrtcPublishToken, webrtcStreamPathFor } from "./routes/webrtc-routes";
 import {
-  cleanupViewerP2P,
   clearP2PSessionForViewer,
   createP2PSession,
   getP2PSessionIdForViewer,
+} from "./webrtc-p2p-sessions";
+import {
+  cleanupViewerP2P,
 } from "./ws-console-rd-hvnc";
 
 function sendDesktopAudioCommand(

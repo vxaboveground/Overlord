@@ -1,5 +1,4 @@
 import type { ServerWebSocket } from "bun";
-import { decode as msgpackDecode, encode as msgpackEncode } from "@msgpack/msgpack";
 import { v4 as uuidv4 } from "uuid";
 import { existsSync, readFileSync } from "fs";
 import path from "path";
@@ -13,6 +12,18 @@ import type { ConsoleSession, RemoteDesktopViewer, SocketData } from "../session
 import type { ClientInfo } from "../types";
 import { canUserAccessClient } from "../users";
 import { issueWebrtcPublishToken, webrtcStreamPathFor } from "./routes/webrtc-routes";
+import {
+  buildViewerFrameBuffer,
+  decodeViewerPayload,
+  safeSendViewer,
+} from "./ws-viewer-utils";
+import {
+  clearP2PSessionForViewer,
+  createP2PSession,
+  getP2PSessionIdForViewer,
+  lookupP2PSession,
+  type P2PSession,
+} from "./webrtc-p2p-sessions";
 
 let _cachedInjectionDll: Uint8Array | null = null;
 let _dllCachePath: string | null = null;
@@ -109,66 +120,6 @@ function getCaptureDllBytes(): Uint8Array | null {
   return null;
 }
 
-function decodeViewerPayload(raw: string | ArrayBuffer | Uint8Array): any | null {
-  if (typeof raw === "string") {
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return null;
-    }
-  }
-  try {
-    const buf = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
-    return msgpackDecode(buf);
-  } catch {
-    return null;
-  }
-}
-
-function safeSendViewer(ws: ServerWebSocket<SocketData>, payload: unknown) {
-  try {
-    ws.send(msgpackEncode(payload));
-  } catch (err) {
-    logger.error("[console] viewer send failed", err);
-  }
-}
-
-function safeSendViewerFrame(ws: ServerWebSocket<SocketData>, bytes: Uint8Array, header?: any): number {
-  try {
-    const buf = buildViewerFrameBuffer(bytes, header);
-    ws.send(buf);
-    metrics.recordBytesSent(buf.length);
-    return buf.length;
-  } catch (err) {
-    logger.error("[rd] viewer frame send failed", err);
-    return 0;
-  }
-}
-
-function buildViewerFrameBuffer(bytes: Uint8Array, header?: any): Uint8Array {
-  const meta = new Uint8Array(8);
-  meta[0] = 0x46;
-  meta[1] = 0x52;
-  meta[2] = 0x4d;
-  meta[3] = 1;
-  meta[4] = (header?.monitor ?? 0) & 0xff;
-  meta[5] = (header?.fps ?? 0) & 0xff;
-  const fmt = header?.format === "blocks"
-    ? 2
-    : header?.format === "blocks_raw"
-    ? 3
-    : header?.format === "h264"
-    ? 4
-    : 1;
-  meta[6] = fmt;
-  meta[7] = 0;
-
-  const buf = new Uint8Array(8 + bytes.length);
-  buf.set(meta, 0);
-  buf.set(bytes, 8);
-  return buf;
-}
-
 const VIEWER_BACKPRESSURE_BYTES = 2 * 1024 * 1024; // 2 MB
 
 function broadcastFrameToViewers(
@@ -213,46 +164,6 @@ export const rdStreamingState = new Map<string, {
 }>();
 const rdInputPending = new Map<string, { clientId: string; sentAt: number; kind: string }>();
 const RD_INPUT_TTL_MS = 10_000;
-
-export type P2PKind = "desktop" | "webcam" | "audio";
-type P2PSession = {
-  viewer: ServerWebSocket<SocketData>;
-  clientId: string;
-  kind: P2PKind;
-};
-const p2pAgentToViewer = new Map<string, P2PSession>();
-const p2pViewerToAgent = new WeakMap<ServerWebSocket<SocketData>, string>();
-
-export function createP2PSession(ws: ServerWebSocket<SocketData>, clientId: string, kind: P2PKind): string {
-  const prior = p2pViewerToAgent.get(ws);
-  if (prior) {
-    p2pAgentToViewer.delete(prior);
-  }
-  const sessionId = uuidv4();
-  p2pAgentToViewer.set(sessionId, { viewer: ws, clientId, kind });
-  p2pViewerToAgent.set(ws, sessionId);
-  return sessionId;
-}
-
-function lookupP2PSession(sessionId: string): P2PSession | undefined {
-  return p2pAgentToViewer.get(sessionId);
-}
-
-export function getP2PSessionIdForViewer(ws: ServerWebSocket<SocketData>): string | undefined {
-  return p2pViewerToAgent.get(ws);
-}
-
-export function clearP2PSessionForViewer(ws: ServerWebSocket<SocketData>):
-  | { sessionId: string; clientId: string; kind: P2PKind }
-  | null {
-  const sessionId = p2pViewerToAgent.get(ws);
-  if (!sessionId) return null;
-  const entry = p2pAgentToViewer.get(sessionId);
-  p2pAgentToViewer.delete(sessionId);
-  p2pViewerToAgent.delete(ws);
-  if (!entry) return null;
-  return { sessionId, clientId: entry.clientId, kind: entry.kind };
-}
 
 function pruneRdInputPending(now = Date.now()) {
   for (const [id, pending] of rdInputPending.entries()) {
@@ -609,7 +520,7 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
       break;
     }
     case "webrtc_p2p_ice": {
-      const sessionId = p2pViewerToAgent.get(ws);
+      const sessionId = getP2PSessionIdForViewer(ws);
       if (!sessionId) break;
       const candidate = typeof (payload as any).candidate === "string" ? (payload as any).candidate : "";
       if (!candidate) break;
@@ -957,7 +868,7 @@ export function handleWebcamViewerMessage(ws: ServerWebSocket<SocketData>, raw: 
       break;
     }
     case "webrtc_p2p_ice": {
-      const sessionId = p2pViewerToAgent.get(ws);
+      const sessionId = getP2PSessionIdForViewer(ws);
       if (!sessionId) break;
       const candidate = typeof (payload as any).candidate === "string" ? (payload as any).candidate : "";
       if (!candidate) break;

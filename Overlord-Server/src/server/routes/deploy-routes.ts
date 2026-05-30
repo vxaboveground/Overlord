@@ -8,7 +8,7 @@ import * as clientManager from "../../clientManager";
 import { metrics } from "../../metrics";
 import { encodeMessage } from "../../protocol";
 import { requirePermission } from "../../rbac";
-import { createUploadPull } from "./file-download-routes";
+import { createUploadPull } from "../file-transfer-state";
 
 type RequestIpProvider = {
   requestIP: (req: Request) => { address?: string } | null | undefined;
