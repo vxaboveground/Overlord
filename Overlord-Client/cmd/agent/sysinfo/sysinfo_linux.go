@@ -11,11 +11,72 @@ import (
 )
 
 func collectPlatform() Info {
+	percent, charging := batteryStatus()
 	return Info{
-		CPU: cpuName(),
-		GPU: gpuName(),
-		RAM: totalRAM(),
+		CPU:             cpuName(),
+		GPU:             gpuName(),
+		RAM:             totalRAM(),
+		BatteryPercent:  percent,
+		BatteryCharging: charging,
 	}
+}
+
+func OSName() string {
+	data, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return "Linux"
+	}
+	values := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		values[parts[0]] = strings.Trim(strings.TrimSpace(parts[1]), `"`)
+	}
+	if pretty := strings.TrimSpace(values["PRETTY_NAME"]); pretty != "" {
+		return pretty
+	}
+	if name := strings.TrimSpace(values["NAME"]); name != "" {
+		if version := strings.TrimSpace(values["VERSION_ID"]); version != "" {
+			return name + " " + version
+		}
+		return name
+	}
+	return "Linux"
+}
+
+func batteryStatus() (*int, bool) {
+	entries, err := os.ReadDir("/sys/class/power_supply")
+	if err != nil {
+		return nil, false
+	}
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), "BAT") {
+			continue
+		}
+		base := "/sys/class/power_supply/" + entry.Name()
+		capacityRaw, err := os.ReadFile(base + "/capacity")
+		if err != nil {
+			continue
+		}
+		var percent int
+		if _, err := fmt.Sscanf(strings.TrimSpace(string(capacityRaw)), "%d", &percent); err != nil {
+			continue
+		}
+		if percent < 0 || percent > 100 {
+			continue
+		}
+		statusRaw, _ := os.ReadFile(base + "/status")
+		status := strings.ToLower(strings.TrimSpace(string(statusRaw)))
+		charging := status == "charging" || status == "full"
+		return &percent, charging
+	}
+	return nil, false
 }
 
 func cpuName() string {

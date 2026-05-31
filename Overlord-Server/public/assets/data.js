@@ -6,6 +6,9 @@ const FALLBACK_POLL_MS = 30000;
 const PREF_REFRESH_KEY = "overlord_refresh_interval_seconds";
 let pollTimer = null;
 let render = () => {};
+let lastClientData = null;
+const pageCache = new Map();
+const PAGE_CACHE_LIMIT = 8;
 let dashboardWs = null;
 let dashboardWsConnected = false;
 let wsReconnectTimer = null;
@@ -42,6 +45,45 @@ export function registerRenderer(fn) {
   render = fn;
 }
 
+function clientQueryParams(page = state.page) {
+  return new URLSearchParams({
+    page: String(page),
+    pageSize: String(state.pageSize),
+    q: state.searchTerm,
+    sort: state.sort,
+    status: state.filterStatus || "all",
+    os: state.filterOs || "all",
+    country: state.filterCountry || "all",
+    group: state.filterGroup || "all",
+  });
+}
+
+function rememberPage(key, data) {
+  pageCache.set(key, data);
+  while (pageCache.size > PAGE_CACHE_LIMIT) {
+    pageCache.delete(pageCache.keys().next().value);
+  }
+}
+
+async function prefetchClientPage(page) {
+  if (page < 1) return;
+  const params = clientQueryParams(page);
+  const key = params.toString();
+  if (pageCache.has(key)) return;
+  try {
+    const res = await fetch(`/api/clients?${key}`);
+    if (!res.ok) return;
+    rememberPage(key, await res.json());
+  } catch {}
+}
+
+function prefetchAdjacentPages(data) {
+  const totalPages = Math.max(1, Math.ceil((Number(data.total) || 0) / (Number(data.pageSize) || state.pageSize || 1)));
+  const current = Number(data.page) || state.page;
+  if (current < totalPages) prefetchClientPage(current + 1);
+  if (current > 1) prefetchClientPage(current - 1);
+}
+
 export async function loadWithOptions(options = {}) {
   const { force = false, reorder = false } = options;
   if (state.isLoading) {
@@ -51,19 +93,19 @@ export async function loadWithOptions(options = {}) {
   }
   state.isLoading = true;
   try {
-    const params = new URLSearchParams({
-      page: String(state.page),
-      pageSize: String(state.pageSize),
-      q: state.searchTerm,
-      sort: state.sort,
-      status: state.filterStatus || "all",
-      os: state.filterOs || "all",
-      country: state.filterCountry || "all",
-      group: state.filterGroup || "all",
-    });
-    const res = await fetch(`/api/clients?${params.toString()}`);
+    const params = clientQueryParams();
+    const cacheKey = params.toString();
+    const cached = pageCache.get(cacheKey);
+    if (force && cached) {
+      lastClientData = cached;
+      render(cached, { reorder, fromCache: true });
+    }
+
+    const res = await fetch(`/api/clients?${cacheKey}`);
     if (!res.ok) throw new Error(`status ${res.status}`);
     const data = await res.json();
+    lastClientData = data;
+    rememberPage(cacheKey, data);
 
     updateOsFilter(data.items);
 
@@ -73,6 +115,7 @@ export async function loadWithOptions(options = {}) {
     }
     state.lastDigest = digest;
     render(data, { reorder });
+    prefetchAdjacentPages(data);
     const pag = document.getElementById("pagination");
     if (pag) pag.style.visibility = "";
   } catch (err) {
@@ -87,6 +130,12 @@ export async function loadWithOptions(options = {}) {
       loadWithOptions({ force: shouldForce, reorder: shouldReorder });
     }
   }
+}
+
+export function renderCachedClients(options = {}) {
+  if (!lastClientData) return false;
+  render(lastClientData, { ...options, fromCache: true });
+  return true;
 }
 
 function updateOsFilter(items) {

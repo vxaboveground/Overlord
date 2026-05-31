@@ -35,6 +35,13 @@ function sanitizeMonitorCount(val: unknown): number | undefined {
   return n;
 }
 
+function sanitizePercent(val: unknown): number | undefined {
+  if (typeof val !== "number" || !Number.isFinite(val)) return undefined;
+  const n = Math.round(val);
+  if (n < 0 || n > 100) return undefined;
+  return n;
+}
+
 function sanitizeJsonField(
   val: unknown,
   opts: { maxJsonBytes: number; maxArrayLen?: number; maxKeys?: number },
@@ -101,6 +108,11 @@ export async function handleHello(
   info.cpu = sanitizeInfoString((payload as any).cpu) || info.cpu;
   info.gpu = sanitizeInfoString((payload as any).gpu) || info.gpu;
   info.ram = sanitizeInfoString((payload as any).ram, 64) || info.ram;
+  const batteryPercent = sanitizePercent((payload as any).batteryPercent);
+  if (batteryPercent !== undefined) {
+    info.batteryPercent = batteryPercent;
+    info.batteryCharging = !!(payload as any).batteryCharging;
+  }
   const geoip = await getGeoip();
   const geo = info.ip ? geoip.lookup(info.ip) : undefined;
   const countryRaw =
@@ -127,6 +139,8 @@ export async function handleHello(
     cpu: info.cpu,
     gpu: info.gpu,
     ram: info.ram,
+    batteryPercent: info.batteryPercent,
+    batteryCharging: info.batteryCharging,
     isAdmin: info.isAdmin,
     elevation: info.elevation,
     permissions: info.permissions,

@@ -32,7 +32,6 @@ import (
 	"nhooyr.io/websocket"
 )
 
-
 func runClient(cfg config.Config) {
 	//garble:controlflow block_splits=10 junk_jumps=10 flatten_passes=2
 	baseBackoff := computeBaseBackoff()
@@ -293,7 +292,6 @@ func refreshServerURLsFromRaw(cfg *config.Config) bool {
 	}
 	return true
 }
-
 
 func createHTTPTransport(cfg config.Config) *http.Transport {
 	tlsConfig := &tls.Config{
@@ -608,6 +606,9 @@ func runSession(ctx context.Context, cancel context.CancelFunc, conn *websocket.
 	if osVal == "" {
 		osVal = runtime.GOOS
 	}
+	if prettyOS := strings.TrimSpace(sysinfo.OSName()); prettyOS != "" {
+		osVal = prettyOS
+	}
 
 	archVal := strings.TrimSpace(cfg.Arch)
 	if archVal == "" {
@@ -636,6 +637,8 @@ func runSession(ctx context.Context, cancel context.CancelFunc, conn *websocket.
 	hello.CPU = hw.CPU
 	hello.GPU = hw.GPU
 	hello.RAM = hw.RAM
+	hello.BatteryPercent = hw.BatteryPercent
+	hello.BatteryCharging = hw.BatteryCharging
 	hello.IsAdmin = sysinfo.IsAdmin()
 	hello.Elevation = sysinfo.Elevation()
 	hello.Permissions = sysinfo.DarwinPermissions()

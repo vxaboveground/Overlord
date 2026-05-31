@@ -1,9 +1,11 @@
 package sysinfo
 
 type Info struct {
-	CPU string `json:"cpu,omitempty"`
-	GPU string `json:"gpu,omitempty"`
-	RAM string `json:"ram,omitempty"`
+	CPU             string `json:"cpu,omitempty"`
+	GPU             string `json:"gpu,omitempty"`
+	RAM             string `json:"ram,omitempty"`
+	BatteryPercent  *int   `json:"batteryPercent,omitempty"`
+	BatteryCharging bool   `json:"batteryCharging,omitempty"`
 }
 
 func Collect() Info {

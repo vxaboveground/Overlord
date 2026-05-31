@@ -37,6 +37,8 @@ export type ClientInfo = {
   cpu?: string;
   gpu?: string;
   ram?: string;
+  batteryPercent?: number | null;
+  batteryCharging?: boolean | null;
   isAdmin?: boolean;
   elevation?: string;
   permissions?: Record<string, boolean>;

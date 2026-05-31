@@ -20,8 +20,8 @@ function acceptsGzip(req: Request): boolean {
   return (req.headers.get("accept-encoding") ?? "").includes("gzip");
 }
 
-const STATIC_ASSET_CACHE = "public, max-age=86400, stale-while-revalidate=604800";
-const MUTABLE_ASSET_CACHE = "public, max-age=3600, stale-while-revalidate=86400";
+const STATIC_ASSET_CACHE = "public, max-age=31536000, immutable";
+const MUTABLE_ASSET_CACHE = "public, max-age=86400, stale-while-revalidate=604800";
 const NO_CACHE = "no-cache";
 
 function assetCacheControl(relativePath: string): string {

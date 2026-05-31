@@ -150,10 +150,64 @@ function shortenCpu(raw = "") {
     .slice(0, 38);
 }
 
+function cpuBrand(raw = "") {
+  const text = String(raw).toLowerCase();
+  const appleMatch = text.match(/\bapple\s+(m\d+(?:\s*(?:pro|max|ultra))?)\b/i);
+  if (appleMatch) {
+    return { vendor: "apple", chip: appleMatch[1].replace(/\s+/g, " ").toUpperCase() };
+  }
+  const intelMatch = text.match(/\b(?:intel(?:\(r\))?\s+)?(?:core\(tm\)\s+)?(i[3579]-\d{3,5}[a-z0-9]*)\b/i);
+  if (text.includes("intel") || intelMatch) {
+    return { vendor: "intel", chip: intelMatch ? intelMatch[1].toUpperCase() : "CPU" };
+  }
+  const amdMatch = text.match(/\b(?:amd\s+)?(?:ryzen\s+)?([3579]\s+\d{4}[a-z0-9]*)\b/i);
+  if (text.includes("amd") || text.includes("ryzen")) {
+    return { vendor: "amd", chip: amdMatch ? amdMatch[1].replace(/\s+/g, " ").toUpperCase() : "RYZEN" };
+  }
+  return null;
+}
+
+function cpuBadgeHtml(raw = "", { compact = false } = {}) {
+  const brand = cpuBrand(raw);
+  const label = shortenCpu(raw) || "CPU";
+  if (!brand) {
+    return `<span class="cv-cpu-badge cv-cpu-generic" title="${escapeHtml(raw || label)}"><i class="fa-solid fa-microchip"></i><span>${escapeHtml(label)}</span></span>`;
+  }
+  if (brand.vendor === "apple") {
+    return `<span class="cv-cpu-badge cv-cpu-apple" title="${escapeHtml(raw)}"><i class="fa-brands fa-apple"></i><strong>${escapeHtml(brand.chip)}</strong></span>`;
+  }
+  if (brand.vendor === "intel") {
+    return `<span class="cv-cpu-badge cv-cpu-intel" title="${escapeHtml(raw)}"><strong>intel</strong>${compact ? "" : `<span>${escapeHtml(brand.chip)}</span>`}</span>`;
+  }
+  return `<span class="cv-cpu-badge cv-cpu-amd" title="${escapeHtml(raw)}"><strong>AMD</strong>${compact ? "" : `<span>${escapeHtml(brand.chip)}</span>`}</span>`;
+}
+
+function batteryInfo(client) {
+  const n = Number(client.batteryPercent);
+  if (!Number.isFinite(n) || n <= 0 || n > 100) return null;
+  return { percent: Math.round(n), charging: client.batteryCharging === true };
+}
+
+function batteryHtml(client, { compact = false } = {}) {
+  const battery = batteryInfo(client);
+  if (!battery) return "";
+  const tone = battery.percent < 20 ? "is-low" : battery.percent <= 35 ? "is-mid" : "is-good";
+  const title = `Battery ${battery.percent}%${battery.charging ? " charging" : ""}`;
+  return `<span class="cv-battery ${tone} ${battery.charging ? "is-charging" : ""}" title="${escapeHtml(title)}">
+    <span class="cv-battery-shell"><span class="cv-battery-fill" style="width:${battery.percent}%"></span></span>
+    <span class="cv-battery-text">${battery.percent}%${battery.charging ? ` <i class="fa-solid fa-bolt"></i>` : ""}</span>
+    ${compact ? "" : `<span class="cv-battery-label">${battery.charging ? "Charging" : "Battery"}</span>`}
+  </span>`;
+}
+
 function shortOsLabel(osRaw = "") {
+  const badge = osBadge(osRaw || "");
+  if (badge?.label && badge.label !== "Linux" && badge.label !== "Windows") return badge.label;
   const o = String(osRaw).toLowerCase();
-  if (o.includes("windows 11")) return "Win 11";
-  if (o.includes("windows 10")) return "Win 10";
+  const winVersion = o.match(/\bwindows\s+(10|11)\b/i);
+  if (winVersion) return `W${winVersion[1]}`;
+  if (o.includes("windows 11")) return "W11";
+  if (o.includes("windows 10")) return "W10";
   if (o.includes("windows")) return "Win";
   if (o.includes("ubuntu")) return "Ubuntu";
   if (o.includes("debian")) return "Debian";
@@ -175,15 +229,31 @@ export function createRenderer({
   requestThumbnail,
   pingClient,
   userRole,
+  getDisplayFields,
 }) {
   const isViewer = userRole === "viewer";
-  const MAX_ANIMATED_CARDS = 120;
+  const LARGE_CLIENT_THRESHOLD = 50_000;
+  const MAX_ANIMATED_CARDS = 0;
   const INSERT_BATCH_SIZE = 40;
   const TOUCH_LONG_PRESS_MS = 520;
   const TOUCH_MOVE_CANCEL_PX = 10;
   let renderToken = 0;
   let gridDelegated = false;
   let currentLayout = (grid?.dataset.layout || "rows").toLowerCase();
+  let tableScaffoldDigest = "";
+  let currentDisplayDigest = "";
+
+  function displayFields() {
+    return typeof getDisplayFields === "function" ? getDisplayFields() || {} : {};
+  }
+
+  function showField(name) {
+    return displayFields()[name] !== false;
+  }
+
+  function displayDigest() {
+    return JSON.stringify(displayFields());
+  }
 
   function getCardContainer() {
     if (currentLayout === "table") {
@@ -194,7 +264,10 @@ export function createRenderer({
 
   function ensureLayoutScaffold() {
     if (currentLayout === "table") {
-      if (grid.querySelector("table.clients-table")) return;
+      const prefs = displayFields();
+      const scaffoldDigest = displayDigest();
+      if (grid.querySelector("table.clients-table") && tableScaffoldDigest === scaffoldDigest) return;
+      tableScaffoldDigest = scaffoldDigest;
       grid.innerHTML = `
         <table class="clients-table">
           <thead>
@@ -205,9 +278,9 @@ export function createRenderer({
               <th>Client</th>
               <th class="cv-th-status">Status</th>
               <th class="cv-th-last">Last seen</th>
-              <th class="cv-th-system">System</th>
+              ${prefs.system !== false ? `<th class="cv-th-system">System</th>` : ""}
               <th class="cv-th-ping">Ping</th>
-              <th class="cv-th-group">Group</th>
+              ${prefs.group !== false ? `<th class="cv-th-group">Group</th>` : ""}
               <th class="cv-th-actions">Actions</th>
             </tr>
           </thead>
@@ -215,6 +288,7 @@ export function createRenderer({
         </table>
       `;
     } else {
+      tableScaffoldDigest = "";
       const t = grid.querySelector("table.clients-table");
       if (t) t.remove();
     }
@@ -453,14 +527,16 @@ export function createRenderer({
       }
     }
     if (!needsReorder) return;
+    const byId = new Map();
+    cards.forEach((card) => byId.set(card.dataset.id, card));
     items.forEach((client) => {
-      const card = container.querySelector(`${ROW_SELECTOR}[data-id="${client.id}"]`);
+      const card = byId.get(client.id);
       if (card) container.appendChild(card);
     });
   }
 
   function cardDigest(c) {
-    return `${currentLayout}|${c.id}|${!!c.online}|${c.lastSeen}|${c.pingMs}|${c.host}|${c.user}|${c.os}|${c.arch}|${c.version}|${c.monitors}|${c.country}|${c.nickname}|${c.customTag}|${c.customTagNote}|${!!c.bookmarked}|${!!c.isAdmin}|${c.elevation}|${c.cpu}|${c.gpu}|${c.ram}|${c.hwid}|${c.disconnectReason}|${c.disconnectDetail}|${c.groupId}|${c.groupName}|${c.groupColor}|${!!c.notificationsMuted}`;
+    return `${currentDisplayDigest}|${currentLayout}|${c.id}|${!!c.online}|${c.lastSeen}|${c.pingMs}|${c.host}|${c.user}|${c.os}|${c.arch}|${c.version}|${c.monitors}|${c.country}|${c.nickname}|${c.customTag}|${c.customTagNote}|${!!c.bookmarked}|${!!c.isAdmin}|${c.elevation}|${c.cpu}|${c.gpu}|${c.ram}|${c.batteryPercent}|${c.batteryCharging}|${c.hwid}|${c.disconnectReason}|${c.disconnectDetail}|${c.groupId}|${c.groupName}|${c.groupColor}|${!!c.notificationsMuted}`;
   }
 
   function cardThumbDigest(c) {
@@ -482,31 +558,40 @@ export function createRenderer({
 
   function renderMerge(data, options = {}) {
     setupGridDelegation();
+    currentDisplayDigest = displayDigest();
     ensureLayoutScaffold();
     const container = getCardContainer();
     const { reorder = false } = options;
     totalPill.textContent = `${data.online ?? data.total} online / ${data.total} total`;
     const totalPages = Math.max(1, Math.ceil(data.total / data.pageSize));
-    pageLabel.textContent = `Page ${data.page} of ${totalPages}`;
+    if (pageLabel) pageLabel.textContent = "Page";
+    if (typeof window.setDashboardPageBounds === "function") {
+      window.setDashboardPageBounds(data.page, totalPages);
+    }
     prevBtnState(data.page, totalPages);
 
     const items = data.items || [];
     const seen = new Set();
     const newClients = [];
     const renderId = ++renderToken;
+    const largeClientSet = (Number(data.total) || 0) >= LARGE_CLIENT_THRESHOLD;
+    document.documentElement.classList.toggle("large-client-set", largeClientSet);
     const prefersReducedMotion =
       typeof window !== "undefined" &&
       window.matchMedia &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    const hadCards = container.querySelectorAll(ROW_SELECTOR).length > 0;
+    const existingCards = container.querySelectorAll(ROW_SELECTOR);
+    const hadCards = existingCards.length > 0;
+    const existingById = new Map();
+    existingCards.forEach((card) => existingById.set(card.dataset.id, card));
 
     const uninstallingIds = window.__uninstallingClientIds;
 
     items.forEach((client) => {
       seen.add(client.id);
       if (uninstallingIds && uninstallingIds.has(client.id)) return;
-      const existing = container.querySelector(`${ROW_SELECTOR}[data-id="${client.id}"]`);
+      const existing = existingById.get(client.id);
       if (existing) {
         if (existing.classList.contains("card-uninstalling")) return;
         const digest = cardDigest(client);
@@ -527,7 +612,7 @@ export function createRenderer({
       newClients.push(client);
     });
 
-    Array.from(container.querySelectorAll(ROW_SELECTOR))
+    Array.from(existingCards)
       .filter((el) => !seen.has(el.dataset.id) && !el.classList.contains("card-uninstalling"))
       .forEach((el) => el.remove());
 
@@ -537,7 +622,7 @@ export function createRenderer({
 
     if (newClients.length === 0) return;
 
-    const allowAnimation = !hadCards && !prefersReducedMotion && items.length <= 1000 && currentLayout !== "table";
+    const allowAnimation = MAX_ANIMATED_CARDS > 0 && !largeClientSet && !hadCards && !prefersReducedMotion && items.length <= 1000 && currentLayout !== "table";
     const animateLimit = Math.min(newClients.length, MAX_ANIMATED_CARDS);
 
     let idx = 0;
@@ -674,17 +759,21 @@ export function createRenderer({
     const displayName = nickname || client.host || deviceId;
     const userLine = client.user || client.host || deviceId;
     const hasTagNote = customTag.length > 0 && customTagNote.length > 0;
-    const hasHwInfo = !!(client.cpu || client.gpu || client.ram);
+    const showHardware = showField("hardware");
+    const showBattery = showField("battery");
+    const cpuHtml = client.cpu ? cpuBadgeHtml(client.cpu) : "—";
+    const batteryIndicator = showBattery ? batteryHtml(client) : "";
     const verLatest = String(client.version || "").startsWith("2.0.");
 
     const metaParts = [
-      `<span class="cv-os cv-tone-${os.tone}"><i class="fa ${os.icon}"></i> ${escapeHtml(shortOsLabel(client.os))}</span>`,
-      `<span class="cv-arch cv-tone-${arch.tone}">${escapeHtml(arch.label)}</span>`,
-      `<span class="cv-ver"><i class="fa ${ver.icon}"></i> ${escapeHtml(ver.label)}</span>`,
-      `<span class="cv-mons"><i class="fa fa-display"></i> ${client.monitors || 1}</span>`,
+      showField("system") ? `<span class="cv-os cv-tone-${os.tone}"><i class="fa ${os.icon}"></i> ${escapeHtml(shortOsLabel(client.os))}</span>` : "",
+      showField("system") ? `<span class="cv-arch cv-tone-${arch.tone}">${escapeHtml(arch.label)}</span>` : "",
+      showField("version") ? `<span class="cv-ver"><i class="fa ${ver.icon}"></i> ${escapeHtml(ver.label)}</span>` : "",
+      showField("monitors") ? `<span class="cv-mons"><i class="fa fa-display"></i> ${client.monitors || 1}</span>` : "",
       nickname && client.host && nickname !== client.host ? `<span class="cv-host"><i class="fa-solid fa-laptop"></i> ${escapeHtml(client.host)}</span>` : "",
-      client.ip ? `<span class="cv-ip cv-mono"><i class="fa-solid fa-network-wired"></i> ${escapeHtml(client.ip)}</span>` : "",
-      hwid ? `<span class="cv-hwid cv-mono" title="HWID ${escapeHtml(client.hwid || "")}"><i class="fa-solid fa-fingerprint"></i> ${escapeHtml(hwid)}</span>` : "",
+      showField("ip") && client.ip ? `<span class="cv-ip cv-mono"><i class="fa-solid fa-network-wired"></i> ${escapeHtml(client.ip)}</span>` : "",
+      showField("hwid") && hwid ? `<span class="cv-hwid cv-mono" title="HWID ${escapeHtml(client.hwid || "")}"><i class="fa-solid fa-fingerprint"></i> ${escapeHtml(hwid)}</span>` : "",
+      batteryIndicator,
     ].filter(Boolean);
     const meta = metaParts.join(metaSeparator());
 
@@ -708,8 +797,8 @@ export function createRenderer({
           ${client.elevation === "trustedinstaller" ? `<span class="cv-mini-pill cv-pill-ti" title="TrustedInstaller"><i class="fa-solid fa-lock"></i></span>` : ""}
           ${client.notificationsMuted ? `<span class="cv-mini-pill cv-pill-muted" title="Notifications muted"><i class="fa-solid fa-bell-slash"></i></span>` : ""}
         </div>
-        <div class="cv-user-line"><i class="fa-solid fa-user"></i> ${escapeHtml(userLine)}</div>
-        <div class="cv-meta-line">${meta}</div>
+        ${showField("user") ? `<div class="cv-user-line"><i class="fa-solid fa-user"></i> ${escapeHtml(userLine)}</div>` : ""}
+        ${meta ? `<div class="cv-meta-line">${meta}</div>` : ""}
         ${customTag ? `<button type="button" class="client-tag-toggle cv-tag ${hasTagNote ? "has-note" : ""}" ${hasTagNote ? `aria-expanded="false"` : `disabled aria-disabled="true"`}><i class="fa-solid fa-tag"></i> ${escapeHtml(customTag)}${hasTagNote ? ` <i class="fa-solid fa-chevron-down"></i>` : ""}</button>` : ""}
         ${hasTagNote ? `<div class="client-tag-note hidden">${escapeHtml(customTagNote)}</div>` : ""}
       </div>
@@ -717,7 +806,7 @@ export function createRenderer({
         <span class="cv-time-line"><i class="fa-regular fa-clock"></i> ${formatAgo(client.lastSeen)}</span>
         <span class="cv-ping-line ${pingTone(client.pingMs)}"><i class="fa-solid fa-satellite-dish"></i> ${formatPing(client.pingMs)}</span>
       </div>
-      <div class="cv-group-cell">${groupPillHtml(client) || `<span class="cv-group-empty">—</span>`}</div>
+      ${showField("group") ? `<div class="cv-group-cell">${groupPillHtml(client) || `<span class="cv-group-empty">—</span>`}</div>` : ""}
       <div class="cv-spacer"></div>
       <div class="cv-actions">
         ${isViewer ? "" : `<button class="command-btn cv-btn-primary" data-id="${escapeHtml(client.id)}"><i class="fa-solid fa-terminal"></i><span>Commands</span></button>`}
@@ -728,13 +817,14 @@ export function createRenderer({
       <div class="cv-expand-panel hidden">
         <div class="cv-expand-grid">
           <div class="cv-field"><span class="cv-field-label">ID</span><span class="cv-field-value cv-mono copy-id-btn" data-copy="${escapeHtml(client.id)}" title="Copy full ID">${escapeHtml(deviceId)} <i class="fa-regular fa-copy copy-id-icon"></i></span></div>
-          <div class="cv-field"><span class="cv-field-label">Hardware ID</span><span class="cv-field-value cv-mono">${escapeHtml(hwid || "—")}</span></div>
-          <div class="cv-field"><span class="cv-field-label">IP</span><span class="cv-field-value cv-mono">${escapeHtml(client.ip || "—")}</span></div>
-          <div class="cv-field"><span class="cv-field-label">OS</span><span class="cv-field-value">${escapeHtml(client.os || "Unknown")} ${escapeHtml(arch.label)}</span></div>
-          <div class="cv-field"><span class="cv-field-label">CPU</span><span class="cv-field-value">${escapeHtml(client.cpu || "—")}</span></div>
-          <div class="cv-field"><span class="cv-field-label">RAM</span><span class="cv-field-value">${escapeHtml(client.ram || "—")}</span></div>
-          ${client.gpu ? `<div class="cv-field cv-field-wide"><span class="cv-field-label">GPU</span><span class="cv-field-value">${escapeHtml(client.gpu)}</span></div>` : ""}
-          ${!verLatest && client.version ? `<div class="cv-field"><span class="cv-field-label">Version</span><span class="cv-field-value cv-warn">v${escapeHtml(client.version)} (outdated)</span></div>` : ""}
+          ${showField("hwid") ? `<div class="cv-field"><span class="cv-field-label">Hardware ID</span><span class="cv-field-value cv-mono">${escapeHtml(hwid || "—")}</span></div>` : ""}
+          ${showField("ip") ? `<div class="cv-field"><span class="cv-field-label">IP</span><span class="cv-field-value cv-mono">${escapeHtml(client.ip || "—")}</span></div>` : ""}
+          ${showField("system") ? `<div class="cv-field"><span class="cv-field-label">OS</span><span class="cv-field-value">${escapeHtml(client.os || "Unknown")} ${escapeHtml(arch.label)}</span></div>` : ""}
+          ${showHardware ? `<div class="cv-field"><span class="cv-field-label">CPU</span><span class="cv-field-value">${cpuHtml}</span></div>` : ""}
+          ${showHardware ? `<div class="cv-field"><span class="cv-field-label">RAM</span><span class="cv-field-value">${escapeHtml(client.ram || "—")}</span></div>` : ""}
+          ${batteryIndicator ? `<div class="cv-field"><span class="cv-field-label">Battery</span><span class="cv-field-value">${batteryIndicator}</span></div>` : ""}
+          ${showHardware && client.gpu ? `<div class="cv-field cv-field-wide"><span class="cv-field-label">GPU</span><span class="cv-field-value">${escapeHtml(client.gpu)}</span></div>` : ""}
+          ${showField("version") && !verLatest && client.version ? `<div class="cv-field"><span class="cv-field-label">Version</span><span class="cv-field-value cv-warn">v${escapeHtml(client.version)} (outdated)</span></div>` : ""}
         </div>
       </div>
     `;
@@ -754,6 +844,11 @@ export function createRenderer({
     const nickname = String(client.nickname || "").trim();
     const displayName = nickname || client.host || deviceId;
     const userLine = client.user || client.host || deviceId;
+    const userMeta = [
+      showField("user") ? `<i class="fa-solid fa-user"></i> ${escapeHtml(userLine)}` : "",
+      showField("ip") && client.ip ? `<span class="cv-mid">·</span><i class="fa-solid fa-network-wired"></i> ${escapeHtml(client.ip)}` : "",
+      showField("hwid") && client.hwid ? `<span class="cv-mid">·</span><i class="fa-solid fa-fingerprint"></i> ${escapeHtml(shortId(client.hwid))}` : "",
+    ].filter(Boolean).join("");
 
     tr.innerHTML = `
       <td class="cv-td-check">
@@ -779,7 +874,7 @@ export function createRenderer({
               ${client.elevation === "trustedinstaller" ? `<span class="cv-mini-pill cv-pill-ti" title="TI"><i class="fa-solid fa-lock"></i></span>` : ""}
               ${client.notificationsMuted ? `<span class="cv-mini-pill cv-pill-muted" title="Notifications muted"><i class="fa-solid fa-bell-slash"></i></span>` : ""}
             </span>
-            <span class="cv-user-line cv-mono"><i class="fa-solid fa-user"></i> ${escapeHtml(userLine)}${client.ip ? `<span class="cv-mid">·</span><i class="fa-solid fa-network-wired"></i> ${escapeHtml(client.ip)}` : ""}</span>
+            ${userMeta ? `<span class="cv-user-line cv-mono">${userMeta}</span>` : ""}
           </div>
         </div>
       </td>
@@ -787,11 +882,11 @@ export function createRenderer({
         <span class="cv-status-cell">${statusDot(client)} ${client.online ? "Online" : "Offline"}</span>
       </td>
       <td class="cv-td-last cv-tab-num">${formatAgo(client.lastSeen)}</td>
-      <td class="cv-td-system">
+      ${showField("system") ? `<td class="cv-td-system">
         <span class="cv-system-cell"><span class="cv-os cv-tone-${os.tone}"><i class="fa ${os.icon}"></i> ${escapeHtml(shortOsLabel(client.os))}</span> <span class="cv-arch-chip cv-tone-${arch.tone}">${escapeHtml(arch.label)}</span></span>
-      </td>
+      </td>` : ""}
       <td class="cv-td-ping cv-tab-num cv-mono ${pingTone(client.pingMs)}">${formatPing(client.pingMs)}</td>
-      <td class="cv-td-group">${groupPillHtml(client) || `<span class="cv-group-empty">—</span>`}</td>
+      ${showField("group") ? `<td class="cv-td-group">${groupPillHtml(client) || `<span class="cv-group-empty">—</span>`}</td>` : ""}
       <td class="cv-td-actions">
         <div class="cv-actions cv-actions-table">
           ${isViewer ? "" : `<button class="command-btn cv-btn-primary cv-btn-sm" data-id="${escapeHtml(client.id)}"><i class="fa-solid fa-terminal"></i><span>Commands</span></button>`}
@@ -821,13 +916,15 @@ export function createRenderer({
     const verLatest = String(client.version || "").startsWith("2.0.");
     const hasGroup = !!String(client.groupName || "").trim();
     const showHost = nickname && client.host && nickname !== client.host;
-    const cpuShort = client.cpu ? shortenCpu(client.cpu) : "";
+    const showHardware = showField("hardware");
+    const cpuHtml = showHardware && client.cpu ? cpuBadgeHtml(client.cpu) : "";
+    const batteryIndicator = showField("battery") ? batteryHtml(client, { compact: true }) : "";
 
     const metaParts = [
-      `<span class="cv-card-meta-bit cv-tone-${os.tone}"><i class="fa ${os.icon}"></i> ${escapeHtml(shortOsLabel(client.os))}</span>`,
-      `<span class="cv-card-meta-bit cv-tone-${arch.tone}">${escapeHtml(arch.label)}</span>`,
-      `<span class="cv-card-meta-bit"><i class="fa fa-display"></i> ${client.monitors || 1}</span>`,
-      client.version ? `<span class="cv-card-meta-bit ${verLatest ? "" : "cv-warn"}"><i class="fa fa-tag"></i> v${escapeHtml(client.version)}</span>` : "",
+      showField("system") ? `<span class="cv-card-meta-bit cv-tone-${os.tone}"><i class="fa ${os.icon}"></i> ${escapeHtml(shortOsLabel(client.os))}</span>` : "",
+      showField("system") ? `<span class="cv-card-meta-bit cv-tone-${arch.tone}">${escapeHtml(arch.label)}</span>` : "",
+      showField("monitors") ? `<span class="cv-card-meta-bit"><i class="fa fa-display"></i> ${client.monitors || 1}</span>` : "",
+      showField("version") && client.version ? `<span class="cv-card-meta-bit ${verLatest ? "" : "cv-warn"}"><i class="fa fa-tag"></i> v${escapeHtml(client.version)}</span>` : "",
     ].filter(Boolean).join("");
 
     const elevationBadges = [
@@ -863,19 +960,20 @@ export function createRenderer({
           <span class="cv-name">${escapeHtml(displayName)}</span>
           ${elevationBadges}
         </div>
-        <div class="cv-user-line cv-mono"><i class="fa-solid fa-user"></i> ${escapeHtml(userLine)}${showHost ? ` <span class="cv-text-dim">@ ${escapeHtml(client.host)}</span>` : ""}</div>
+        ${showField("user") ? `<div class="cv-user-line cv-mono"><i class="fa-solid fa-user"></i> ${escapeHtml(userLine)}${showHost ? ` <span class="cv-text-dim">@ ${escapeHtml(client.host)}</span>` : ""}</div>` : ""}
         ${customTag ? `<div class="cv-card-tag"><i class="fa-solid fa-tag"></i> ${escapeHtml(customTag)}</div>` : ""}
         <div class="cv-card-net">
-          ${client.ip ? `<span class="cv-card-net-bit"><i class="fa-solid fa-network-wired"></i> <span class="cv-mono">${escapeHtml(client.ip)}</span></span>` : ""}
-          ${hwidShort ? `<span class="cv-card-net-bit"><i class="fa-solid fa-fingerprint"></i> <span class="cv-mono">${escapeHtml(hwidShort)}</span></span>` : ""}
+          ${showField("ip") && client.ip ? `<span class="cv-card-net-bit"><i class="fa-solid fa-network-wired"></i> <span class="cv-mono">${escapeHtml(client.ip)}</span></span>` : ""}
+          ${showField("hwid") && hwidShort ? `<span class="cv-card-net-bit"><i class="fa-solid fa-fingerprint"></i> <span class="cv-mono">${escapeHtml(hwidShort)}</span></span>` : ""}
         </div>
-        <div class="cv-card-meta">
+        ${metaParts || (showField("group") && hasGroup) ? `<div class="cv-card-meta">
           ${metaParts}
-          ${hasGroup ? `<span class="cv-group-spacer">${groupPillHtml(client)}</span>` : ""}
-        </div>
-        ${cpuShort || client.ram ? `<div class="cv-card-hw">
-          ${cpuShort ? `<span class="cv-card-hw-bit" title="${escapeHtml(client.cpu)}"><i class="fa-solid fa-microchip"></i> ${escapeHtml(cpuShort)}</span>` : ""}
-          ${client.ram ? `<span class="cv-card-hw-bit"><i class="fa-solid fa-memory"></i> ${escapeHtml(client.ram)}</span>` : ""}
+          ${showField("group") && hasGroup ? `<span class="cv-group-spacer">${groupPillHtml(client)}</span>` : ""}
+        </div>` : ""}
+        ${cpuHtml || (showHardware && client.ram) || batteryIndicator ? `<div class="cv-card-hw">
+          ${cpuHtml}
+          ${showHardware && client.ram ? `<span class="cv-card-hw-bit"><i class="fa-solid fa-memory"></i> ${escapeHtml(client.ram)}</span>` : ""}
+          ${batteryIndicator}
         </div>` : ""}
         <div class="cv-card-actions">
           ${isViewer ? "" : `<button class="command-btn cv-btn-primary cv-btn-flex" data-id="${escapeHtml(client.id)}"><i class="fa-solid fa-terminal"></i><span>Commands</span></button>`}

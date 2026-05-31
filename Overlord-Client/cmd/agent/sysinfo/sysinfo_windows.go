@@ -14,11 +14,68 @@ import (
 )
 
 func collectPlatform() Info {
+	percent, charging := batteryStatus()
 	return Info{
-		CPU: cpuName(),
-		GPU: gpuName(),
-		RAM: totalRAM(),
+		CPU:             cpuName(),
+		GPU:             gpuName(),
+		RAM:             totalRAM(),
+		BatteryPercent:  percent,
+		BatteryCharging: charging,
 	}
+}
+
+func OSName() string {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE,
+		`SOFTWARE\Microsoft\Windows NT\CurrentVersion`, registry.QUERY_VALUE)
+	if err != nil {
+		return "Windows"
+	}
+	defer k.Close()
+
+	product, _, _ := k.GetStringValue("ProductName")
+	display, _, _ := k.GetStringValue("DisplayVersion")
+	build, _, _ := k.GetStringValue("CurrentBuildNumber")
+
+	name := strings.TrimSpace(product)
+	if name == "" {
+		name = "Windows"
+	}
+	var buildNumber int
+	_, _ = fmt.Sscanf(strings.TrimSpace(build), "%d", &buildNumber)
+	if buildNumber >= 22000 && !strings.Contains(name, "11") {
+		name = strings.Replace(name, "Windows 10", "Windows 11", 1)
+		if !strings.Contains(name, "11") {
+			name = "Windows 11"
+		}
+	}
+	if display = strings.TrimSpace(display); display != "" {
+		name += " " + display
+	}
+	return name
+}
+
+func batteryStatus() (*int, bool) {
+	type systemPowerStatus struct {
+		ACLineStatus        byte
+		BatteryFlag         byte
+		BatteryLifePercent  byte
+		SystemStatusFlag    byte
+		BatteryLifeTime     uint32
+		BatteryFullLifeTime uint32
+	}
+
+	kernel32 := windows.NewLazySystemDLL("kernel32.dll")
+	getSystemPowerStatus := kernel32.NewProc("GetSystemPowerStatus")
+	var status systemPowerStatus
+	ret, _, _ := getSystemPowerStatus.Call(uintptr(unsafe.Pointer(&status)))
+	if ret == 0 || status.BatteryLifePercent == 255 || status.BatteryFlag == 128 {
+		return nil, false
+	}
+	percent := int(status.BatteryLifePercent)
+	if percent < 0 || percent > 100 {
+		return nil, false
+	}
+	return &percent, status.ACLineStatus == 1
 }
 
 func cpuName() string {

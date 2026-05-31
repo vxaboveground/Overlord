@@ -4,6 +4,7 @@ package sysinfo
 
 import (
 	"fmt"
+	"os/exec"
 	"runtime"
 	"strings"
 	"unsafe"
@@ -12,11 +13,52 @@ import (
 )
 
 func collectPlatform() Info {
+	percent, charging := batteryStatus()
 	return Info{
-		CPU: cpuName(),
-		GPU: gpuName(),
-		RAM: totalRAM(),
+		CPU:             cpuName(),
+		GPU:             gpuName(),
+		RAM:             totalRAM(),
+		BatteryPercent:  percent,
+		BatteryCharging: charging,
 	}
+}
+
+func OSName() string {
+	out, err := exec.Command("sw_vers", "-productVersion").Output()
+	if err != nil {
+		return "macOS"
+	}
+	version := strings.TrimSpace(string(out))
+	if version == "" {
+		return "macOS"
+	}
+	return "macOS " + version
+}
+
+func batteryStatus() (*int, bool) {
+	out, err := exec.Command("pmset", "-g", "batt").Output()
+	if err != nil {
+		return nil, false
+	}
+	text := string(out)
+	idx := strings.Index(text, "%")
+	if idx <= 0 {
+		return nil, false
+	}
+	start := idx - 1
+	for start >= 0 && text[start] >= '0' && text[start] <= '9' {
+		start--
+	}
+	var percent int
+	if _, err := fmt.Sscanf(text[start+1:idx], "%d", &percent); err != nil {
+		return nil, false
+	}
+	if percent < 0 || percent > 100 {
+		return nil, false
+	}
+	lower := strings.ToLower(text)
+	charging := strings.Contains(lower, "charging") || strings.Contains(lower, "charged")
+	return &percent, charging
 }
 
 func cpuName() string {

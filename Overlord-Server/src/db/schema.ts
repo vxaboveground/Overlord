@@ -80,6 +80,12 @@ try {
   db.run(`ALTER TABLE clients ADD COLUMN ram TEXT`);
 } catch {}
 try {
+  db.run(`ALTER TABLE clients ADD COLUMN battery_percent INTEGER`);
+} catch {}
+try {
+  db.run(`ALTER TABLE clients ADD COLUMN battery_charging INTEGER`);
+} catch {}
+try {
   db.run(`ALTER TABLE clients ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0`);
 } catch {}
 db.run(
@@ -93,6 +99,12 @@ db.run(
 );
 db.run(
   `CREATE INDEX IF NOT EXISTS idx_clients_online_last_seen ON clients(online, last_seen DESC);`,
+);
+db.run(
+  `CREATE INDEX IF NOT EXISTS idx_clients_enrollment_online_bookmark_id ON clients(enrollment_status, online DESC, bookmarked DESC, id ASC);`,
+);
+db.run(
+  `CREATE INDEX IF NOT EXISTS idx_clients_enrollment_online_last_seen ON clients(enrollment_status, online DESC, last_seen DESC, id ASC);`,
 );
 db.run(
   `CREATE INDEX IF NOT EXISTS idx_clients_os_last_seen ON clients(os, last_seen DESC);`,

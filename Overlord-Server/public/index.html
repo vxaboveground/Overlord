@@ -38,10 +38,10 @@
             >0 online</span
           >
         </div>
-        <div class="flex flex-wrap gap-3 items-center">
+        <div class="dashboard-toolbar">
           <label
             id="search-shell"
-            class="flex items-center gap-2 bg-slate-800/70 border border-slate-700/60 rounded-lg px-3 py-2 w-full sm:w-auto flex-1"
+            class="dashboard-search flex items-center gap-2 bg-slate-800/70 border border-slate-700/60 rounded-lg px-3 py-2"
           >
             <i class="fa-solid fa-magnifying-glass text-slate-500"></i>
             <input
@@ -51,99 +51,71 @@
               placeholder="Search by nickname, host, user, id"
             />
           </label>
-          <label
-            class="inline-flex items-center gap-2 bg-slate-800/70 border border-slate-700/60 rounded-lg px-3 py-2 text-slate-300"
-          >
-            <input
-              id="toggle-offline"
-              type="checkbox"
-              class="h-4 w-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-600"
-              checked
-            />
-            <span class="text-sm text-slate-300">Show offline</span>
-          </label>
-          <select
-            id="filter-status"
-            class="bg-slate-800/70 border border-slate-700/60 rounded-lg px-3 py-2 text-slate-300"
-          >
-            <option value="all">All Status</option>
-            <option value="online">Online Only</option>
-            <option value="offline">Offline Only</option>
-          </select>
-          <select
-            id="filter-os"
-            class="bg-slate-800/70 border border-slate-700/60 rounded-lg px-3 py-2 text-slate-300"
-          >
-            <option value="all">All OS</option>
-          </select>
-          <select
-            id="filter-group"
-            class="bg-slate-800/70 border border-slate-700/60 rounded-lg px-3 py-2 text-slate-300"
-          >
-            <option value="all">All Groups</option>
-            <option value="none">No Group</option>
-          </select>
-          <div id="country-picker-anchor" class="relative"></div>
-          <select
-            id="sort"
-            class="bg-slate-800/70 border border-slate-700/60 rounded-lg px-3 py-2 text-slate-300"
-          >
-            <option value="stable">Default</option>
-            <option value="last_seen_desc">Newest</option>
-            <option value="host_asc">Host A→Z</option>
-            <option value="ping_asc">Ping ↑</option>
-            <option value="ping_desc">Ping ↓</option>
-            <option value="country_asc">Country A→Z</option>
-            <option value="country_desc">Country Z→A</option>
-            <option value="group_asc">Group A→Z</option>
-            <option value="group_desc">Group Z→A</option>
-            <option value="admin_first">Admin first</option>
-          </select>
-          <button
-            id="select-all"
-            class="px-3 py-2 rounded-lg bg-slate-800/70 hover:bg-slate-700/70 text-slate-300 border border-slate-700/60 transition-colors"
-          >
-            <i class="fa-solid fa-check"></i> Select all
-          </button>
-          <button
-            id="clear-selection"
-            class="px-3 py-2 rounded-lg bg-slate-800/70 hover:bg-slate-700/70 text-slate-400 border border-slate-700/60 transition-colors"
-          >
-            Clear selection
-          </button>
-          <div
-            id="layout-toggle"
-            role="group"
-            aria-label="Layout"
-            class="ml-auto inline-flex items-center rounded-lg border border-slate-700/60 bg-slate-800/70 p-0.5"
-          >
-            <button
-              type="button"
-              data-layout="rows"
-              class="layout-toggle-btn"
-              title="Row cards"
-              aria-pressed="true"
-            >
-              <i class="fa-solid fa-list"></i>
+          <div class="dashboard-toolbar-actions">
+            <label class="dashboard-toggle" title="Show offline clients">
+              <input id="toggle-offline" type="checkbox" checked />
+              <i class="fa-solid fa-power-off"></i>
+            </label>
+            <details class="dashboard-menu">
+              <summary title="Filters"><i class="fa-solid fa-filter"></i></summary>
+              <div class="dashboard-menu-panel dashboard-filter-panel">
+                <select id="filter-status">
+                  <option value="all">All Status</option>
+                  <option value="online">Online Only</option>
+                  <option value="offline">Offline Only</option>
+                </select>
+                <select id="filter-os">
+                  <option value="all">All OS</option>
+                </select>
+                <select id="filter-group">
+                  <option value="all">All Groups</option>
+                  <option value="none">No Group</option>
+                </select>
+                <div id="country-picker-anchor" class="relative"></div>
+              </div>
+            </details>
+            <details class="dashboard-menu">
+              <summary title="Sort"><i class="fa-solid fa-arrow-down-wide-short"></i></summary>
+              <div class="dashboard-menu-panel">
+                <select id="sort">
+                  <option value="stable">Default</option>
+                  <option value="last_seen_desc">Newest</option>
+                  <option value="host_asc">Host A-Z</option>
+                  <option value="ping_asc">Ping up</option>
+                  <option value="ping_desc">Ping down</option>
+                  <option value="country_asc">Country A-Z</option>
+                  <option value="country_desc">Country Z-A</option>
+                  <option value="group_asc">Group A-Z</option>
+                  <option value="group_desc">Group Z-A</option>
+                  <option value="admin_first">Admin first</option>
+                </select>
+              </div>
+            </details>
+            <details class="dashboard-menu">
+              <summary title="Visible fields"><i class="fa-solid fa-sliders"></i></summary>
+              <div id="display-fields-menu" class="dashboard-menu-panel dashboard-fields-panel">
+                <label><input type="checkbox" data-field="user" checked /> User</label>
+                <label><input type="checkbox" data-field="ip" checked /> IP</label>
+                <label><input type="checkbox" data-field="hwid" /> HWID</label>
+                <label><input type="checkbox" data-field="system" checked /> System</label>
+                <label><input type="checkbox" data-field="version" checked /> Version</label>
+                <label><input type="checkbox" data-field="monitors" checked /> Monitors</label>
+                <label><input type="checkbox" data-field="group" checked /> Group</label>
+                <label><input type="checkbox" data-field="hardware" checked /> Hardware</label>
+                <label><input type="checkbox" data-field="battery" checked /> Battery</label>
+              </div>
+            </details>
+            <button id="select-all" class="dashboard-icon-btn" title="Select all">
+              <i class="fa-solid fa-check"></i>
             </button>
-            <button
-              type="button"
-              data-layout="table"
-              class="layout-toggle-btn"
-              title="Dense table"
-              aria-pressed="false"
-            >
-              <i class="fa-solid fa-table-list"></i>
+            <button id="clear-selection" class="dashboard-icon-btn" title="Clear selection">
+              <i class="fa-solid fa-xmark"></i>
             </button>
-            <button
-              type="button"
-              data-layout="cards"
-              class="layout-toggle-btn"
-              title="Card wall"
-              aria-pressed="false"
-            >
-              <i class="fa-solid fa-grip"></i>
-            </button>
+            <div id="layout-toggle" role="group" aria-label="Layout" class="inline-flex items-center rounded-lg border border-slate-700/60 bg-slate-800/70 p-0.5">
+              <button type="button" data-layout="rows" class="layout-toggle-btn" title="Row cards" aria-pressed="true"><i class="fa-solid fa-list"></i></button>
+              <button type="button" data-layout="table" class="layout-toggle-btn" title="Dense table" aria-pressed="false"><i class="fa-solid fa-table-list"></i></button>
+              <button type="button" data-layout="cards" class="layout-toggle-btn" title="Card wall" aria-pressed="false"><i class="fa-solid fa-grip"></i></button>
+            </div>
           </div>
         </div>
         <!-- Bulk Actions Toolbar -->
@@ -211,7 +183,14 @@
           >
             Prev
           </button>
-          <span class="text-slate-400" id="page-label"></span>
+          <form id="page-jump-form" class="page-jump" title="Jump to page">
+            <label id="page-label" for="page-jump-input">Page</label>
+            <input id="page-jump-input" type="number" min="1" value="1" inputmode="numeric" />
+            <span class="page-jump-total">/ <span id="page-total">1</span></span>
+            <button id="page-jump-go" type="submit" title="Go to page">
+              <i class="fa-solid fa-arrow-right"></i>
+            </button>
+          </form>
           <button
             id="next"
             class="px-4 py-2 rounded-lg border border-slate-700/60 bg-slate-800/70 hover:bg-slate-700/70 text-slate-300 disabled:opacity-40"

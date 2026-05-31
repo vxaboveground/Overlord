@@ -75,7 +75,7 @@ export async function handleClientRoutes(
       return new Response("Unauthorized", { status: 401 });
     }
     const page = Math.max(1, Number(url.searchParams.get("page") || 1));
-    const pageSize = Math.max(1, Number(url.searchParams.get("pageSize") || 12));
+    const pageSize = Math.min(200, Math.max(1, Number(url.searchParams.get("pageSize") || 12)));
     const search = (url.searchParams.get("q") || "").toLowerCase().trim();
     const sort = url.searchParams.get("sort") || "last_seen_desc";
     const statusFilter = url.searchParams.get("status") || "all";

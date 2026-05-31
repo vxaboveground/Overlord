@@ -12,7 +12,6 @@
     <link rel="icon" type="image/x-icon" href="/assets/favicon.ico" />
     <link rel="stylesheet" href="/assets/tailwind.css" />
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
-    <link rel="stylesheet" href="/vendor/tabulator/tabulator_midnight.min.css" />
     <link rel="stylesheet" href="/assets/main.css" />
     <link rel="stylesheet" href="/assets/custom.css" />
     <script defer src="/assets/toast.js"></script>
@@ -114,8 +113,35 @@
         </div>
 
         <!-- Clients Table -->
-        <div id="clients-table-wrap" class="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden">
-          <div id="enrollment-table" class="overlord-tabulator"></div>
+        <div class="bg-slate-900/50 border border-slate-800 rounded-xl overflow-x-auto">
+          <table class="w-full min-w-[1200px]" id="enrollment-table">
+            <thead class="bg-slate-800/50 border-b border-slate-700">
+              <tr>
+                <th class="w-10 px-4 py-3">
+                  <input type="checkbox" id="select-all" class="h-4 w-4 rounded border-slate-600" />
+                </th>
+                <th class="text-left px-4 py-3 text-sm font-semibold text-slate-300">Host</th>
+                <th class="text-left px-4 py-3 text-sm font-semibold text-slate-300">User</th>
+                <th class="text-left px-4 py-3 text-sm font-semibold text-slate-300">OS</th>
+                <th class="text-left px-4 py-3 text-sm font-semibold text-slate-300">CPU</th>
+                <th class="text-left px-4 py-3 text-sm font-semibold text-slate-300">GPU</th>
+                <th class="text-left px-4 py-3 text-sm font-semibold text-slate-300">RAM</th>
+                <th class="text-left px-4 py-3 text-sm font-semibold text-slate-300">IP</th>
+                <th class="text-left px-4 py-3 text-sm font-semibold text-slate-300">Country</th>
+                <th class="text-left px-4 py-3 text-sm font-semibold text-slate-300">Key Fingerprint</th>
+                <th class="text-left px-4 py-3 text-sm font-semibold text-slate-300">Last Seen</th>
+                <th class="text-left px-4 py-3 text-sm font-semibold text-slate-300">Status</th>
+                <th class="text-right px-4 py-3 text-sm font-semibold text-slate-300">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="enrollment-body" class="divide-y divide-slate-800">
+              <tr id="enrollment-loading">
+                <td colspan="13" class="px-6 py-12 text-center text-slate-500">
+                  <i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading...
+                </td>
+              </tr>
+            </tbody>
+          </table>
           <div id="enrollment-empty" class="hidden px-6 py-12 text-center text-slate-500">
             <i class="fa-solid fa-inbox text-3xl mb-3 block"></i>
             <p>No clients in this category.</p>
@@ -157,7 +183,17 @@
             </div>
           </div>
           <div class="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden">
-            <div id="banned-ips-table" class="overlord-tabulator"></div>
+            <table class="w-full">
+              <thead class="bg-slate-800/50 border-b border-slate-700">
+                <tr>
+                  <th class="text-left px-4 py-3 text-sm font-semibold text-slate-300">IP Address</th>
+                  <th class="text-left px-4 py-3 text-sm font-semibold text-slate-300">Reason</th>
+                  <th class="text-left px-4 py-3 text-sm font-semibold text-slate-300">Banned At</th>
+                  <th class="text-right px-4 py-3 text-sm font-semibold text-slate-300">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="banned-ips-body" class="divide-y divide-slate-800"></tbody>
+            </table>
             <div id="banned-ips-empty" class="hidden px-6 py-12 text-center text-slate-500">
               <i class="fa-solid fa-shield-halved text-3xl mb-3 block"></i>
               <p>No banned IPs.</p>

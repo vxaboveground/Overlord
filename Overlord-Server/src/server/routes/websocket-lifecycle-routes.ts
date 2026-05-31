@@ -456,6 +456,12 @@ export async function handleWebSocketMessage(
             if (typeof v !== "string") return undefined;
             return v.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "").slice(0, max);
           };
+          const _percent = (v: unknown): number | undefined => {
+            if (typeof v !== "number" || !Number.isFinite(v)) return undefined;
+            const n = Math.round(v);
+            return n >= 0 && n <= 100 ? n : undefined;
+          };
+          const batteryPercent = _percent((payload as any).batteryPercent);
           upsertClientRow({
             id: resolvedId,
             hwid: _s((payload as any).hwid) || resolvedId,
@@ -470,6 +476,8 @@ export async function handleWebSocketMessage(
             cpu: _s((payload as any).cpu),
             gpu: _s((payload as any).gpu),
             ram: _s((payload as any).ram, 64),
+            batteryPercent,
+            batteryCharging: batteryPercent !== undefined ? !!(payload as any).batteryCharging : undefined,
             country,
             lastSeen: Date.now(),
             online: 0 as any,
