@@ -15,6 +15,10 @@ import {
   stopProxy,
 } from "../socks5-proxy-manager";
 
+let activeServerProfile: Promise<any> | null = null;
+let jscRuntimePromise: Promise<any> | null | undefined;
+let inspectorRuntimePromise: Promise<any> | null | undefined;
+
 type MiscRouteDeps = {
   CORS_HEADERS: Record<string, string>;
   SERVER_VERSION: string;
@@ -26,6 +30,274 @@ type MiscRouteDeps = {
   tlsCertPath?: string;
   tlsSource?: "certbot" | "configured" | "self-signed";
 };
+
+function clampProfileDuration(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 5000;
+  return Math.max(1000, Math.min(30000, Math.floor(parsed)));
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function readProcessCpuUsage(previous?: NodeJS.CpuUsage): NodeJS.CpuUsage | null {
+  const cpuUsage = (process as any).cpuUsage;
+  if (typeof cpuUsage !== "function") return null;
+  return previous ? cpuUsage(previous) : cpuUsage();
+}
+
+function readResourceUsage(): any | null {
+  const resourceUsage = (process as any).resourceUsage;
+  if (typeof resourceUsage !== "function") return null;
+  try {
+    return resourceUsage();
+  } catch {
+    return null;
+  }
+}
+
+async function loadJscRuntime(): Promise<any | null> {
+  if (jscRuntimePromise === undefined) {
+    try {
+      const runtimeImport = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<any>;
+      jscRuntimePromise = runtimeImport("bun:jsc").catch(() => null);
+    } catch {
+      jscRuntimePromise = null;
+    }
+  }
+  return jscRuntimePromise;
+}
+
+async function loadInspectorRuntime(): Promise<any | null> {
+  if (inspectorRuntimePromise === undefined) {
+    try {
+      const runtimeImport = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<any>;
+      inspectorRuntimePromise = runtimeImport("node:inspector").catch(() => null);
+    } catch {
+      inspectorRuntimePromise = null;
+    }
+  }
+  return inspectorRuntimePromise;
+}
+
+async function summarizeRuntimeMemory() {
+  const mem = process.memoryUsage();
+  let jscHeap: any = null;
+  let jscMemory: any = null;
+  try {
+    const jsc = await loadJscRuntime();
+    if (typeof jsc?.heapStats === "function") jscHeap = jsc.heapStats();
+    if (typeof jsc?.memoryUsage === "function") jscMemory = jsc.memoryUsage();
+  } catch { }
+
+  const objectTypeCounts = jscHeap?.objectTypeCounts && typeof jscHeap.objectTypeCounts === "object"
+    ? Object.entries(jscHeap.objectTypeCounts)
+        .map(([type, count]) => ({ type, count: Number(count) || 0 }))
+        .filter((entry) => entry.count > 0)
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 20)
+    : [];
+
+  const activeResourcesInfo = typeof (process as any).getActiveResourcesInfo === "function"
+    ? (process as any).getActiveResourcesInfo()
+    : [];
+
+  const activeResources = Array.isArray(activeResourcesInfo)
+    ? Object.entries(activeResourcesInfo.reduce((acc: Record<string, number>, name: string) => {
+        acc[name] = (acc[name] || 0) + 1;
+        return acc;
+      }, {})).map(([type, count]) => ({ type, count }))
+    : [];
+
+  return {
+    process: {
+      rss: mem.rss,
+      heapTotal: mem.heapTotal,
+      heapUsed: mem.heapUsed,
+      external: mem.external,
+      arrayBuffers: (mem as any).arrayBuffers ?? 0,
+    },
+    jscHeap: jscHeap ? {
+      heapSize: jscHeap.heapSize,
+      heapCapacity: jscHeap.heapCapacity,
+      extraMemorySize: jscHeap.extraMemorySize,
+      objectCount: jscHeap.objectCount,
+      protectedObjectCount: jscHeap.protectedObjectCount,
+      globalObjectCount: jscHeap.globalObjectCount,
+      topObjectTypes: objectTypeCounts,
+    } : null,
+    jscMemory,
+    resources: activeResources.sort((a: any, b: any) => b.count - a.count).slice(0, 20),
+    components: {
+      thumbnails: getThumbnailStats(),
+      clients: {
+        inMemory: getClientCount(),
+        online: getOnlineClients().length,
+      },
+      database: {
+        fileSizeBytes: getDatabaseFileSizeBytes(),
+      },
+    },
+  };
+}
+
+function normalizeProfileUrl(url: string): string {
+  if (!url) return "(runtime)";
+  const clean = url.replace(/^file:\/\//, "").replaceAll("\\", "/");
+  const parts = clean.split("/");
+  return parts.slice(-3).join("/");
+}
+
+function summarizeCpuProfile(profile: any, durationMs: number) {
+  const nodes = Array.isArray(profile?.nodes) ? profile.nodes : [];
+  const samples = Array.isArray(profile?.samples) ? profile.samples : [];
+  const timeDeltas = Array.isArray(profile?.timeDeltas) ? profile.timeDeltas : [];
+  const nodeById = new Map<number, any>();
+  const parentById = new Map<number, number>();
+
+  for (const node of nodes) {
+    if (typeof node?.id !== "number") continue;
+    nodeById.set(node.id, node);
+    if (Array.isArray(node.children)) {
+      for (const childId of node.children) {
+        if (typeof childId === "number") parentById.set(childId, node.id);
+      }
+    }
+  }
+
+  const functionTotals = new Map<string, any>();
+  const moduleTotals = new Map<string, any>();
+  const stackTotals = new Map<string, any>();
+  let totalUs = 0;
+
+  samples.forEach((nodeId: number, index: number) => {
+    const node = nodeById.get(nodeId);
+    if (!node) return;
+    const deltaUs = Number(timeDeltas[index]) || 0;
+    totalUs += deltaUs;
+    const frame = node.callFrame || {};
+    const name = frame.functionName || "(anonymous)";
+    const moduleName = normalizeProfileUrl(frame.url || "");
+    const location = frame.url
+      ? `${moduleName}:${(Number(frame.lineNumber) || 0) + 1}`
+      : moduleName;
+    const key = `${name}\n${location}`;
+    const current = functionTotals.get(key) || { name, location, samples: 0, selfTimeUs: 0 };
+    current.samples += 1;
+    current.selfTimeUs += deltaUs;
+    functionTotals.set(key, current);
+
+    const moduleCurrent = moduleTotals.get(moduleName) || { module: moduleName, samples: 0, selfTimeUs: 0 };
+    moduleCurrent.samples += 1;
+    moduleCurrent.selfTimeUs += deltaUs;
+    moduleTotals.set(moduleName, moduleCurrent);
+
+    const stackFrames: string[] = [];
+    let cursor: number | undefined = nodeId;
+    while (typeof cursor === "number" && stackFrames.length < 8) {
+      const stackNode = nodeById.get(cursor);
+      if (!stackNode) break;
+      const stackFrame = stackNode.callFrame || {};
+      const stackName = stackFrame.functionName || "(anonymous)";
+      stackFrames.push(`${stackName} @ ${normalizeProfileUrl(stackFrame.url || "")}`);
+      cursor = parentById.get(cursor);
+    }
+    const stackKey = stackFrames.join(" <- ");
+    const stackCurrent = stackTotals.get(stackKey) || { stack: stackFrames, samples: 0, selfTimeUs: 0 };
+    stackCurrent.samples += 1;
+    stackCurrent.selfTimeUs += deltaUs;
+    stackTotals.set(stackKey, stackCurrent);
+  });
+
+  if (!totalUs && samples.length > 0) totalUs = durationMs * 1000;
+  const decorate = (item: any) => ({
+    ...item,
+    selfTimeMs: item.selfTimeUs / 1000,
+    percent: totalUs > 0 ? (item.selfTimeUs / totalUs) * 100 : 0,
+  });
+
+  return {
+    totalSamples: samples.length,
+    totalTimeMs: totalUs / 1000,
+    topFunctions: Array.from(functionTotals.values()).map(decorate).sort((a, b) => b.samples - a.samples).slice(0, 25),
+    topModules: Array.from(moduleTotals.values()).map(decorate).sort((a, b) => b.samples - a.samples).slice(0, 12),
+    topStacks: Array.from(stackTotals.values()).map(decorate).sort((a, b) => b.samples - a.samples).slice(0, 10),
+  };
+}
+
+async function runInspectorCpuProfile(durationMs: number) {
+  const inspector = await loadInspectorRuntime();
+  const Session = (inspector as any).Session;
+  if (typeof Session !== "function") {
+    throw new Error("Runtime inspector profiler is unavailable");
+  }
+
+  const session = new Session();
+  const post = (method: string, params?: Record<string, unknown>) => new Promise<any>((resolve, reject) => {
+    session.post(method, params || {}, (error: Error | null, result: any) => {
+      if (error) reject(error);
+      else resolve(result);
+    });
+  });
+
+  session.connect();
+  try {
+    await post("Profiler.enable");
+    await post("Profiler.setSamplingInterval", { interval: 1000 });
+    await post("Profiler.start");
+    await sleep(durationMs);
+    const result = await post("Profiler.stop");
+    await post("Profiler.disable").catch(() => undefined);
+    return result?.profile || null;
+  } finally {
+    session.disconnect();
+  }
+}
+
+async function collectServerProfile(durationMs: number) {
+  const startedAt = Date.now();
+  const beforeCpu = readProcessCpuUsage();
+  const beforeResource = readResourceUsage();
+  const beforeMemory = await summarizeRuntimeMemory();
+  let cpuProfile: any = null;
+  let profilerError: string | null = null;
+
+  try {
+    cpuProfile = await runInspectorCpuProfile(durationMs);
+  } catch (error: any) {
+    profilerError = String(error?.message || error || "CPU profiler failed");
+    await sleep(durationMs);
+  }
+
+  const elapsedMs = Date.now() - startedAt;
+  const cpuDelta = beforeCpu ? readProcessCpuUsage(beforeCpu) : null;
+  const afterResource = readResourceUsage();
+  const afterMemory = await summarizeRuntimeMemory();
+  const cpuTotalUs = cpuDelta ? (cpuDelta.user + cpuDelta.system) : 0;
+
+  return {
+    ok: true,
+    startedAt,
+    durationMs: elapsedMs,
+    requestedDurationMs: durationMs,
+    cpu: {
+      userUs: cpuDelta?.user ?? null,
+      systemUs: cpuDelta?.system ?? null,
+      totalUs: cpuTotalUs || null,
+      processPercent: elapsedMs > 0 && cpuTotalUs > 0 ? (cpuTotalUs / (elapsedMs * 1000)) * 100 : null,
+      resourceBefore: beforeResource,
+      resourceAfter: afterResource,
+      profilerError,
+      summary: cpuProfile ? summarizeCpuProfile(cpuProfile, elapsedMs) : null,
+      rawProfile: cpuProfile,
+    },
+    memory: {
+      before: beforeMemory,
+      after: afterMemory,
+    },
+  };
+}
 
 export async function handleMiscRoutes(
   req: Request,
@@ -805,6 +1077,36 @@ export async function handleMiscRoutes(
     }
     const after = process.memoryUsage().heapUsed;
     return Response.json({ ok: true, freedBytes: Math.max(0, before - after) });
+  }
+
+  // POST /api/settings/profile
+  if (req.method === "POST" && url.pathname === "/api/settings/profile") {
+    const user = await authenticateRequest(req);
+    if (!user) return new Response("Unauthorized", { status: 401 });
+    if (user.role !== "admin") return new Response("Forbidden", { status: 403 });
+
+    if (activeServerProfile) {
+      return Response.json({ error: "A server profile capture is already running." }, { status: 409 });
+    }
+
+    let body: any = {};
+    try { body = await req.json(); } catch { body = {}; }
+    const durationMs = clampProfileDuration(body?.durationMs);
+    activeServerProfile = collectServerProfile(durationMs);
+    try {
+      const result = await activeServerProfile;
+      logAudit({
+        timestamp: Date.now(),
+        username: user.username,
+        ip: deps.requestIP?.(req)?.address || "unknown",
+        action: AuditAction.COMMAND,
+        details: `Captured server profile (${durationMs}ms)`,
+        success: true,
+      });
+      return Response.json(result, { headers: deps.CORS_HEADERS });
+    } finally {
+      activeServerProfile = null;
+    }
   }
 
   return null;

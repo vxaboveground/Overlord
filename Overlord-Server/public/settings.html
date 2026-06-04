@@ -1193,6 +1193,94 @@
               </div>
             </div>
 
+            <!-- Server profiler -->
+            <div class="rounded-lg bg-slate-900 border border-slate-800 p-4 space-y-4">
+              <div class="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Server Profiler</p>
+                  <p class="text-sm text-slate-400">Capture a short CPU sample and memory snapshot to find hot functions and heavy allocations.</p>
+                </div>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <select id="server-profile-duration"
+                    class="px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                    <option value="3000">3 seconds</option>
+                    <option value="5000" selected>5 seconds</option>
+                    <option value="10000">10 seconds</option>
+                    <option value="30000">30 seconds</option>
+                  </select>
+                  <button id="server-profile-btn" type="button"
+                    class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-cyan-700 hover:bg-cyan-600 border border-cyan-600 text-sm transition-colors text-white">
+                    <i class="fa-solid fa-gauge-high"></i>Run Profile
+                  </button>
+                  <button id="server-profile-download-btn" type="button"
+                    class="hidden inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm transition-colors text-slate-300">
+                    <i class="fa-solid fa-download"></i>CPU Profile
+                  </button>
+                </div>
+              </div>
+
+              <p id="server-profile-message" class="hidden text-xs rounded-lg px-3 py-2 border"></p>
+
+              <div id="server-profile-results" class="hidden space-y-4">
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                  <div class="rounded-lg bg-slate-950 border border-slate-800 px-3 py-2">
+                    <div class="text-slate-400 text-xs mb-0.5">Captured</div>
+                    <div id="profile-duration" class="font-medium font-mono">-</div>
+                  </div>
+                  <div class="rounded-lg bg-slate-950 border border-slate-800 px-3 py-2">
+                    <div class="text-slate-400 text-xs mb-0.5">Process CPU</div>
+                    <div id="profile-cpu-percent" class="font-medium font-mono">-</div>
+                  </div>
+                  <div class="rounded-lg bg-slate-950 border border-slate-800 px-3 py-2">
+                    <div class="text-slate-400 text-xs mb-0.5">Samples</div>
+                    <div id="profile-samples" class="font-medium font-mono">-</div>
+                  </div>
+                  <div class="rounded-lg bg-slate-950 border border-slate-800 px-3 py-2">
+                    <div class="text-slate-400 text-xs mb-0.5">RSS Delta</div>
+                    <div id="profile-rss-delta" class="font-medium font-mono">-</div>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  <div class="space-y-2">
+                    <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Hot Functions</p>
+                    <div class="overflow-x-auto rounded-lg border border-slate-800">
+                      <table class="min-w-full text-xs">
+                        <thead class="bg-slate-950 text-slate-400">
+                          <tr>
+                            <th class="text-left px-3 py-2 font-medium">Function</th>
+                            <th class="text-right px-3 py-2 font-medium">Self</th>
+                            <th class="text-right px-3 py-2 font-medium">Samples</th>
+                          </tr>
+                        </thead>
+                        <tbody id="profile-functions-body" class="divide-y divide-slate-800"></tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div class="space-y-2">
+                    <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Memory Object Types</p>
+                    <div class="overflow-x-auto rounded-lg border border-slate-800">
+                      <table class="min-w-full text-xs">
+                        <thead class="bg-slate-950 text-slate-400">
+                          <tr>
+                            <th class="text-left px-3 py-2 font-medium">Type</th>
+                            <th class="text-right px-3 py-2 font-medium">Count</th>
+                          </tr>
+                        </thead>
+                        <tbody id="profile-objects-body" class="divide-y divide-slate-800"></tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="space-y-2">
+                  <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Hottest Stacks</p>
+                  <div id="profile-stacks-list" class="space-y-2"></div>
+                </div>
+              </div>
+            </div>
+
             <p id="health-gc-message" class="hidden text-xs rounded-lg px-3 py-2 border border-emerald-700 bg-emerald-900/20 text-emerald-300"></p>
           </div>
         </section>

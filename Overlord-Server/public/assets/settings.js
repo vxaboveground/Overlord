@@ -1855,6 +1855,8 @@ function formatUptime(totalSeconds) {
   return `${secs}s`;
 }
 
+let latestServerCpuProfile = null;
+
 async function loadHealthStats() {
   const loading = document.getElementById("health-loading");
   const content = document.getElementById("health-content");
@@ -1927,6 +1929,189 @@ async function loadHealthStats() {
   }
 }
 
+function formatMs(ms) {
+  const n = Number(ms) || 0;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}s`;
+  return `${Math.round(n)}ms`;
+}
+
+function formatPercent(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "-";
+  return `${n.toFixed(n >= 10 ? 1 : 2)}%`;
+}
+
+function formatSignedBytes(value) {
+  const n = Number(value) || 0;
+  if (n === 0) return "0 B";
+  return `${n > 0 ? "+" : "-"}${formatBytes(Math.abs(n))}`;
+}
+
+function setProfileMessage(text, type = "ok") {
+  const el = document.getElementById("server-profile-message");
+  if (!el) return;
+  el.textContent = text;
+  el.classList.remove(
+    "hidden",
+    "text-emerald-200",
+    "border-emerald-700",
+    "bg-emerald-900/30",
+    "text-cyan-200",
+    "border-cyan-700",
+    "bg-cyan-900/30",
+    "text-rose-200",
+    "border-rose-700",
+    "bg-rose-900/30",
+  );
+  if (type === "error") {
+    el.classList.add("text-rose-200", "border-rose-700", "bg-rose-900/30");
+  } else if (type === "busy") {
+    el.classList.add("text-cyan-200", "border-cyan-700", "bg-cyan-900/30");
+  } else {
+    el.classList.add("text-emerald-200", "border-emerald-700", "bg-emerald-900/30");
+  }
+}
+
+function renderProfileRows(tbodyId, rows, renderRow, emptyText) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="3" class="px-3 py-3 text-slate-500 text-center">${escapeHtml(emptyText)}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = list.map(renderRow).join("");
+}
+
+function renderServerProfileResults(data) {
+  const results = document.getElementById("server-profile-results");
+  const downloadBtn = document.getElementById("server-profile-download-btn");
+  const set = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  };
+
+  const cpu = data?.cpu || {};
+  const summary = cpu.summary || {};
+  const beforeMem = data?.memory?.before?.process || {};
+  const afterMem = data?.memory?.after?.process || {};
+  const rssDelta = (Number(afterMem.rss) || 0) - (Number(beforeMem.rss) || 0);
+
+  latestServerCpuProfile = cpu.rawProfile || null;
+  if (downloadBtn) downloadBtn.classList.toggle("hidden", !latestServerCpuProfile);
+
+  set("profile-duration", formatMs(data?.durationMs || 0));
+  set("profile-cpu-percent", formatPercent(cpu.processPercent));
+  set("profile-samples", summary.totalSamples ?? 0);
+  set("profile-rss-delta", formatSignedBytes(rssDelta));
+
+  const totalSamples = Number(summary.totalSamples) || 0;
+  renderProfileRows(
+    "profile-functions-body",
+    (summary.topFunctions || []).slice(0, 12),
+    (fn) => {
+      const pct = Number.isFinite(Number(fn.percent)) && Number(fn.percent) > 0
+        ? Number(fn.percent)
+        : (totalSamples > 0 ? (Number(fn.samples || 0) / totalSamples) * 100 : 0);
+      return `<tr class="bg-slate-900/70">
+        <td class="px-3 py-2 min-w-[15rem]">
+          <div class="font-mono text-slate-100 truncate" title="${escapeHtml(fn.name || "")}">${escapeHtml(fn.name || "(anonymous)")}</div>
+          <div class="font-mono text-[11px] text-slate-500 truncate" title="${escapeHtml(fn.location || "")}">${escapeHtml(fn.location || "(runtime)")}</div>
+        </td>
+        <td class="px-3 py-2 text-right font-mono text-cyan-300 whitespace-nowrap">${formatPercent(pct)}</td>
+        <td class="px-3 py-2 text-right font-mono text-slate-300">${Number(fn.samples || 0)}</td>
+      </tr>`;
+    },
+    "No CPU samples were captured.",
+  );
+
+  const topObjectTypes = data?.memory?.after?.jscHeap?.topObjectTypes || [];
+  renderProfileRows(
+    "profile-objects-body",
+    topObjectTypes.slice(0, 12),
+    (item) => `<tr class="bg-slate-900/70">
+      <td class="px-3 py-2 font-mono text-slate-100 truncate" title="${escapeHtml(item.type || "")}">${escapeHtml(item.type || "-")}</td>
+      <td class="px-3 py-2 text-right font-mono text-slate-300">${Number(item.count || 0).toLocaleString()}</td>
+    </tr>`,
+    "Heap object details are unavailable.",
+  );
+
+  const stacksEl = document.getElementById("profile-stacks-list");
+  if (stacksEl) {
+    const stacks = (summary.topStacks || []).slice(0, 5);
+    stacksEl.innerHTML = stacks.length
+      ? stacks.map((entry) => {
+          const pct = Number.isFinite(Number(entry.percent)) && Number(entry.percent) > 0
+            ? Number(entry.percent)
+            : (totalSamples > 0 ? (Number(entry.samples || 0) / totalSamples) * 100 : 0);
+          const stack = Array.isArray(entry.stack) ? entry.stack : [];
+          return `<div class="rounded-lg bg-slate-950 border border-slate-800 px-3 py-2">
+            <div class="flex items-center justify-between gap-3 text-xs">
+              <span class="font-mono text-cyan-300">${formatPercent(pct)}</span>
+              <span class="font-mono text-slate-500">${Number(entry.samples || 0)} samples</span>
+            </div>
+            <div class="mt-1 font-mono text-[11px] text-slate-300 leading-relaxed break-all">${escapeHtml(stack.join(" <- ") || "(runtime)")}</div>
+          </div>`;
+        }).join("")
+      : '<div class="rounded-lg bg-slate-950 border border-slate-800 px-3 py-3 text-xs text-slate-500 text-center">No stack samples were captured.</div>';
+  }
+
+  if (results) results.classList.remove("hidden");
+}
+
+async function runServerProfile() {
+  const btn = document.getElementById("server-profile-btn");
+  const durationEl = document.getElementById("server-profile-duration");
+  const durationMs = Number(durationEl?.value || 5000);
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>Capturing...';
+  }
+  setProfileMessage(`Capturing server CPU and memory for ${formatMs(durationMs)}. Keep using the server while this runs.`, "busy");
+
+  try {
+    const res = await fetch("/api/settings/profile", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ durationMs }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || res.statusText || "Profile failed");
+    }
+    renderServerProfileResults(data);
+    const profilerError = data?.cpu?.profilerError;
+    setProfileMessage(
+      profilerError
+        ? `Memory snapshot captured. CPU profiler was unavailable: ${profilerError}`
+        : "Profile complete. Hot functions and memory object types are listed below.",
+      profilerError ? "error" : "ok",
+    );
+  } catch (e) {
+    setProfileMessage(`Profile failed: ${e.message}`, "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-gauge-high"></i>Run Profile';
+    }
+  }
+}
+
+function downloadServerCpuProfile() {
+  if (!latestServerCpuProfile) return;
+  const blob = new Blob([JSON.stringify(latestServerCpuProfile, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  a.href = url;
+  a.download = `overlord-server-${stamp}.cpuprofile`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 async function runGC() {
   const gcBtn = document.getElementById("health-gc-btn");
   const msgEl = document.getElementById("health-gc-message");
@@ -1952,8 +2137,12 @@ async function runGC() {
 function initHealthHandlers() {
   const refreshBtn = document.getElementById("health-refresh-btn");
   const gcBtn = document.getElementById("health-gc-btn");
+  const profileBtn = document.getElementById("server-profile-btn");
+  const downloadProfileBtn = document.getElementById("server-profile-download-btn");
   if (refreshBtn) refreshBtn.addEventListener("click", loadHealthStats);
   if (gcBtn) gcBtn.addEventListener("click", runGC);
+  if (profileBtn) profileBtn.addEventListener("click", runServerProfile);
+  if (downloadProfileBtn) downloadProfileBtn.addEventListener("click", downloadServerCpuProfile);
 }
 
 async function init() {
