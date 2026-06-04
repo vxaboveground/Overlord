@@ -1,4 +1,5 @@
 import type { ClientInfo, ListFilters, ListResult, ClientRole } from "../types";
+import Fuse from "fuse.js";
 import { getThumbnailSummaries } from "../thumbnails";
 import { db, dbPath } from "./connection";
 import "./schema";
@@ -770,6 +771,119 @@ export function computeClientSuspiciousFlags(
   return flags;
 }
 
+const CLIENT_SEARCH_KEYS = [
+  { name: "nickname", weight: 0.32 },
+  { name: "host", weight: 0.28 },
+  { name: "user", weight: 0.18 },
+  { name: "id", weight: 0.18 },
+  { name: "customTag", weight: 0.2 },
+  { name: "customTagNote", weight: 0.1 },
+  { name: "groupName", weight: 0.14 },
+  { name: "os", weight: 0.12 },
+  { name: "ip", weight: 0.1 },
+  { name: "hwid", weight: 0.08 },
+  { name: "country", weight: 0.06 },
+  { name: "version", weight: 0.06 },
+  { name: "buildTag", weight: 0.06 },
+  { name: "cpu", weight: 0.05 },
+  { name: "gpu", weight: 0.05 },
+  { name: "ram", weight: 0.04 },
+] as const;
+
+const CLIENT_SEARCH_SQL_COLUMNS = [
+  "COALESCE(c.nickname,'')",
+  "COALESCE(c.host,'')",
+  "COALESCE(c.user,'')",
+  "c.id",
+  "COALESCE(c.custom_tag,'')",
+  "COALESCE(c.custom_tag_note,'')",
+  "COALESCE(g.name,'')",
+  "COALESCE(c.os,'')",
+  "COALESCE(c.ip,'')",
+  "COALESCE(c.hwid,'')",
+  "COALESCE(c.country,'')",
+  "COALESCE(c.version,'')",
+  "COALESCE(c.build_tag,'')",
+  "COALESCE(c.cpu,'')",
+  "COALESCE(c.gpu,'')",
+  "COALESCE(c.ram,'')",
+] as const;
+
+function escapeLikeTerm(term: string): string {
+  return term.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+function buildFuzzyCandidateWhere(search: string): { sql: string; params: string[] } {
+  const query = search.trim().toLowerCase();
+  if (!query) return { sql: "", params: [] };
+
+  const terms = Array.from(new Set([
+    query,
+    ...query.split(/[\s,;:|/\\]+/),
+  ].map((term) => term.trim()).filter((term) => term.length >= 2))).slice(0, 8);
+
+  if (!terms.length) return { sql: "", params: [] };
+
+  const fieldClause = CLIENT_SEARCH_SQL_COLUMNS
+    .map((column) => `LOWER(${column}) LIKE ? ESCAPE '\\'`)
+    .join(" OR ");
+  const sql = terms.map(() => `(${fieldClause})`).join(" OR ");
+  const params = terms.flatMap((term) => {
+    const like = `%${escapeLikeTerm(term)}%`;
+    return CLIENT_SEARCH_SQL_COLUMNS.map(() => like);
+  });
+
+  return { sql: `(${sql})`, params };
+}
+
+function buildClientSearchFtsQuery(search: string): string {
+  const terms = Array.from(new Set(
+    search
+      .trim()
+      .split(/[\s,;:|/\\]+/)
+      .map((term) => term.replace(/["*]/g, "").trim())
+      .filter((term) => term.length >= 2),
+  )).slice(0, 8);
+
+  return terms.map((term) => `"${term}"*`).join(" OR ");
+}
+
+function getFtsClientSearchCandidateIds(search: string, limit: number): string[] | null {
+  const ftsQuery = buildClientSearchFtsQuery(search);
+  if (!ftsQuery) return [];
+
+  try {
+    return db
+      .query<{ id: string }>(
+        `SELECT id
+         FROM client_search_fts
+         WHERE client_search_fts MATCH ?
+         ORDER BY rank
+         LIMIT ?`,
+      )
+      .all(ftsQuery, limit)
+      .map((row) => row.id)
+      .filter(Boolean);
+  } catch {
+    return null;
+  }
+}
+
+function fuzzySearchClientRows(rows: any[], search: string): any[] {
+  const query = search.trim();
+  if (!query) return rows;
+
+  const fuse = new Fuse(rows, {
+    keys: CLIENT_SEARCH_KEYS as any,
+    threshold: 0.36,
+    distance: 120,
+    ignoreLocation: true,
+    shouldSort: true,
+  });
+
+  return fuse.search(query).map((result) => result.item);
+}
+
 export function listClients(filters: ListFilters): ListResult {
   const {
     page,
@@ -788,14 +902,6 @@ export function listClients(filters: ListFilters): ListResult {
   } = filters;
   const where: string[] = [];
   const params: any[] = [];
-
-  if (search) {
-    where.push(
-      "(LOWER(COALESCE(c.host,'')) LIKE ? OR LOWER(COALESCE(c.user,'')) LIKE ? OR LOWER(COALESCE(c.nickname,'')) LIKE ? OR LOWER(COALESCE(c.custom_tag,'')) LIKE ? OR LOWER(COALESCE(c.custom_tag_note,'')) LIKE ? OR LOWER(c.id) LIKE ? OR LOWER(COALESCE(g.name,'')) LIKE ?)",
-    );
-    const needle = `%${search}%`;
-    params.push(needle, needle, needle, needle, needle, needle, needle);
-  }
 
   if (statusFilter === "online") {
     where.push("c.online=1");
@@ -859,11 +965,9 @@ export function listClients(filters: ListFilters): ListResult {
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   const needsGroupJoinForFilter =
-    !!search ||
     sort === "group_asc" ||
     sort === "group_desc" ||
     (groupFilter !== undefined && groupFilter !== "all");
-  const countJoinSql = needsGroupJoinForFilter ? "LEFT JOIN client_groups g ON g.id = c.group_id" : "";
 
   const orderBy = (() => {
     const online = "c.online DESC";
@@ -894,49 +998,99 @@ export function listClients(filters: ListFilters): ListResult {
     }
   })();
 
-  const totalRow = db
-    .query<{ c: number }>(`SELECT COUNT(*) as c FROM clients c ${countJoinSql} ${whereSql}`)
-    .get(...params) ?? { c: 0 };
-  const onlineRow = db
-    .query<{ c: number }>(
-      `SELECT COUNT(*) as c FROM clients c ${countJoinSql} ${whereSql ? `${whereSql} AND c.online=1` : "WHERE c.online=1"}`,
-    )
-    .get(...params) ?? { c: 0 };
   const offset = (page - 1) * pageSize;
 
   const clientFields =
     "c.id, c.hwid, c.role, c.ip, c.host, c.os, c.arch, c.version, c.user, c.nickname, c.custom_tag as customTag, c.custom_tag_note as customTagNote, c.monitors, c.country, c.last_seen as lastSeen, c.online, c.ping_ms as pingMs, c.bookmarked, c.build_tag as buildTag, c.built_by_user_id as builtByUserId, c.enrollment_status as enrollmentStatus, c.public_key as publicKey, c.key_fingerprint as keyFingerprint, c.cpu, c.gpu, c.ram, c.battery_percent as batteryPercent, c.battery_charging as batteryCharging, c.is_admin as isAdmin, c.elevation, c.permissions, c.disconnect_reason as disconnectReason, c.disconnect_detail as disconnectDetail, c.group_id as groupId, c.notifications_muted as notificationsMuted, c.deny_reason as denyReason";
 
-  const rows = needsGroupJoinForFilter
-    ? db
-      .query<any>(
-        `SELECT ${clientFields}, g.name as groupName, g.color as groupColor
-         FROM clients c
-         LEFT JOIN client_groups g ON g.id = c.group_id
-         ${whereSql}
-         ${orderBy}
-         LIMIT ? OFFSET ?`,
-      )
-      .all(...params, pageSize, offset)
-    : db
-      .query<any>(
-        `WITH page_clients AS (
-           SELECT ${clientFields}
+  let rows: any[] | undefined;
+  let totalCount = 0;
+  let onlineCount = 0;
+
+  if (search) {
+    const searchWhere = [...where];
+    const searchParams = [...params];
+    const candidateLimit = Math.min(5000, Math.max(1000, offset + pageSize * 8));
+    const ftsCandidateIds = getFtsClientSearchCandidateIds(search, candidateLimit);
+
+    if (ftsCandidateIds) {
+      if (!ftsCandidateIds.length) {
+        rows = [];
+        totalCount = 0;
+        onlineCount = 0;
+      } else {
+        searchWhere.push(`c.id IN (${ftsCandidateIds.map(() => "?").join(",")})`);
+        searchParams.push(...ftsCandidateIds);
+      }
+    } else {
+      const searchCandidate = buildFuzzyCandidateWhere(search);
+      if (searchCandidate.sql) {
+        searchWhere.push(searchCandidate.sql);
+        searchParams.push(...searchCandidate.params);
+      }
+    }
+
+    if (rows === undefined) {
+      const searchWhereSql = searchWhere.length ? `WHERE ${searchWhere.join(" AND ")}` : "";
+      const candidates = db
+        .query<any>(
+          `SELECT ${clientFields}, g.name as groupName, g.color as groupColor
            FROM clients c
+           LEFT JOIN client_groups g ON g.id = c.group_id
+           ${searchWhereSql}
+           ${orderBy}`,
+        )
+        .all(...searchParams);
+      const matches = fuzzySearchClientRows(candidates, search);
+      totalCount = matches.length;
+      onlineCount = matches.filter((row: any) => row.online === 1).length;
+      rows = matches.slice(offset, offset + pageSize);
+    }
+  } else {
+    const countJoinSql = needsGroupJoinForFilter ? "LEFT JOIN client_groups g ON g.id = c.group_id" : "";
+    const totalRow = db
+      .query<{ c: number }>(`SELECT COUNT(*) as c FROM clients c ${countJoinSql} ${whereSql}`)
+      .get(...params) ?? { c: 0 };
+    const onlineRow = db
+      .query<{ c: number }>(
+        `SELECT COUNT(*) as c FROM clients c ${countJoinSql} ${whereSql ? `${whereSql} AND c.online=1` : "WHERE c.online=1"}`,
+      )
+      .get(...params) ?? { c: 0 };
+    totalCount = totalRow.c;
+    onlineCount = onlineRow.c;
+
+    rows = needsGroupJoinForFilter
+      ? db
+        .query<any>(
+          `SELECT ${clientFields}, g.name as groupName, g.color as groupColor
+           FROM clients c
+           LEFT JOIN client_groups g ON g.id = c.group_id
            ${whereSql}
            ${orderBy}
-           LIMIT ? OFFSET ?
-         )
-         SELECT pc.*, g.name as groupName, g.color as groupColor
-         FROM page_clients pc
-         LEFT JOIN client_groups g ON g.id = pc.groupId`,
-      )
-      .all(...params, pageSize, offset);
+           LIMIT ? OFFSET ?`,
+        )
+        .all(...params, pageSize, offset)
+      : db
+        .query<any>(
+          `WITH page_clients AS (
+             SELECT ${clientFields}
+             FROM clients c
+             ${whereSql}
+             ${orderBy}
+             LIMIT ? OFFSET ?
+           )
+           SELECT pc.*, g.name as groupName, g.color as groupColor
+           FROM page_clients pc
+           LEFT JOIN client_groups g ON g.id = pc.groupId`,
+        )
+        .all(...params, pageSize, offset);
+  }
 
-  const shouldScanSuspicious = SUSPICIOUS_SCAN_MAX_CLIENTS === 0 || totalRow.c <= SUSPICIOUS_SCAN_MAX_CLIENTS;
+  const shouldScanSuspicious = !search && (SUSPICIOUS_SCAN_MAX_CLIENTS === 0 || totalCount <= SUSPICIOUS_SCAN_MAX_CLIENTS);
   const suspiciousSets = shouldScanSuspicious
     ? getFloodSetsWithCache()
     : { floodedHwids: new Set<string>(), floodedHardware: new Set<string>(), floodedIps: new Set<string>() };
+  rows = rows || [];
   const thumbnailSummaries = getThumbnailSummaries(rows.map((row: any) => row.id));
 
   const items = rows.map((c: any) => {
@@ -986,7 +1140,7 @@ export function listClients(filters: ListFilters): ListResult {
     };
   });
 
-  return { page, pageSize, total: totalRow.c, online: onlineRow.c, items };
+  return { page, pageSize, total: totalCount, online: onlineCount, items };
 }
 
 export type ClientMetricsSummary = {
@@ -998,7 +1152,56 @@ export type ClientMetricsSummary = {
   byCountryOnline: Record<string, number>;
 };
 
+const CLIENT_METRICS_SUMMARY_TTL_MS = 4_000;
+let clientMetricsSummaryCache: { expiresAt: number; summary: ClientMetricsSummary } | null = null;
+const userClientMetricsSummaryCache = new Map<number, { expiresAt: number; summary: ClientMetricsSummary }>();
+
+function cloneClientMetricsSummary(summary: ClientMetricsSummary): ClientMetricsSummary {
+  return {
+    total: summary.total,
+    online: summary.online,
+    byOS: { ...summary.byOS },
+    byCountry: { ...summary.byCountry },
+    byOSOnline: { ...summary.byOSOnline },
+    byCountryOnline: { ...summary.byCountryOnline },
+  };
+}
+
+function makeClientMetricsSummary(
+  counts: { total: number | null; online: number | null },
+  osRows: { key: string; total: number; online: number | null }[],
+  countryRows: { key: string; total: number; online: number | null }[],
+): ClientMetricsSummary {
+  const byOS: Record<string, number> = {};
+  const byOSOnline: Record<string, number> = {};
+  for (const row of osRows) {
+    byOS[row.key] = Number(row.total) || 0;
+    byOSOnline[row.key] = Number(row.online) || 0;
+  }
+
+  const byCountry: Record<string, number> = {};
+  const byCountryOnline: Record<string, number> = {};
+  for (const row of countryRows) {
+    byCountry[row.key] = Number(row.total) || 0;
+    byCountryOnline[row.key] = Number(row.online) || 0;
+  }
+
+  return {
+    total: Number(counts.total) || 0,
+    online: Number(counts.online) || 0,
+    byOS,
+    byCountry,
+    byOSOnline,
+    byCountryOnline,
+  };
+}
+
 export function getClientMetricsSummary(): ClientMetricsSummary {
+  const now = Date.now();
+  if (clientMetricsSummaryCache && clientMetricsSummaryCache.expiresAt > now) {
+    return cloneClientMetricsSummary(clientMetricsSummaryCache.summary);
+  }
+
   const counts = db
     .query<{ total: number; online: number }>(
       `SELECT COUNT(*) as total, SUM(CASE WHEN online=1 THEN 1 ELSE 0 END) as online FROM clients`,
@@ -1027,31 +1230,21 @@ export function getClientMetricsSummary(): ClientMetricsSummary {
     )
     .all();
 
-  const byOS: Record<string, number> = {};
-  const byOSOnline: Record<string, number> = {};
-  for (const row of osRows) {
-    byOS[row.key] = Number(row.total) || 0;
-    byOSOnline[row.key] = Number(row.online) || 0;
-  }
-
-  const byCountry: Record<string, number> = {};
-  const byCountryOnline: Record<string, number> = {};
-  for (const row of countryRows) {
-    byCountry[row.key] = Number(row.total) || 0;
-    byCountryOnline[row.key] = Number(row.online) || 0;
-  }
-
-  return {
-    total: Number(counts.total) || 0,
-    online: Number(counts.online) || 0,
-    byOS,
-    byCountry,
-    byOSOnline,
-    byCountryOnline,
+  const summary = makeClientMetricsSummary(counts, osRows, countryRows);
+  clientMetricsSummaryCache = {
+    expiresAt: now + CLIENT_METRICS_SUMMARY_TTL_MS,
+    summary,
   };
+  return cloneClientMetricsSummary(summary);
 }
 
 export function getClientMetricsSummaryForUser(userId: number): ClientMetricsSummary {
+  const now = Date.now();
+  const cached = userClientMetricsSummaryCache.get(userId);
+  if (cached && cached.expiresAt > now) {
+    return cloneClientMetricsSummary(cached.summary);
+  }
+
   const filter = `WHERE built_by_user_id = ?`;
 
   const counts = db
@@ -1082,28 +1275,12 @@ export function getClientMetricsSummaryForUser(userId: number): ClientMetricsSum
     )
     .all(userId);
 
-  const byOS: Record<string, number> = {};
-  const byOSOnline: Record<string, number> = {};
-  for (const row of osRows) {
-    byOS[row.key] = Number(row.total) || 0;
-    byOSOnline[row.key] = Number(row.online) || 0;
-  }
-
-  const byCountry: Record<string, number> = {};
-  const byCountryOnline: Record<string, number> = {};
-  for (const row of countryRows) {
-    byCountry[row.key] = Number(row.total) || 0;
-    byCountryOnline[row.key] = Number(row.online) || 0;
-  }
-
-  return {
-    total: Number(counts.total) || 0,
-    online: Number(counts.online) || 0,
-    byOS,
-    byCountry,
-    byOSOnline,
-    byCountryOnline,
-  };
+  const summary = makeClientMetricsSummary(counts, osRows, countryRows);
+  userClientMetricsSummaryCache.set(userId, {
+    expiresAt: now + CLIENT_METRICS_SUMMARY_TTL_MS,
+    summary,
+  });
+  return cloneClientMetricsSummary(summary);
 }
 
 export function getOnlineClientCountForUser(userId: number): number {

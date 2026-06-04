@@ -14,6 +14,29 @@ let dashboardWsConnected = false;
 let wsReconnectTimer = null;
 const manuallyDisconnecting = new Set();
 
+function stopDashboardRealtime() {
+  clearInterval(pollTimer);
+  pollTimer = null;
+  clearTimeout(wsReconnectTimer);
+  wsReconnectTimer = null;
+  if (dashboardWs) {
+    try {
+      dashboardWs.onopen = null;
+      dashboardWs.onmessage = null;
+      dashboardWs.onerror = null;
+      dashboardWs.onclose = null;
+      dashboardWs.close(1000, "page hidden");
+    } catch {}
+  }
+  dashboardWs = null;
+  dashboardWsConnected = false;
+}
+
+function bindDashboardPagehideCleanup() {
+  window.removeEventListener("pagehide", stopDashboardRealtime);
+  window.addEventListener("pagehide", stopDashboardRealtime);
+}
+
 function moveClientCardImmediately(msg) {
   const clientId = typeof msg?.clientId === "string" ? msg.clientId : "";
   if (!clientId) return;
@@ -243,6 +266,7 @@ function adjustPollingForWs() {
 }
 
 export function startAutoRefresh(intervalMs = POLL_INTERVAL_MS) {
+  bindDashboardPagehideCleanup();
   connectDashboardWs();
   const effectiveInterval = dashboardWsConnected
     ? FALLBACK_POLL_MS

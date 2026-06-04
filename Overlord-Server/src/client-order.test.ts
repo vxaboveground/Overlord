@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { deleteClientRow, listClients, setClientBookmark, upsertClientRow } from "./db";
+import { deleteClientRow, listClients, setClientBookmark, setClientTag, upsertClientRow } from "./db";
 
 const createdClientIds: string[] = [];
 
@@ -106,6 +106,35 @@ describe("client list ordering", () => {
 
       expect(result.items[0]?.id).toBe(`${prefix}-online`);
       expect(result.items[0]?.online).toBe(true);
+    } finally {
+      cleanupCreatedClients();
+    }
+  });
+
+  test("search tolerates typos across client metadata", () => {
+    try {
+      const prefix = `fuse-${Date.now().toString(36)}`;
+      const id = `${prefix}-finance-terminal`;
+
+      createTempClient(id, {
+        online: true,
+        lastSeen: Date.now(),
+        host: "finance-terminal",
+      });
+      setClientTag(id, "Payroll Workstation", "Quarterly reporting machine");
+
+      const result = listClients({
+        page: 1,
+        pageSize: 12,
+        search: "payrol workstaton",
+        sort: "last_seen_desc",
+        statusFilter: "all",
+        osFilter: "all",
+        countryFilter: "all",
+        enrollmentFilter: "all",
+      });
+
+      expect(result.items.some((item) => item.id === id)).toBe(true);
     } finally {
       cleanupCreatedClients();
     }

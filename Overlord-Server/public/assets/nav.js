@@ -12,13 +12,19 @@ import { createAdaptiveNavController } from "./nav/layout.js";
 import { applyUserRoleUI, applyThumbnailWallVisibility } from "./nav/role-ui.js";
 import { loadPluginNavItems } from "./nav/plugins-loader.js";
 import { init as initCommandPalette } from "./command-palette.js";
+import {
+  installPageResourceTracker,
+  runWithoutPageTracking,
+  setupSoftNavigation,
+  startPageTracking,
+} from "./soft-nav.js";
 
 const host = document.getElementById("top-nav");
 if (host) {
   const refs = mountNav(host);
   initCommandPalette();
   import("./cert-banner.js").then(({ showCertBannerIfNeeded }) => {
-    showCertBannerIfNeeded(document.getElementById("sb-mobile-bar") || host);
+    runWithoutPageTracking(() => showCertBannerIfNeeded(document.getElementById("sb-mobile-bar") || host));
   });
   const { applyAdaptiveNavLayout, navHide } = createAdaptiveNavController(host, refs);
 
@@ -44,13 +50,18 @@ if (host) {
     "/purgatory": "enrollment-link",
   };
 
-  loadPluginNavItems(activeMap).then(() => {
-    const activeId = activeMap[path];
+  const applyActivePath = (nextPath = window.location.pathname) => {
+    host.querySelectorAll(".nav-active").forEach((el) => el.classList.remove("nav-active"));
+    host.querySelectorAll(".sb-group-btn[aria-expanded='true']").forEach((btn) => btn.setAttribute("aria-expanded", "false"));
+    host.querySelectorAll(".sb-group-children.sb-group-open").forEach((children) => children.classList.remove("sb-group-open"));
+    host.querySelectorAll(".sb-chevron.sb-chevron-open").forEach((chevron) => chevron.classList.remove("sb-chevron-open"));
+    refs.accountSettingsBtn?.classList.remove("ring-1", "ring-sky-500/60", "bg-slate-700");
+
+    const activeId = activeMap[nextPath];
     if (activeId) {
       const el = document.getElementById(activeId);
       if (el) {
         el.classList.add("nav-active");
-        // Also expand the parent sidebar group if applicable
         const group = el.closest(".sb-group");
         if (group) {
           const btn = group.querySelector(".sb-group-btn");
@@ -62,6 +73,14 @@ if (host) {
         }
       }
     }
+
+    if (nextPath === "/settings" && refs.accountSettingsBtn) {
+      refs.accountSettingsBtn.classList.add("ring-1", "ring-sky-500/60", "bg-slate-700");
+    }
+  };
+
+  loadPluginNavItems(activeMap).then(() => {
+    applyActivePath(path);
   });
 
   if (refs.logoutBtn && !refs.logoutBtn.dataset.boundLogout) {
@@ -91,12 +110,12 @@ if (host) {
   if (refs.accountSettingsBtn && !refs.accountSettingsBtn.dataset.boundSettings) {
     refs.accountSettingsBtn.dataset.boundSettings = "true";
     refs.accountSettingsBtn.addEventListener("click", () => {
-      window.location.href = "/settings";
+      if (window.overlordSoftNavigate) {
+        window.overlordSoftNavigate("/settings");
+      } else {
+        window.location.href = "/settings";
+      }
     });
-  }
-
-  if (path === "/settings" && refs.accountSettingsBtn) {
-    refs.accountSettingsBtn.classList.add("ring-1", "ring-sky-500/60", "bg-slate-700");
   }
 
   const updateToggle = () => {
@@ -139,6 +158,32 @@ if (host) {
     }
   });
 
+  const prefetchedPages = new Set();
+  const prefetchPage = (href) => {
+    try {
+      const url = new URL(href, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      if (url.pathname === window.location.pathname && url.search === window.location.search) return;
+      const key = `${url.pathname}${url.search}`;
+      if (prefetchedPages.has(key)) return;
+      prefetchedPages.add(key);
+      const link = document.createElement("link");
+      link.rel = "prefetch";
+      link.as = "document";
+      link.href = key;
+      document.head.appendChild(link);
+    } catch {}
+  };
+
+  host.addEventListener("pointerenter", (event) => {
+    const link = event.target?.closest?.("a[href]");
+    if (link) prefetchPage(link.getAttribute("href"));
+  }, true);
+  host.addEventListener("focusin", (event) => {
+    const link = event.target?.closest?.("a[href]");
+    if (link) prefetchPage(link.getAttribute("href"));
+  });
+
   async function loadCurrentUser() {
     try {
       const res = await fetch("/api/auth/me", { credentials: "include" });
@@ -178,19 +223,25 @@ if (host) {
   }
 
   import("./chat-widget.js").then((chatWidget) => {
-    chatWidget.init();
+    runWithoutPageTracking(() => {
+      chatWidget.init();
 
-    if (chatWidget.isHidden() && refs.navUtility) {
-      const restoreBtn = document.createElement("button");
-      restoreBtn.id = "chat-restore-btn";
-      restoreBtn.className = "inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 text-slate-500 hover:text-slate-300 hover:bg-slate-800 text-xs transition-colors";
-      restoreBtn.title = "Show team chat";
-      restoreBtn.innerHTML = '<i class="fa-solid fa-comments"></i><span class="sb-text">Chat</span>';
-      restoreBtn.addEventListener("click", () => {
-        chatWidget.show();
-        restoreBtn.remove();
-      });
-      refs.navUtility.insertBefore(restoreBtn, refs.navUtility.firstChild);
-    }
+      if (chatWidget.isHidden() && refs.navUtility) {
+        const restoreBtn = document.createElement("button");
+        restoreBtn.id = "chat-restore-btn";
+        restoreBtn.className = "inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 text-slate-500 hover:text-slate-300 hover:bg-slate-800 text-xs transition-colors";
+        restoreBtn.title = "Show team chat";
+        restoreBtn.innerHTML = '<i class="fa-solid fa-comments"></i><span class="sb-text">Chat</span>';
+        restoreBtn.addEventListener("click", () => {
+          chatWidget.show();
+          restoreBtn.remove();
+        });
+        refs.navUtility.insertBefore(restoreBtn, refs.navUtility.firstChild);
+      }
+    });
   });
+
+  installPageResourceTracker();
+  setupSoftNavigation(host, { onPathChange: applyActivePath });
+  startPageTracking();
 }

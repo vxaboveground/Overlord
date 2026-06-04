@@ -1828,6 +1828,35 @@ mark.search-current {
   z-index: 10;
   width: 100%;
   min-height: 60px;
+  background: rgba(2, 6, 23, 0.92);
+  border-bottom: 1px solid rgba(30, 41, 59, 0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+#top-nav:empty::before {
+  content: "Overlord";
+  display: flex;
+  align-items: center;
+  height: 60px;
+  padding: 0 20px;
+  color: #e2e8f0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+html.nav-pre-sidebar #top-nav:empty::before {
+  align-items: flex-start;
+  height: auto;
+  padding: 18px 14px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+html.nav-pre-sidebar.nav-pre-collapsed #top-nav:empty::before {
+  content: "O";
+  justify-content: center;
+  padding-inline: 0;
 }
 
 #top-nav nav a {
@@ -4515,7 +4544,10 @@ body.sb-ready #top-nav {
 }
 
 .dashboard-stats-content {
+  height: calc(var(--dashboard-stats-height) + 12px);
   min-height: calc(var(--dashboard-stats-height) + 12px);
+  contain: layout paint;
+  overflow: hidden;
 }
 
 .dashboard-stats-shell.is-collapsed .dashboard-stats-content,

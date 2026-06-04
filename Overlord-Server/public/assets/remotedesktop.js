@@ -111,6 +111,15 @@ import { createKeyboardCapture } from "./keyboard-capture.js";
   let clientOs = "";
   let clientIsAdmin = false;
   let firewallWarningAcked = false;
+  let firstFrameLogged = false;
+
+  function rdDebug(label, data = {}) {
+    try {
+      console.debug(`rd: ${label} ${JSON.stringify(data)}`);
+    } catch {
+      console.debug(`rd: ${label}`, data);
+    }
+  }
 
   function resetH264RuntimeState() {
     h264TimestampUs = 0;
@@ -730,6 +739,14 @@ import { createKeyboardCapture } from "./keyboard-capture.js";
 
   function handleStatus(msg) {
     if (!msg || msg.type !== "status" || !msg.status) return;
+    rdDebug("status", {
+      status: msg.status,
+      reason: msg.reason || "",
+      desiredStreaming,
+      streamState,
+      lastFrameAgeMs: lastFrameAt ? Math.round(performance.now() - lastFrameAt) : null,
+      sessionId: msg.sessionId || "",
+    });
     if (msg.status === "offline") {
       scheduleOffline(msg.reason);
       return;
@@ -880,10 +897,26 @@ import { createKeyboardCapture } from "./keyboard-capture.js";
       return;
     }
     if (ws.readyState !== WebSocket.OPEN) {
+      rdDebug("send skipped websocket not open", {
+        type,
+        readyState: ws.readyState,
+        streamState,
+        desiredStreaming,
+      });
       return;
     }
     const msg = { type, ...payload };
-    console.debug("rd: send", msg);
+    rdDebug("send", {
+      msg,
+      readyState: ws.readyState,
+      streamState,
+      desiredStreaming,
+      display: displaySelect?.value ?? "",
+      quality: qualitySlider?.value ?? "",
+      resolution: resolutionSelect?.value ?? "",
+      transport: getWebrtcMode(),
+      lastFrameAgeMs: lastFrameAt ? Math.round(performance.now() - lastFrameAt) : null,
+    });
     ws.send(encodeMsgpack(msg));
   }
 
@@ -1021,6 +1054,13 @@ import { createKeyboardCapture } from "./keyboard-capture.js";
       const res = await fetch("/api/clients");
       const data = await res.json();
       const client = data.items.find((c) => c.id === activeClientId);
+      rdDebug("client info", {
+        found: !!client,
+        monitors: client?.monitors,
+        monitorInfo: client?.monitorInfo,
+        os: client?.os || "",
+        isAdmin: !!client?.isAdmin,
+      });
       if (client) {
         clientLabel.textContent = `${client.host || client.id} (${client.os || ""})`;
         clientOs = (client.os || "").toLowerCase();
@@ -1115,6 +1155,19 @@ import { createKeyboardCapture } from "./keyboard-capture.js";
 
   startBtn.addEventListener("click", function () {
     const mode = getWebrtcMode();
+    rdDebug("start click", {
+      mode,
+      wsReadyState: ws.readyState,
+      streamState,
+      desiredStreaming,
+      display: displaySelect?.value ?? "",
+      quality: qualitySlider?.value ?? "",
+      resolution: resolutionSelect?.value ?? "",
+      prefersH264,
+      duplication: !!duplicationCtrl?.checked,
+      clientOs,
+      clientIsAdmin,
+    });
     if (needsWebrtcFirewallWarning(mode)) {
       if (!confirm("This agent is not elevated. Starting WebRTC will trigger a Windows Defender Firewall prompt on the target machine.\n\nContinue?")) {
         return;
@@ -1132,6 +1185,7 @@ import { createKeyboardCapture } from "./keyboard-capture.js";
     pushResolution();
     desiredStreaming = true;
     lastFrameAt = 0;
+    firstFrameLogged = false;
     resetH264SessionState();
     setStreamState("starting", "Starting stream");
     if (mode === "relayed") {
@@ -1267,6 +1321,15 @@ import { createKeyboardCapture } from "./keyboard-capture.js";
   function markFrameReceived() {
     lastFrameAt = performance.now();
     clearOfflineTimer();
+    if (!firstFrameLogged) {
+      firstFrameLogged = true;
+      rdDebug("first frame received", {
+        streamState,
+        desiredStreaming,
+        canvas: { width: canvas.width, height: canvas.height },
+        transport: getWebrtcMode(),
+      });
+    }
     if (streamState !== "streaming" && desiredStreaming) {
       setStreamState("streaming", "Streaming");
     }
@@ -1700,6 +1763,11 @@ import { createKeyboardCapture } from "./keyboard-capture.js";
   });
 
   ws.addEventListener("open", function () {
+    rdDebug("ws open", {
+      url: ws.url,
+      readyState: ws.readyState,
+      clientId,
+    });
     if (qualitySlider) {
       pushQuality(qualitySlider.value);
     }
@@ -1718,7 +1786,14 @@ import { createKeyboardCapture } from "./keyboard-capture.js";
     });
   });
 
-  ws.addEventListener("close", function () {
+  ws.addEventListener("close", function (event) {
+    rdDebug("ws close", {
+      code: event.code,
+      reason: event.reason,
+      wasClean: event.wasClean,
+      streamState,
+      desiredStreaming,
+    });
     desiredStreaming = false;
     disconnectAudio();
     destroyVideoDecoder();
@@ -1729,7 +1804,8 @@ import { createKeyboardCapture } from "./keyboard-capture.js";
     setStreamState("disconnected", "Disconnected");
   });
 
-  ws.addEventListener("error", function () {
+  ws.addEventListener("error", function (event) {
+    console.warn("rd: ws error", event);
     destroyVideoDecoder();
     stopAllWebrtc();
     setStreamState("error", "WebSocket error");

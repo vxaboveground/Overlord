@@ -148,6 +148,82 @@ try {
 } catch {}
 db.run(`CREATE INDEX IF NOT EXISTS idx_clients_group_id ON clients(group_id);`);
 
+try {
+  db.run(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS client_search_fts USING fts5(
+      id UNINDEXED,
+      host,
+      user,
+      nickname,
+      custom_tag,
+      custom_tag_note,
+      os,
+      ip,
+      hwid,
+      country,
+      version,
+      build_tag,
+      cpu,
+      gpu,
+      ram,
+      tokenize = 'unicode61'
+    );
+  `);
+
+  const counts = db
+    .query<{ clients: number; indexed: number }>(
+      `SELECT
+         (SELECT COUNT(*) FROM clients) as clients,
+         (SELECT COUNT(*) FROM client_search_fts) as indexed`,
+    )
+    .get() ?? { clients: 0, indexed: 0 };
+
+  if (counts.clients !== counts.indexed) {
+    db.run(`DELETE FROM client_search_fts`);
+    db.run(`
+      INSERT INTO client_search_fts(
+        rowid, id, host, user, nickname, custom_tag, custom_tag_note,
+        os, ip, hwid, country, version, build_tag, cpu, gpu, ram
+      )
+      SELECT
+        rowid, id, host, user, nickname, custom_tag, custom_tag_note,
+        os, ip, hwid, country, version, build_tag, cpu, gpu, ram
+      FROM clients
+    `);
+  }
+
+  db.run(`
+    CREATE TRIGGER IF NOT EXISTS clients_search_ai AFTER INSERT ON clients BEGIN
+      INSERT INTO client_search_fts(
+        rowid, id, host, user, nickname, custom_tag, custom_tag_note,
+        os, ip, hwid, country, version, build_tag, cpu, gpu, ram
+      )
+      VALUES (
+        new.rowid, new.id, new.host, new.user, new.nickname, new.custom_tag, new.custom_tag_note,
+        new.os, new.ip, new.hwid, new.country, new.version, new.build_tag, new.cpu, new.gpu, new.ram
+      );
+    END;
+  `);
+  db.run(`
+    CREATE TRIGGER IF NOT EXISTS clients_search_ad AFTER DELETE ON clients BEGIN
+      DELETE FROM client_search_fts WHERE rowid = old.rowid;
+    END;
+  `);
+  db.run(`
+    CREATE TRIGGER IF NOT EXISTS clients_search_au AFTER UPDATE ON clients BEGIN
+      DELETE FROM client_search_fts WHERE rowid = old.rowid;
+      INSERT INTO client_search_fts(
+        rowid, id, host, user, nickname, custom_tag, custom_tag_note,
+        os, ip, hwid, country, version, build_tag, cpu, gpu, ram
+      )
+      VALUES (
+        new.rowid, new.id, new.host, new.user, new.nickname, new.custom_tag, new.custom_tag_note,
+        new.os, new.ip, new.hwid, new.country, new.version, new.build_tag, new.cpu, new.gpu, new.ram
+      );
+    END;
+  `);
+} catch {}
+
 db.run(`
   CREATE TABLE IF NOT EXISTS banned_ips (
     ip TEXT PRIMARY KEY,

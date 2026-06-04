@@ -22,6 +22,18 @@ const DEFAULT_GRID_LAYOUT = {
 };
 let statsGrid = null;
 
+function teardownDashboardStats() {
+  if (metricsTimer) clearInterval(metricsTimer);
+  metricsTimer = null;
+  onlineChart?.destroy?.();
+  osChart?.destroy?.();
+  onlineChart = null;
+  osChart = null;
+  statsGrid?.destroy?.(false);
+  statsGrid = null;
+  initialized = false;
+}
+
 const palette = {
   text: "#cbd5e1",
   muted: "#94a3b8",
@@ -629,6 +641,8 @@ async function fetchDashboardMetrics() {
 export function initDashboardStats() {
   if (initialized) return;
   initialized = true;
+  window.removeEventListener("pagehide", teardownDashboardStats);
+  window.addEventListener("pagehide", teardownDashboardStats);
   if (!makeCharts()) {
     setTimeout(() => {
       if (makeCharts()) applyHeightMode(getSavedHeight());

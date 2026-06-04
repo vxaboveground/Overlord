@@ -268,6 +268,7 @@ function close() {
 function navigate(href, newTab = false) {
   pushRecent(href);
   if (newTab) window.open(href, "_blank", "noopener");
+  else if (window.overlordSoftNavigate) window.overlordSoftNavigate(href);
   else window.location.href = href;
   close();
 }

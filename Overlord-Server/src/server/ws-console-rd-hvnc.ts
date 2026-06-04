@@ -160,6 +160,7 @@ function broadcastFrameToViewers(
 }
 
 const rdSendStats = { lastLog: 0, frames: 0, sendMs: 0, bytes: 0 };
+const rdDebugFrameLogAt = new Map<string, number>();
 export const rdStreamingState = new Map<string, {
   isStreaming: boolean;
   display: number;
@@ -223,9 +224,12 @@ function sendConsoleCommand(target: ClientInfo | undefined, commandType: string,
 }
 
 function sendDesktopCommandWithId(target: ClientInfo | undefined, commandType: string, payload: Record<string, unknown>, commandId: string) {
-  if (!target) return false;
+  if (!target) {
+    logger.warn(`[rd-debug] send command skipped, target missing command=${commandType} id=${commandId}`);
+    return false;
+  }
   try {
-    logger.debug(`[rd] send command ${commandType} -> ${target.id}`);
+    logger.debug(`[rd-debug] send command command=${commandType} client=${target.id} id=${commandId} payload=${JSON.stringify(payload || {})}`);
     target.ws.send(encodeMessage({ type: "command", commandType: commandType as any, payload, id: commandId }));
     metrics.recordCommand(commandType);
     return true;
@@ -326,6 +330,7 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
   logger.debug(`[rd] inbound viewer msg type=${payload.type} client=${clientId}`);
   switch (payload.type) {
     case "desktop_start":
+      logger.debug(`[rd-debug] desktop_start requested client=${clientId} session=${ws.data.sessionId || ""} state=${JSON.stringify(state)} viewers=${sessionManager.getRdSessionsForClient(clientId).length} webrtc=${(payload as any).webrtc === true}`);
       if (!state.isStreaming) {
         if (target.os === "darwin" && target.permissions) {
           const missing: string[] = [];
@@ -363,14 +368,15 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
         sendDesktopCommand(target, "desktop_start", {});
         state.isStreaming = true;
         rdStreamingState.set(clientId, state);
-        logger.debug(`[rd] started streaming for client ${clientId}${(payload as any).webrtc === true ? " (webrtc)" : ""}`);
+        logger.debug(`[rd-debug] desktop_start forwarded client=${clientId} nextState=${JSON.stringify(state)} webrtc=${(payload as any).webrtc === true}`);
       } else {
-        logger.debug(`[rd] ignoring duplicate desktop_start for client ${clientId}`);
+        logger.warn(`[rd-debug] desktop_start ignored duplicate client=${clientId} state=${JSON.stringify(state)} viewers=${sessionManager.getRdSessionsForClient(clientId).length}`);
       }
       break;
     case "desktop_stop": {
       const otherViewers = sessionManager.getRdSessionsForClient(clientId)
         .filter(s => s.id !== ws.data.sessionId);
+      logger.debug(`[rd-debug] desktop_stop requested client=${clientId} session=${ws.data.sessionId || ""} otherViewers=${otherViewers.length} state=${JSON.stringify(state)}`);
       if (otherViewers.length === 0) {
         stopRemoteDesktopRecording(clientId, "desktop stopped");
         sendDesktopCommand(target, "desktop_stop", {});
@@ -648,6 +654,12 @@ function handleRemoteDesktopFrame(payload: any) {
   const frameFps = Number(header?.fps) || 0;
   if (frameFps > 0) state.lastFps = frameFps;
   rdStreamingState.set(clientId, state);
+  const now = Date.now();
+  const lastDebugFrameLog = rdDebugFrameLogAt.get(clientId) || 0;
+  if (!lastDebugFrameLog || now - lastDebugFrameLog >= 2000) {
+    rdDebugFrameLogAt.set(clientId, now);
+    logger.debug(`[rd-debug] frame received client=${clientId} bytes=${bytes?.byteLength || 0} fps=${frameFps || 0} viewers=${sessionManager.getRdSessionsForClient(clientId).length} header=${JSON.stringify(header || {})}`);
+  }
   broadcastRemoteDesktopFrame(clientId, bytes, header);
 }
 
@@ -660,7 +672,9 @@ function broadcastRemoteDesktopFrame(clientId: string, bytes: Uint8Array, header
   }
   recordRemoteDesktopFrame(clientId, header, bytes);
   const buf = buildViewerFrameBuffer(bytes, header);
-  return broadcastFrameToViewers(sessionManager.getRdSessionsForClient(clientId), buf, header);
+  const sessions = sessionManager.getRdSessionsForClient(clientId);
+  const sent = broadcastFrameToViewers(sessions, buf, header);
+  return sent;
 }
 
 (globalThis as any).__rdBroadcast = (clientId: string, bytes: Uint8Array, header?: any): boolean => {

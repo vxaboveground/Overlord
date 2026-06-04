@@ -20,6 +20,7 @@
     "@solana/web3.js": "^1.98.4",
     "adm-zip": "^0.5.12",
     "ansi-to-html": "0.7.2",
+    "fuse.js": "^7.4.1",
     "geoip-lite": "latest",
     "gridstack": "^12.6.0",
     "jose": "^6.1.3",

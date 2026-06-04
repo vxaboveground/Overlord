@@ -21,6 +21,7 @@ describe("SECURITY_HEADERS", () => {
     const csp = SECURITY_HEADERS["Content-Security-Policy"];
     expect(csp).toContain("default-src 'self'");
     expect(csp).toContain("script-src 'self'");
+    expect(csp).toContain("font-src 'self' data:");
     expect(csp).toContain("frame-ancestors 'none'");
   });
 
