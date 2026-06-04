@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -72,6 +73,16 @@ type Session struct {
 }
 
 func ProbeCapabilities() Capabilities {
+	if runtime.GOOS == "darwin" {
+		return Capabilities{
+			Available:     true,
+			RequiresCGO:   true,
+			Sources:       []string{"default", "system"},
+			DefaultSource: "default",
+			Detail:        "audio devices are initialized only when a voice or desktop audio session starts",
+		}
+	}
+
 	ctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, nil)
 	if err != nil {
 		return Capabilities{

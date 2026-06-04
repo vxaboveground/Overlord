@@ -48,7 +48,7 @@ elif [ "$PLATFORM" = "openbsd" ]; then
   fi
 fi
 
-if [ -n "$BIN_NAME" ] && [ -x "$DIST_DIR/$BIN_NAME" ]; then
+if [ "$PLATFORM" != "mac" ] && [ -n "$BIN_NAME" ] && [ -x "$DIST_DIR/$BIN_NAME" ]; then
   echo "[client] found prebuilt client binary: $DIST_DIR/$BIN_NAME"
   echo "[client] starting prebuilt agent"
   OVERLORD_SERVER="wss://localhost:5173" \
@@ -59,7 +59,11 @@ if [ -n "$BIN_NAME" ] && [ -x "$DIST_DIR/$BIN_NAME" ]; then
   exit 0
 fi
 
-echo "[client] no suitable prebuilt client binary found in $DIST_DIR; falling back to 'go run'"
+if [ "$PLATFORM" = "mac" ]; then
+  echo "[client] macOS dev mode uses a rebuilt stable binary"
+else
+  echo "[client] no suitable prebuilt client binary found in $DIST_DIR; falling back to 'go run'"
+fi
 
 cd "$CLIENT_DIR"
 if ! command -v "$GO_BIN" >/dev/null 2>&1; then
@@ -80,13 +84,48 @@ echo "[client] using go at: $(command -v $GO_BIN) ($GO_VER)"
 echo "[client] go mod tidy..."
 GOTOOLCHAIN=${GOTOOLCHAIN:-auto} \
 "$GO_BIN" mod tidy
+
+if [ "$PLATFORM" = "mac" ] && [ -n "$BIN_NAME" ]; then
+  mkdir -p "$DIST_DIR"
+  DEV_BIN="$DIST_DIR/$BIN_NAME"
+  echo "[client] building stable macOS dev binary at $DEV_BIN"
+  if [ "${#GO_TAGS[@]}" -gt 0 ]; then
+    GOINSECURE="*" \
+    GOPROXY="https://proxy.golang.org,direct" \
+    GOTOOLCHAIN=${GOTOOLCHAIN:-auto} \
+    "$GO_BIN" build "${GO_TAGS[@]}" -o "$DEV_BIN" ./cmd/agent
+  else
+    GOINSECURE="*" \
+    GOPROXY="https://proxy.golang.org,direct" \
+    GOTOOLCHAIN=${GOTOOLCHAIN:-auto} \
+    "$GO_BIN" build -o "$DEV_BIN" ./cmd/agent
+  fi
+
+  echo "[client] starting stable macOS dev binary"
+  OVERLORD_SERVER="wss://localhost:5173" \
+  OVERLORD_AGENT_TOKEN="dev-token-insecure-local-only" \
+  OVERLORD_TLS_INSECURE_SKIP_VERIFY="true" \
+  OVERLORD_MODE="dev" \
+  exec "$DEV_BIN"
+fi
+
 echo "[client] starting agent via 'go run'"
-OVERLORD_SERVER="wss://localhost:5173" \
-OVERLORD_AGENT_TOKEN="dev-token-insecure-local-only" \
-OVERLORD_TLS_INSECURE_SKIP_VERIFY="true" \
-OVERLORD_MODE="dev" \
-GOINSECURE="*" \
-GOSUMDB="off" \
-GOPROXY="https://proxy.golang.org,direct" \
-GOTOOLCHAIN=${GOTOOLCHAIN:-auto} \
-"$GO_BIN" run "${GO_TAGS[@]}" ./cmd/agent
+if [ "${#GO_TAGS[@]}" -gt 0 ]; then
+  OVERLORD_SERVER="wss://localhost:5173" \
+  OVERLORD_AGENT_TOKEN="dev-token-insecure-local-only" \
+  OVERLORD_TLS_INSECURE_SKIP_VERIFY="true" \
+  OVERLORD_MODE="dev" \
+  GOINSECURE="*" \
+  GOPROXY="https://proxy.golang.org,direct" \
+  GOTOOLCHAIN=${GOTOOLCHAIN:-auto} \
+  "$GO_BIN" run "${GO_TAGS[@]}" ./cmd/agent
+else
+  OVERLORD_SERVER="wss://localhost:5173" \
+  OVERLORD_AGENT_TOKEN="dev-token-insecure-local-only" \
+  OVERLORD_TLS_INSECURE_SKIP_VERIFY="true" \
+  OVERLORD_MODE="dev" \
+  GOINSECURE="*" \
+  GOPROXY="https://proxy.golang.org,direct" \
+  GOTOOLCHAIN=${GOTOOLCHAIN:-auto} \
+  "$GO_BIN" run ./cmd/agent
+fi

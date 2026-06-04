@@ -117,6 +117,10 @@ async function buildThumbnailBytes(bytes: Uint8Array, format: string): Promise<U
     return null;
   }
 
+  if (typeof Bun.Image !== "function") {
+    return null;
+  }
+
   const output = await new Bun.Image(bytes, {
     autoOrient: true,
     maxPixels: THUMBNAIL_WIDTH * THUMBNAIL_HEIGHT * 16,
@@ -160,7 +164,9 @@ export async function generateThumbnail(id: string): Promise<boolean> {
     }
     return true;
   } catch (err) {
-    console.error(`[thumbnails] Failed to generate thumbnail for client ${id}:`, err);
+    if (typeof Bun.Image === "function") {
+      console.error(`[thumbnails] Failed to generate thumbnail for client ${id}:`, err);
+    }
     return false;
   }
 }

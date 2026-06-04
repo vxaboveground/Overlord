@@ -22,6 +22,8 @@ fi
 echo "[server] using bun at: $(command -v $BUN_BIN)"
 echo "[server] bun install..."
 "$BUN_BIN" install
+echo "[server] building Tailwind CSS..."
+"$BUN_BIN" run build:css
 echo "[server] building vendor assets..."
 "$BUN_BIN" run vendor
 echo "[server] starting bun dev (foreground)"
