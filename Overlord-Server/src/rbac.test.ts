@@ -242,7 +242,7 @@ describe("getPermissionDescription", () => {
     ["plugins:manage", "Upload, enable, and delete plugins"],
     ["plugins:configure", "Configure plugin trust, auto-load, and direct execution"],
     ["network:manage-bans", "Manage IP bans"],
-    ["system:configure", "Change server-level settings (TLS, security, registration, notifications, appearance, etc.)"],
+    ["system:configure", "Legacy full server settings access (grants all system:* settings permissions)"],
     ["clients:winre", "Install or uninstall WinRE persistence on clients"],
   ];
 
