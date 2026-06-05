@@ -1148,7 +1148,7 @@ func createSuspendedProcessOnDesktop(filePath, searchPath, replacePath, shmName 
 	}
 	baseName := strings.ToLower(filepath.Base(filePath))
 	if chromiumExes[baseName] {
-		args += " --no-sandbox --allow-no-sandbox-job --disable-gpu-sandbox"
+		args += " "
 	} else if baseName == "firefox.exe" || baseName == "waterfox.exe" {
 		args += " -no-remote -wait-for-browser"
 	}

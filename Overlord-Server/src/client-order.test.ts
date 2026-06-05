@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { db } from "./db/connection";
-import { deleteClientRow, listClients, setClientBookmark, setClientTag, upsertClientRow } from "./db";
+import { deleteClientRow, getClientMetricsSummary, listClients, setClientBookmark, setClientTag, upsertClientRow } from "./db";
 
 const createdClientIds: string[] = [];
 
@@ -136,6 +136,56 @@ describe("client list ordering", () => {
       });
 
       expect(result.items.some((item) => item.id === id)).toBe(true);
+    } finally {
+      cleanupCreatedClients();
+    }
+  });
+});
+
+describe("client metrics summary", () => {
+  test("operating system breakdown excludes purgatory clients", () => {
+    try {
+      const prefix = `metrics-purgatory-${Date.now().toString(36)}`;
+      const approvedOs = `${prefix}-approved-os`;
+      const pendingOs = `${prefix}-pending-os`;
+      const before = getClientMetricsSummary();
+
+      upsertClientRow({
+        id: `${prefix}-approved`,
+        hwid: `${prefix}-approved`,
+        role: "client",
+        host: "approved-host",
+        os: approvedOs,
+        arch: "amd64",
+        version: "1.0.0",
+        user: "tester",
+        country: "US",
+        lastSeen: Date.now(),
+        online: 1,
+        enrollmentStatus: "approved",
+      });
+      createdClientIds.push(`${prefix}-approved`);
+
+      upsertClientRow({
+        id: `${prefix}-pending`,
+        hwid: `${prefix}-pending`,
+        role: "client",
+        host: "pending-host",
+        os: pendingOs,
+        arch: "amd64",
+        version: "1.0.0",
+        user: "tester",
+        country: "US",
+        lastSeen: Date.now(),
+        online: 0,
+        enrollmentStatus: "pending",
+      });
+      createdClientIds.push(`${prefix}-pending`);
+
+      const after = getClientMetricsSummary();
+
+      expect(after.byOS[approvedOs]).toBe((before.byOS[approvedOs] || 0) + 1);
+      expect(after.byOS[pendingOs] || 0).toBe(before.byOS[pendingOs] || 0);
     } finally {
       cleanupCreatedClients();
     }

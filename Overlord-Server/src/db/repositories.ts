@@ -292,6 +292,7 @@ export function upsertClientRow(
       partial.id,
     );
   }
+  invalidateClientMetricsSummaryCache();
 }
 
 export function setOnlineState(id: string, online: boolean, disconnectReason?: string, disconnectDetail?: string) {
@@ -310,14 +311,17 @@ export function setOnlineState(id: string, online: boolean, disconnectReason?: s
       id,
     );
   }
+  invalidateClientMetricsSummaryCache();
 }
 
 export function deleteClientRow(id: string) {
   db.run(`DELETE FROM clients WHERE id=?`, id);
+  invalidateClientMetricsSummaryCache();
 }
 
 export function deleteOfflineClientRows(): number {
   const result = db.run(`DELETE FROM clients WHERE online=0`);
+  invalidateClientMetricsSummaryCache();
   return (result as any)?.changes || 0;
 }
 
@@ -618,6 +622,7 @@ function mapSessionRow(row: any): SessionRecord {
 
 export function markAllClientsOffline() {
   db.run(`UPDATE clients SET online=0`);
+  invalidateClientMetricsSummaryCache();
   console.log("[db] marked all clients as offline");
 }
 
@@ -1156,6 +1161,11 @@ const CLIENT_METRICS_SUMMARY_TTL_MS = 4_000;
 let clientMetricsSummaryCache: { expiresAt: number; summary: ClientMetricsSummary } | null = null;
 const userClientMetricsSummaryCache = new Map<number, { expiresAt: number; summary: ClientMetricsSummary }>();
 
+function invalidateClientMetricsSummaryCache() {
+  clientMetricsSummaryCache = null;
+  userClientMetricsSummaryCache.clear();
+}
+
 function cloneClientMetricsSummary(summary: ClientMetricsSummary): ClientMetricsSummary {
   return {
     total: summary.total,
@@ -1215,6 +1225,7 @@ export function getClientMetricsSummary(): ClientMetricsSummary {
          COUNT(*) as total,
          SUM(CASE WHEN online=1 THEN 1 ELSE 0 END) as online
        FROM clients
+       WHERE COALESCE(enrollment_status, 'pending')='approved'
        GROUP BY COALESCE(NULLIF(os, ''), 'unknown')`,
     )
     .all();
@@ -1259,7 +1270,7 @@ export function getClientMetricsSummaryForUser(userId: number): ClientMetricsSum
          COALESCE(NULLIF(os, ''), 'unknown') as key,
          COUNT(*) as total,
          SUM(CASE WHEN online=1 THEN 1 ELSE 0 END) as online
-       FROM clients ${filter}
+       FROM clients ${filter} AND COALESCE(enrollment_status, 'pending')='approved'
        GROUP BY COALESCE(NULLIF(os, ''), 'unknown')`,
     )
     .all(userId);
@@ -1957,7 +1968,9 @@ export function setClientEnrollmentStatus(
     status === "denied" ? (denyReason ?? null) : null,
     id,
   );
-  return ((result as any)?.changes || 0) > 0;
+  const changed = ((result as any)?.changes || 0) > 0;
+  if (changed) invalidateClientMetricsSummaryCache();
+  return changed;
 }
 
 export function lookupClientByPublicKey(
