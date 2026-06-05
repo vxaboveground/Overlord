@@ -2297,7 +2297,8 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		if scriptType == "" {
 			scriptType = "powershell"
 		}
-		return HandleScriptExecute(ctx, env, cmdID, scriptContent, scriptType)
+		StartScriptExecute(ctx, env, cmdID, scriptContent, scriptType)
+		return nil
 	case "silent_exec":
 		payload, _ := envelope["payload"].(map[string]interface{})
 		if payload == nil {

