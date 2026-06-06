@@ -16,6 +16,9 @@ let latestByCountry = {};
 const GEOJSON_URL = "/vendor/geo-countries/countries.geojson";
 const MAX_CHART_POINTS = 240;
 const METRICS_POLL_INTERVAL_MS = 5000;
+const SESSION_LABELS = ["Console", "Remote Desktop", "Files", "Processes"];
+const SESSION_COLORS = ["#34d399", "#c084fc", "#60a5fa", "#fb923c"];
+const SESSION_EMPTY_COLOR = "rgba(100, 116, 139, 0.35)";
 
 if (typeof Chart !== "undefined") {
   Chart.defaults.color = "#cbd5e1";
@@ -74,6 +77,34 @@ function makeLineChart(canvas, datasets, options = {}) {
     data: { labels: [], datasets },
     options: lineChartOptions(options),
   });
+}
+
+function getSessionValues(sessions = {}) {
+  return [
+    Number(sessions.console) || 0,
+    Number(sessions.remoteDesktop) || 0,
+    Number(sessions.fileBrowser) || 0,
+    Number(sessions.process) || 0,
+  ];
+}
+
+function updateSessionsChart(sessions = {}) {
+  if (!sessionsChart) return;
+  const values = getSessionValues(sessions);
+  const total = values.reduce((sum, value) => sum + value, 0);
+  const dataset = sessionsChart.data.datasets[0];
+  if (total > 0) {
+    sessionsChart.data.labels = SESSION_LABELS;
+    dataset.data = values;
+    dataset.backgroundColor = SESSION_COLORS;
+    sessionsChart.options.plugins.legend.display = true;
+  } else {
+    sessionsChart.data.labels = ["No active sessions"];
+    dataset.data = [1];
+    dataset.backgroundColor = [SESSION_EMPTY_COLOR];
+    sessionsChart.options.plugins.legend.display = false;
+  }
+  sessionsChart.update("none");
 }
 
 function initCharts() {
@@ -403,10 +434,10 @@ function initCharts() {
   sessionsChart = sessionsCtx ? new Chart(sessionsCtx, {
     type: "doughnut",
     data: {
-      labels: ["Console", "Remote Desktop", "Files", "Processes"],
+      labels: ["No active sessions"],
       datasets: [{
-        data: [0, 0, 0, 0],
-        backgroundColor: ["#34d399", "#c084fc", "#60a5fa", "#fb923c"],
+        data: [1],
+        backgroundColor: [SESSION_EMPTY_COLOR],
         borderColor: "#0f172a",
         borderWidth: 2,
       }],
@@ -417,8 +448,17 @@ function initCharts() {
       animation: false,
       cutout: "64%",
       plugins: {
-        legend: { position: "right", labels: { boxWidth: 10, boxHeight: 10 } },
-        tooltip: chartTooltip(),
+        legend: { display: false, position: "right", labels: { boxWidth: 10, boxHeight: 10 } },
+        tooltip: {
+          ...chartTooltip(),
+          callbacks: {
+            label: (ctx) => {
+              if (ctx.chart.data.labels?.[ctx.dataIndex] === "No active sessions") return "No active sessions";
+              const value = Number(ctx.parsed) || 0;
+              return `${ctx.label}: ${value.toLocaleString()} session${value === 1 ? "" : "s"}`;
+            },
+          },
+        },
       },
     },
   }) : null;
@@ -533,11 +573,7 @@ function updateMetrics(data, debug) {
   );
   animateCounter(document.getElementById("clients-total"), data.clients.total);
 
-  const totalSessions =
-    data.sessions.console +
-    data.sessions.remoteDesktop +
-    data.sessions.fileBrowser +
-    data.sessions.process;
+  const totalSessions = getSessionValues(data.sessions).reduce((sum, value) => sum + value, 0);
   animateCounter(document.getElementById("active-sessions"), totalSessions);
 
   animateCounter(
@@ -657,15 +693,7 @@ function updateMetrics(data, debug) {
     osList.innerHTML = '<div class="text-slate-500">No clients</div>';
   }
 
-  if (sessionsChart) {
-    sessionsChart.data.datasets[0].data = [
-      data.sessions.console || 0,
-      data.sessions.remoteDesktop || 0,
-      data.sessions.fileBrowser || 0,
-      data.sessions.process || 0,
-    ];
-    sessionsChart.update("none");
-  }
+  updateSessionsChart(data.sessions);
 
   if (osChart) {
     const osEntries = Object.entries(data.clients.byOS || {})

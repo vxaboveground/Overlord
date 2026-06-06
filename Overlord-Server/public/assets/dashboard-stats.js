@@ -97,6 +97,19 @@ function formatWeekLabel(timestamp) {
   });
 }
 
+function compactRepeatedTickLabel(value, index, ticks) {
+  const labelFor = (tickValue) => {
+    const labels = this?.chart?.data?.labels || [];
+    return labels[Number(tickValue)] ?? this?.getLabelForValue?.(tickValue) ?? "";
+  };
+  const labels = (ticks || []).map((tick) => labelFor(tick.value));
+  const current = labels[index] || labelFor(value);
+  if (!current) return "";
+  const isRunStart = index === 0 || labels[index - 1] !== current;
+  const isRunEnd = index === labels.length - 1 || labels[index + 1] !== current;
+  return isRunStart || isRunEnd ? current : "";
+}
+
 function aggregateOnlineHistory(history, snapshot) {
   const now = Date.now();
   const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
@@ -227,7 +240,12 @@ function makeCharts() {
       scales: {
         x: {
           grid: { display: false },
-          ticks: { color: palette.muted, maxRotation: 0, maxTicksLimit: 5 },
+          ticks: {
+            color: palette.muted,
+            maxRotation: 0,
+            maxTicksLimit: 5,
+            callback: compactRepeatedTickLabel,
+          },
         },
         y: {
           beginAtZero: true,
