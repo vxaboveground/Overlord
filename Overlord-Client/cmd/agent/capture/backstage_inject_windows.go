@@ -13,7 +13,10 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode/utf16"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 var (
@@ -1193,25 +1196,107 @@ func createSuspendedProcessOnDesktop(filePath, searchPath, replacePath, shmName 
 }
 
 func buildEnvironmentBlock(searchPath, replacePath, shmName string, dllSize int) ([]uint16, error) {
-	envStrings := syscall.Environ()
+	rawPtr, err := windows.GetEnvironmentStrings()
+	if err != nil {
+		return nil, fmt.Errorf("GetEnvironmentStrings: %w", err)
+	}
+	defer windows.FreeEnvironmentStrings(rawPtr)
 
-	envStrings = append(envStrings, "RDI_SEARCH_PATH="+searchPath)
-	envStrings = append(envStrings, "RDI_REPLACE_PATH="+replacePath)
-	if shmName != "" {
-		envStrings = append(envStrings, "RDI_DLL_SECTION="+shmName)
-		envStrings = append(envStrings, fmt.Sprintf("RDI_DLL_SIZE=%d", dllSize))
+	rawSlice := (*[1 << 20]uint16)(unsafe.Pointer(rawPtr))[:]
+	blockLen := 0
+	for i := 0; ; i++ {
+		if rawSlice[i] == 0 && i > 0 && rawSlice[i-1] == 0 {
+			blockLen = i + 1
+			break
+		}
+		if i >= len(rawSlice)-1 {
+			return nil, fmt.Errorf("environment block appears unterminated")
+		}
 	}
 
-	var block []uint16
-	for _, s := range envStrings {
-		u, err := syscall.UTF16FromString(s)
-		if err != nil {
+	extra := []string{
+		"RDI_SEARCH_PATH=" + searchPath,
+		"RDI_REPLACE_PATH=" + replacePath,
+	}
+	if shmName != "" {
+		extra = append(extra, "RDI_DLL_SECTION="+shmName)
+		extra = append(extra, fmt.Sprintf("RDI_DLL_SIZE=%d", dllSize))
+	}
+
+	return appendEnvironmentOverrides(rawSlice[:blockLen], extra)
+}
+
+func appendEnvironmentOverrides(rawBlock []uint16, extra []string) ([]uint16, error) {
+	entries, err := environmentBlockEntries(rawBlock)
+	if err != nil {
+		return nil, err
+	}
+
+	block := make([]uint16, 0, len(rawBlock))
+	for _, entry := range entries {
+		if isRDIEnvironmentEntry(entry) {
 			continue
+		}
+		u, encErr := syscall.UTF16FromString(entry)
+		if encErr != nil {
+			return nil, fmt.Errorf("UTF16FromString(%q): %w", entry, encErr)
 		}
 		block = append(block, u...)
 	}
+	for _, entry := range extra {
+		u, encErr := syscall.UTF16FromString(entry)
+		if encErr != nil {
+			return nil, fmt.Errorf("UTF16FromString(%q): %w", entry, encErr)
+		}
+		block = append(block, u...)
+	}
+
 	block = append(block, 0)
 	return block, nil
+}
+
+func environmentBlockEntries(block []uint16) ([]string, error) {
+	entries := make([]string, 0, 32)
+	for i := 0; i < len(block); {
+		if block[i] == 0 {
+			return entries, nil
+		}
+
+		start := i
+		for i < len(block) && block[i] != 0 {
+			i++
+		}
+		if i >= len(block) {
+			return nil, fmt.Errorf("environment block entry appears unterminated")
+		}
+		entries = append(entries, string(utf16.Decode(block[start:i])))
+		i++
+	}
+	return nil, fmt.Errorf("environment block appears unterminated")
+}
+
+func isRDIEnvironmentEntry(entry string) bool {
+	if strings.HasPrefix(entry, "=") {
+		return false
+	}
+
+	name, _, ok := strings.Cut(entry, "=")
+	if !ok {
+		name = entry
+	}
+
+	switch {
+	case strings.EqualFold(name, "RDI_SEARCH_PATH"):
+		return true
+	case strings.EqualFold(name, "RDI_REPLACE_PATH"):
+		return true
+	case strings.EqualFold(name, "RDI_DLL_SECTION"):
+		return true
+	case strings.EqualFold(name, "RDI_DLL_SIZE"):
+		return true
+	default:
+		return false
+	}
 }
 
 func reflectiveInject(hProcess uintptr, dllBytes []byte) error {
