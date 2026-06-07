@@ -473,6 +473,7 @@ async function startServer() {
     winre: {
       WINRE_ROOT,
       winreUploads,
+      pendingCommandReplies,
     },
     fileDownload: {
       DATA_DIR,

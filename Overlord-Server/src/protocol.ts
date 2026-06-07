@@ -130,6 +130,7 @@ export type CommandType =
   | "uninstall"
   | "elevate"
   | "file_upload_http"
+  | "winre_probe"
   | "winre_install"
   | "winre_uninstall"
   | "file_icon"

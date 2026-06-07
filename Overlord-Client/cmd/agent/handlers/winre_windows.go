@@ -1,5 +1,5 @@
-//go:build windows
-// +build windows
+//go:build windows && overlord_winre
+// +build windows,overlord_winre
 
 package handlers
 
@@ -311,4 +311,8 @@ func handleWinREUninstall(ctx context.Context, env *runtime.Env, cmdID string) e
 		return fmt.Errorf("WinRE uninstall requires admin privileges")
 	}
 	return uninstallWinREPersistence()
+}
+
+func WinRESupported() bool {
+	return true
 }

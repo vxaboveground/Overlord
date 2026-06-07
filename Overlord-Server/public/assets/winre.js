@@ -279,6 +279,12 @@ async function uploadFile(file) {
 }
 
 function renderResults(results, actionLabel) {
+  const reasonLabels = {
+    not_enabled: "WinRE persistence is not enabled on this client",
+    unsupported: "WinRE persistence is not enabled on this client",
+    windows_only: "WinRE is only supported on Windows clients",
+    offline: "Client is offline",
+  };
   const namedResults = results.map((r) => {
     const client = allClients.find((c) => c.id === r.clientId);
     const clientName = client ? client.host || r.clientId.substring(0, 8) : r.clientId.substring(0, 8);
@@ -286,7 +292,7 @@ function renderResults(results, actionLabel) {
       return { clientName, clientId: r.clientId, error: r.error };
     }
     if (r.ok === false) {
-      return { clientName, clientId: r.clientId, error: r.reason || `${actionLabel} failed` };
+      return { clientName, clientId: r.clientId, error: reasonLabels[r.reason] || r.reason || `${actionLabel} failed` };
     }
     return { clientName, clientId: r.clientId, output: `${actionLabel} dispatched` };
   });

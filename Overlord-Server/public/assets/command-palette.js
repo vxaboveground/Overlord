@@ -12,7 +12,7 @@ const ALL_PER_CLIENT_ACTIONS = [
   { key: "webcam",     feature: "webcam",         label: "Webcam",         icon: "fa-camera",       color: "text-pink-400",    href: (id) => `/webcam?clientId=${id}` },
   { key: "voice",      feature: "voice",          label: "Voice",          icon: "fa-microphone",   color: "text-indigo-400",  href: (id) => `/voice?clientId=${id}` },
   { key: "deploy",     feature: null,             label: "Deploy",         icon: "fa-rocket",       color: "text-rose-400",    href: (id) => `/deploy?clientId=${id}` },
-  { key: "winre",      feature: null,             label: "WinRE",          icon: "fa-shield-halved",color: "text-amber-400",   href: (id) => `/winre?clientId=${id}` },
+  { key: "winre",      feature: null,             label: "WinRE",          icon: "fa-shield-halved",color: "text-amber-400",   href: (id) => `/winre?clientId=${id}`, windowsOnly: true },
 ];
 
 let featurePermsCache = null;
@@ -30,10 +30,20 @@ async function loadFeaturePerms() {
   }
 }
 
-function PER_CLIENT_ACTIONS() {
+function clientSupportsAction(client, action) {
+  if (!action.windowsOnly) return true;
+  const isWindows = (client?.os || "").toLowerCase().includes("windows");
+  if (!isWindows) return false;
+  return true;
+}
+
+function PER_CLIENT_ACTIONS(client) {
   const perms = featurePermsCache;
-  if (!perms) return ALL_PER_CLIENT_ACTIONS;
-  return ALL_PER_CLIENT_ACTIONS.filter((a) => !a.feature || perms[a.feature] !== false);
+  return ALL_PER_CLIENT_ACTIONS.filter((a) => {
+    if (a.windowsOnly && client && !clientSupportsAction(client, a)) return false;
+    if (a.feature && perms && perms[a.feature] === false) return false;
+    return true;
+  });
 }
 
 const RECENT_KEY = "cmdp_recent_v1";
@@ -143,7 +153,7 @@ function buildResults(query, pages, clients) {
     }
   }
 
-  for (const a of PER_CLIENT_ACTIONS()) {
+  for (const a of PER_CLIENT_ACTIONS(null)) {
     const sc = score(query, a.label);
     if (sc > 0) results.push({ kind: "action", action: a, _score: sc });
   }
@@ -280,6 +290,7 @@ async function rebuild() {
     const action = state.pendingAction;
     const matched = clients
       .map((c) => ({ c, sc: rankBest(state.query, [c.nickname, c.host, c.id, c.os, c.country].filter(Boolean)) + (c.online ? 30 : 0) }))
+      .filter(({ c }) => clientSupportsAction(c, action))
       .filter((x) => x.sc > 0 || !state.query)
       .sort((a, b) => b.sc - a.sc)
       .slice(0, 60)
@@ -331,7 +342,7 @@ function activate(idx, newTab) {
   if (r.kind === "client") {
     state.mode = "actions-for-client";
     state.pendingClient = r.client;
-    state.results = PER_CLIENT_ACTIONS().map((a) => ({ kind: "client-action", client: r.client, action: a, _score: 0 }));
+    state.results = PER_CLIENT_ACTIONS(r.client).map((a) => ({ kind: "client-action", client: r.client, action: a, _score: 0 }));
     state.active = 0;
     const input = document.getElementById("cmdp-input");
     if (input) { input.value = ""; input.placeholder = `Action on ${clientLabel(r.client)}…`; input.focus(); }
@@ -370,7 +381,7 @@ async function open() {
     if (state.mode === "actions-for-client" && state.pendingClient) {
       const q = state.query.toLowerCase();
       const c = state.pendingClient;
-      state.results = PER_CLIENT_ACTIONS()
+      state.results = PER_CLIENT_ACTIONS(c)
         .map((a) => ({ a, sc: score(q, a.label) }))
         .filter((x) => x.sc > 0 || !q)
         .sort((a, b) => b.sc - a.sc)

