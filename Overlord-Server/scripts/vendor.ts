@@ -156,16 +156,6 @@ copyFile(
   path.join(VENDOR, "chart.js", "chart.umd.js"),
 );
 
-/* ── Leaflet ─────────────────────────────────────────────────────── */
-
-console.log("Copying Leaflet ...");
-const leafRoot = path.join(NM, "leaflet", "dist");
-copyFile(path.join(leafRoot, "leaflet.js"), path.join(VENDOR, "leaflet", "leaflet.js"));
-copyFile(path.join(leafRoot, "leaflet.css"), path.join(VENDOR, "leaflet", "leaflet.css"));
-if (existsSync(path.join(leafRoot, "images"))) {
-  copyDir(path.join(leafRoot, "images"), path.join(VENDOR, "leaflet", "images"));
-}
-
 /* ── Monaco Editor ───────────────────────────────────────────────── */
 
 console.log("Copying Monaco Editor ...");
