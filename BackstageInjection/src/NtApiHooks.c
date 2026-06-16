@@ -6,7 +6,6 @@ extern "C" {
 #endif
 
 #include "NtApiHooks.h"
-#include "NtApiHooksConfig.h"
 #include "MinHook.h"
 #include <stdio.h>
 #include <string.h>
@@ -42,153 +41,6 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
     // Any replacement path longer than this cannot be represented without wrapping.
     #define UNICODE_STRING_MAX_WCHARS  ((SIZE_T)32767)
     static BOOL g_HooksInitialized = FALSE;
-    static HANDLE g_LogFile = INVALID_HANDLE_VALUE;
-    static HANDLE g_CrashLog = INVALID_HANDLE_VALUE;
-    static volatile LONG g_CrashStageSeq = 0;
-    static char g_CrashStage[192] = "not started";
-    static LPTOP_LEVEL_EXCEPTION_FILTER g_PreviousUnhandledFilter = NULL;
-
-    // %TEMP%\crashlogovd.log
-    // Both CrashLog (narrow) and CrashLogW (wide) write UTF-16LE so the file
-    // is a single coherent encoding.  The BOM is written once when the file is
-    // opened (see InstallNtApiHooks).  This makes paths containing Cyrillic,
-    // Chinese, Arabic, etc. readable in any standard text editor.
-    void CrashLog(const char* message) {
-        if (g_CrashLog != INVALID_HANDLE_VALUE) {
-            DWORD written;
-            // Convert the narrow (ASCII/UTF-8) string to UTF-16LE before writing
-            // so the file stays a single coherent encoding.
-            int wlen = MultiByteToWideChar(CP_ACP, 0, message, -1, NULL, 0);
-            if (wlen > 0) {
-                WCHAR wbuf[512];
-                int copyLen = (wlen <= 512) ? wlen : 512;
-                MultiByteToWideChar(CP_ACP, 0, message, -1, wbuf, copyLen);
-                wbuf[copyLen - 1] = L'\0'; // ensure null termination
-                DWORD byteLen = (DWORD)(wcslen(wbuf) * sizeof(WCHAR));
-                WriteFile(g_CrashLog, wbuf, byteLen, &written, NULL);
-            }
-            const WCHAR newline[] = L"\r\n";
-            WriteFile(g_CrashLog, newline, (DWORD)(2 * sizeof(WCHAR)), &written, NULL);
-            FlushFileBuffers(g_CrashLog);
-        }
-    }
-
-    void CrashLogW(const WCHAR* message) {
-        if (g_CrashLog != INVALID_HANDLE_VALUE) {
-            DWORD written;
-            DWORD messageLen = (DWORD)wcslen(message) * sizeof(WCHAR);
-            WriteFile(g_CrashLog, message, messageLen, &written, NULL);
-            const WCHAR newline[] = L"\r\n";
-            WriteFile(g_CrashLog, newline, (DWORD)(2 * sizeof(WCHAR)), &written, NULL);
-            FlushFileBuffers(g_CrashLog);
-        }
-    }
-
-    static void SetCrashStage(const char* stage) {
-        if (!stage) return;
-
-        size_t i = 0;
-        for (; i < sizeof(g_CrashStage) - 1 && stage[i] != '\0'; i++) {
-            g_CrashStage[i] = stage[i];
-        }
-        g_CrashStage[i] = '\0';
-
-        LONG seq = InterlockedIncrement(&g_CrashStageSeq);
-        char msg[256];
-        sprintf_s(msg, 256, "[STAGE %ld] %s", seq, g_CrashStage);
-        CrashLog(msg);
-    }
-
-    static void CrashLogModuleForAddress(PVOID address) {
-        HMODULE module = NULL;
-        WCHAR modulePath[1024] = { 0 };
-
-        if (GetModuleHandleExW(
-                GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                (LPCWSTR)address,
-                &module) &&
-            module &&
-            GetModuleFileNameW(module, modulePath, 1024) > 0) {
-            CrashLog("[CRASH] Module for exception address:");
-            CrashLogW(modulePath);
-        } else {
-            CrashLog("[CRASH] Module for exception address: <unknown>");
-        }
-    }
-
-    static LONG WINAPI HvncUnhandledExceptionFilter(EXCEPTION_POINTERS* exceptionInfo) {
-        CrashLog("=== Unhandled exception observed ===");
-
-        if (exceptionInfo && exceptionInfo->ExceptionRecord) {
-            EXCEPTION_RECORD* rec = exceptionInfo->ExceptionRecord;
-            char msg[512];
-            sprintf_s(msg, 512,
-                "[CRASH] code=0x%08lX flags=0x%08lX address=%p lastStage=%ld:%s",
-                rec->ExceptionCode,
-                rec->ExceptionFlags,
-                rec->ExceptionAddress,
-                g_CrashStageSeq,
-                g_CrashStage);
-            CrashLog(msg);
-
-            if (rec->NumberParameters > 0) {
-                char params[512];
-                sprintf_s(params, 512,
-                    "[CRASH] params count=%lu p0=0x%p p1=0x%p p2=0x%p",
-                    rec->NumberParameters,
-                    rec->NumberParameters > 0 ? (PVOID)rec->ExceptionInformation[0] : NULL,
-                    rec->NumberParameters > 1 ? (PVOID)rec->ExceptionInformation[1] : NULL,
-                    rec->NumberParameters > 2 ? (PVOID)rec->ExceptionInformation[2] : NULL);
-                CrashLog(params);
-            }
-
-            CrashLogModuleForAddress(rec->ExceptionAddress);
-        } else {
-            CrashLog("[CRASH] exceptionInfo was NULL");
-        }
-
-        if (g_PreviousUnhandledFilter && g_PreviousUnhandledFilter != HvncUnhandledExceptionFilter) {
-            return g_PreviousUnhandledFilter(exceptionInfo);
-        }
-        return EXCEPTION_CONTINUE_SEARCH;
-    }
-
-    // Helper function to log debug info (verbose, compile-time gated)
-    void LogDebug(const WCHAR* message) {
-#if ENABLE_DEBUG_LOGGING
-        if (g_LogFile != INVALID_HANDLE_VALUE) {
-            DWORD written;
-            DWORD messageLen = (DWORD)wcslen(message) * sizeof(WCHAR);
-            WriteFile(g_LogFile, message, messageLen, &written, NULL);
-
-            const WCHAR newline[] = L"\r\n";
-            WriteFile(g_LogFile, newline, sizeof(newline) - sizeof(WCHAR), &written, NULL);
-            FlushFileBuffers(g_LogFile);
-        }
-#endif
-    }
-
-    void LogDebugA(const char* message) {
-#if ENABLE_DEBUG_LOGGING
-        if (g_LogFile != INVALID_HANDLE_VALUE) {
-            DWORD written;
-            // Convert narrow string to UTF-16LE to keep the log file a single
-            // coherent encoding (UTF-16LE with BOM written at file open).
-            int wlen = MultiByteToWideChar(CP_ACP, 0, message, -1, NULL, 0);
-            if (wlen > 0) {
-                WCHAR wbuf[512];
-                int copyLen = (wlen <= 512) ? wlen : 512;
-                MultiByteToWideChar(CP_ACP, 0, message, -1, wbuf, copyLen);
-                wbuf[copyLen - 1] = L'\0';
-                DWORD byteLen = (DWORD)(wcslen(wbuf) * sizeof(WCHAR));
-                WriteFile(g_LogFile, wbuf, byteLen, &written, NULL);
-            }
-            const WCHAR newline[] = L"\r\n";
-            WriteFile(g_LogFile, newline, (DWORD)(2 * sizeof(WCHAR)), &written, NULL);
-            FlushFileBuffers(g_LogFile);
-        }
-#endif
-    }
 
     // Helper function for case-insensitive wide string comparison.
     // Uses CompareStringOrdinal so Cyrillic, Greek, and other non-ASCII
@@ -440,34 +292,15 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
         SIZE_T normalizedLength = length;
         const WCHAR* normalizedPath = NormalizePath(path, &normalizedLength);
 
-        if (g_LogFile != INVALID_HANDLE_VALUE) {
-            WCHAR tempPath[512] = { 0 };
-            SIZE_T copyLen = normalizedLength < 511 ? normalizedLength : 511;
-            wcsncpy_s(tempPath, 512, normalizedPath, copyLen);
-            LogDebug(L"[NeedsRedirection] Checking normalized path: ");
-            LogDebug(tempPath);
-            LogDebug(L"[NeedsRedirection] Against search string: ");
-            LogDebug(g_SearchString);
-        }
-
         if (normalizedLength < searchLen) return FALSE;
 
         // Search for the search string in the normalized path (case-insensitive)
         for (SIZE_T i = 0; i <= normalizedLength - searchLen; i++) {
             if (wcsnicmp_custom(&normalizedPath[i], g_SearchString, searchLen) == 0) {
-                if (g_LogFile != INVALID_HANDLE_VALUE) {
-                    LogDebug(L"[NeedsRedirection] MATCH FOUND at position ");
-                    WCHAR posStr[32];
-                    wsprintfW(posStr, L"%Iu", i); // %Iu is the Win32 API SIZE_T format specifier; %zu is C99 CRT-only
-                    LogDebug(posStr);
-                }
                 return TRUE;
             }
         }
 
-        if (g_LogFile != INVALID_HANDLE_VALUE) {
-            LogDebug(L"[NeedsRedirection] NO MATCH");
-        }
         return FALSE;
     }
 
@@ -558,15 +391,6 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
             if (g_HooksInitialized && ObjectAttributes && ObjectAttributes->ObjectName && ObjectAttributes->ObjectName->Buffer) {
                 SIZE_T pathLength = ObjectAttributes->ObjectName->Length / sizeof(WCHAR);
 
-                if (g_LogFile != INVALID_HANDLE_VALUE && pathLength > 0) {
-                    WCHAR tempPath[512] = { 0 };
-                    SIZE_T copyLen = pathLength < 511 ? pathLength : 511;
-                    wcsncpy_s(tempPath, 512, ObjectAttributes->ObjectName->Buffer, copyLen);
-                    LogDebug(L"");
-                    LogDebug(L"[NtCreateFile] Original Path: ");
-                    LogDebug(tempPath);
-                }
-
                 if (NeedsRedirection(ObjectAttributes->ObjectName->Buffer, pathLength)) {
                     SIZE_T newLength = 0;
                     buffer = ReplacePath(ObjectAttributes->ObjectName->Buffer, pathLength, &newLength);
@@ -575,16 +399,9 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
                         if (newLength > UNICODE_STRING_MAX_WCHARS) {
                             // Replacement path too long to fit in a UNICODE_STRING (USHORT
                             // byte-count would wrap).  Skip redirection and use original path.
-                            CrashLog("[NtCreateFile] WARN: replacement path exceeds UNICODE_STRING max — skipping redirect");
                             HeapFree(GetProcessHeap(), 0, buffer);
                             buffer = NULL;
                         } else {
-                            WCHAR tempBuf[512] = { 0 };
-                            SIZE_T copyLen = newLength < 511 ? newLength : 511;
-                            wcsncpy_s(tempBuf, 512, buffer, copyLen);
-                            LogDebug(L"[NtCreateFile] *** REDIRECTING TO: ");
-                            LogDebug(tempBuf);
-
                             originalString = ObjectAttributes->ObjectName;
                             newString.Buffer = buffer;
                             newString.Length = (USHORT)(newLength * sizeof(WCHAR));
@@ -592,14 +409,10 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
                             ObjectAttributes->ObjectName = &newString;
                         }
                     }
-                    else {
-                        LogDebug(L"[NtCreateFile] ReplacePath returned NULL");
-                    }
                 }
             }
         }
         __except (EXCEPTION_EXECUTE_HANDLER) {
-            char _excMsg[64]; sprintf_s(_excMsg, 64, "[HOOK] NtCreateFile exception: 0x%X", GetExceptionCode()); CrashLog(_excMsg);
             if (originalString) { ObjectAttributes->ObjectName = originalString; originalString = NULL; }
             if (buffer) { HeapFree(GetProcessHeap(), 0, buffer); buffer = NULL; }
         }
@@ -634,31 +447,15 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
             if (g_HooksInitialized && ObjectAttributes && ObjectAttributes->ObjectName && ObjectAttributes->ObjectName->Buffer) {
                 SIZE_T pathLength = ObjectAttributes->ObjectName->Length / sizeof(WCHAR);
 
-                if (g_LogFile != INVALID_HANDLE_VALUE && pathLength > 0) {
-                    WCHAR tempPath[512] = { 0 };
-                    SIZE_T copyLen = pathLength < 511 ? pathLength : 511;
-                    wcsncpy_s(tempPath, 512, ObjectAttributes->ObjectName->Buffer, copyLen);
-                    LogDebug(L"");
-                    LogDebug(L"[NtOpenFile] Original Path: ");
-                    LogDebug(tempPath);
-                }
-
                 if (NeedsRedirection(ObjectAttributes->ObjectName->Buffer, pathLength)) {
                     SIZE_T newLength = 0;
                     buffer = ReplacePath(ObjectAttributes->ObjectName->Buffer, pathLength, &newLength);
 
                     if (buffer) {
                         if (newLength > UNICODE_STRING_MAX_WCHARS) {
-                            CrashLog("[NtOpenFile] WARN: replacement path exceeds UNICODE_STRING max — skipping redirect");
                             HeapFree(GetProcessHeap(), 0, buffer);
                             buffer = NULL;
                         } else {
-                            WCHAR tempBuf[512] = { 0 };
-                            SIZE_T copyLen = newLength < 511 ? newLength : 511;
-                            wcsncpy_s(tempBuf, 512, buffer, copyLen);
-                            LogDebug(L"[NtOpenFile] *** REDIRECTING TO: ");
-                            LogDebug(tempBuf);
-
                             originalString = ObjectAttributes->ObjectName;
                             newString.Buffer = buffer;
                             newString.Length = (USHORT)(newLength * sizeof(WCHAR));
@@ -666,14 +463,10 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
                             ObjectAttributes->ObjectName = &newString;
                         }
                     }
-                    else {
-                        LogDebug(L"[NtOpenFile] ReplacePath returned NULL");
-                    }
                 }
             }
         }
         __except (EXCEPTION_EXECUTE_HANDLER) {
-            char _excMsg[64]; sprintf_s(_excMsg, 64, "[HOOK] NtOpenFile exception: 0x%X", GetExceptionCode()); CrashLog(_excMsg);
             if (originalString) { ObjectAttributes->ObjectName = originalString; originalString = NULL; }
             if (buffer) { HeapFree(GetProcessHeap(), 0, buffer); buffer = NULL; }
         }
@@ -705,7 +498,6 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
 
                     if (buffer) {
                         if (newLength > UNICODE_STRING_MAX_WCHARS) {
-                            CrashLog("[NtDeleteFile] WARN: replacement path exceeds UNICODE_STRING max — skipping redirect");
                             HeapFree(GetProcessHeap(), 0, buffer);
                             buffer = NULL;
                         } else {
@@ -720,7 +512,6 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
             }
         }
         __except (EXCEPTION_EXECUTE_HANDLER) {
-            char _excMsg[64]; sprintf_s(_excMsg, 64, "[HOOK] NtDeleteFile exception: 0x%X", GetExceptionCode()); CrashLog(_excMsg);
             if (originalString) { ObjectAttributes->ObjectName = originalString; originalString = NULL; }
             if (buffer) { HeapFree(GetProcessHeap(), 0, buffer); buffer = NULL; }
         }
@@ -825,7 +616,6 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
             }
         }
         __except (EXCEPTION_EXECUTE_HANDLER) {
-            char _excMsg[64]; sprintf_s(_excMsg, 64, "[HOOK] NtSetInfoFile exception: 0x%X", GetExceptionCode()); CrashLog(_excMsg);
             // Free newPath if an exception fires after allocation but before the HeapFree below.
             if (newPath) { HeapFree(GetProcessHeap(), 0, newPath); newPath = NULL; }
         }
@@ -853,7 +643,6 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
 
                     if (buffer) {
                         if (newLength > UNICODE_STRING_MAX_WCHARS) {
-                            CrashLog("[NtQueryAttribs] WARN: replacement path exceeds UNICODE_STRING max — skipping redirect");
                             HeapFree(GetProcessHeap(), 0, buffer);
                             buffer = NULL;
                         } else {
@@ -868,7 +657,6 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
             }
         }
         __except (EXCEPTION_EXECUTE_HANDLER) {
-            char _excMsg[64]; sprintf_s(_excMsg, 64, "[HOOK] NtQueryAttribs exception: 0x%X", GetExceptionCode()); CrashLog(_excMsg);
             if (originalString) { ObjectAttributes->ObjectName = originalString; originalString = NULL; }
             if (buffer) { HeapFree(GetProcessHeap(), 0, buffer); buffer = NULL; }
         }
@@ -903,7 +691,6 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
 
                     if (buffer) {
                         if (newLength > UNICODE_STRING_MAX_WCHARS) {
-                            CrashLog("[NtQueryFullAttribs] WARN: replacement path exceeds UNICODE_STRING max — skipping redirect");
                             HeapFree(GetProcessHeap(), 0, buffer);
                             buffer = NULL;
                         } else {
@@ -918,7 +705,6 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
             }
         }
         __except (EXCEPTION_EXECUTE_HANDLER) {
-            char _excMsg[64]; sprintf_s(_excMsg, 64, "[HOOK] NtQueryFullAttribs exception: 0x%X", GetExceptionCode()); CrashLog(_excMsg);
             if (originalString) { ObjectAttributes->ObjectName = originalString; originalString = NULL; }
             if (buffer) { HeapFree(GetProcessHeap(), 0, buffer); buffer = NULL; }
         }
@@ -1078,77 +864,45 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
     }
 
     static BOOL ReflectiveInjectIntoChild(HANDLE hProcess, const BYTE* dllBytes, DWORD dllSize) {
-        SetCrashStage("ChildInject: locating ReflectiveLoader");
         DWORD loaderOffset = FindReflectiveLoaderFileOffset(dllBytes, dllSize);
         if (loaderOffset == 0) {
-            CrashLog("[ChildInject] FAIL: ReflectiveLoader export not found in DLL");
-            LogDebug(L"[ChildInject] ReflectiveLoader export not found");
             return FALSE;
         }
 
-        SetCrashStage("ChildInject: VirtualAllocEx");
         LPVOID remoteMem = VirtualAllocEx(hProcess, NULL, dllSize,
             MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
         if (!remoteMem) {
-            CrashLog("[ChildInject] FAIL: VirtualAllocEx failed");
-            LogDebug(L"[ChildInject] VirtualAllocEx failed");
             return FALSE;
         }
 
-        SetCrashStage("ChildInject: WriteProcessMemory");
         SIZE_T written;
         if (!WriteProcessMemory(hProcess, remoteMem, dllBytes, dllSize, &written)) {
             VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
-            CrashLog("[ChildInject] FAIL: WriteProcessMemory failed");
-            LogDebug(L"[ChildInject] WriteProcessMemory failed");
             return FALSE;
-        }
-        {
-            char msg[160];
-            sprintf_s(msg, 160, "[ChildInject] WriteProcessMemory wrote %llu/%lu bytes", (unsigned long long)written, dllSize);
-            CrashLog(msg);
         }
 
         LPTHREAD_START_ROUTINE remoteLoader =
             (LPTHREAD_START_ROUTINE)((BYTE*)remoteMem + loaderOffset);
 
-        SetCrashStage("ChildInject: CreateRemoteThread");
         HANDLE hThread = CreateRemoteThread(hProcess, NULL, 1024 * 1024,
             remoteLoader, NULL, 0, NULL);
         if (!hThread) {
-            CrashLog("[ChildInject] FAIL: CreateRemoteThread failed");
-            LogDebug(L"[ChildInject] CreateRemoteThread failed");
             return FALSE;
         }
 
-        SetCrashStage("ChildInject: waiting for loader thread");
         DWORD waitResult = WaitForSingleObject(hThread, 30000);
-        DWORD loaderExitCode = 0;
-        GetExitCodeThread(hThread, &loaderExitCode);
-        {
-            char msg[160];
-            sprintf_s(msg, 160, "[ChildInject] loader wait=0x%lX exit=0x%lX", waitResult, loaderExitCode);
-            CrashLog(msg);
-        }
         CloseHandle(hThread);
 
         if (waitResult == WAIT_OBJECT_0) {
-            SetCrashStage("ChildInject: loader thread completed");
-            CrashLog("[ChildInject] OK: child injection completed");
             return TRUE;
         } else if (waitResult == WAIT_TIMEOUT) {
             // The loader thread is still running.  Returning FALSE causes
             // HookedCreateProcessW to resume the child with a comment noting that
             // hooks may not be fully installed yet (fail-open policy: we still
             // resume to avoid leaving the child process permanently suspended).
-            CrashLog("[ChildInject] WARN: loader thread timed out after 30s — hooks may not be active in child");
-            LogDebug(L"[ChildInject] Loader thread timeout — child will resume without guaranteed hooks");
             return FALSE;
         } else {
             // WAIT_FAILED or any unexpected value
-            char msg[128];
-            sprintf_s(msg, 128, "[ChildInject] FAIL: WaitForSingleObject error 0x%lX", GetLastError());
-            CrashLog(msg);
             return FALSE;
         }
     }
@@ -1166,7 +920,6 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
         LPPROCESS_INFORMATION lpProcessInformation
     ) {
         if (!OriginalCreateProcessW) return FALSE;
-        SetCrashStage("HookedCreateProcessW: entered");
 
         // Snapshot g_DllRawBytes / g_DllRawSize into locals *before* any check.
         // RemoveNtApiHooks() can race here: it calls UnmapViewOfFile(g_DllRawBytes)
@@ -1177,7 +930,6 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
         DWORD       localDllSize  = g_DllRawSize;
 
         if (!g_HooksInitialized || !localDllBytes || localDllSize == 0) {
-            SetCrashStage("HookedCreateProcessW: bypassing child injection");
             return OriginalCreateProcessW(
                 lpApplicationName, lpCommandLine,
                 lpProcessAttributes, lpThreadAttributes,
@@ -1190,7 +942,6 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
         BOOL wasSuspended = (dwCreationFlags & CREATE_SUSPENDED) != 0;
         DWORD modifiedFlags = dwCreationFlags | CREATE_SUSPENDED;
 
-        SetCrashStage("HookedCreateProcessW: calling original CreateProcessW");
         BOOL result = OriginalCreateProcessW(
             lpApplicationName, lpCommandLine,
             lpProcessAttributes, lpThreadAttributes,
@@ -1200,29 +951,16 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
         );
 
         if (result && lpProcessInformation) {
-            SetCrashStage("HookedCreateProcessW: child created, injecting");
-            CrashLog("[CreateProcessW] Injecting DLL into child process...");
-            LogDebug(L"[CreateProcessW] Reflective-injecting DLL into child process");
-            BOOL injected = ReflectiveInjectIntoChild(lpProcessInformation->hProcess,
-                                localDllBytes, localDllSize);
-            if (!injected) {
-                CrashLog("[CreateProcessW] Child injection FAILED");
-                LogDebug(L"[CreateProcessW] Child injection failed");
-            } else {
-                CrashLog("[CreateProcessW] Child injection OK");
-                LogDebug(L"[CreateProcessW] Child injection succeeded");
-            }
+            ReflectiveInjectIntoChild(lpProcessInformation->hProcess, localDllBytes, localDllSize);
 
             // Always resume the child if we suspended it — don't leave zombie processes.
             // Even if injection failed we resume; the child runs without hooks rather than
             // hanging forever (fail-open policy).
             if (!wasSuspended) {
-                SetCrashStage("HookedCreateProcessW: resuming child thread");
                 ResumeThread(lpProcessInformation->hThread);
             }
         }
 
-        SetCrashStage("HookedCreateProcessW: returning");
         return result;
     }
 
@@ -1230,50 +968,6 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
     void InstallNtApiHooks(LPVOID lpParameter) {
         // Use a global try-catch to prevent any crashes
         __try {
-            __try {
-                WCHAR crashLogPath[1024];
-                ExpandEnvironmentStringsW(L"%TEMP%\\crashlogovd.log", crashLogPath, 1024);
-                g_CrashLog = CreateFileW(crashLogPath, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                if (g_CrashLog != INVALID_HANDLE_VALUE) {
-                    // Write UTF-16LE BOM so all log entries (including wide paths) are
-                    // readable in any standard text editor on non-English systems.
-                    DWORD written;
-                    const WCHAR bom = 0xFEFF;
-                    WriteFile(g_CrashLog, &bom, sizeof(WCHAR), &written, NULL);
-                }
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER) {
-                g_CrashLog = INVALID_HANDLE_VALUE;
-            }
-
-            g_PreviousUnhandledFilter = SetUnhandledExceptionFilter(HvncUnhandledExceptionFilter);
-            SetCrashStage("InstallNtApiHooks: crash log opened");
-            CrashLog("=== Overlord HVNC DLL Loaded ===");
-
-#if ENABLE_DEBUG_LOGGING
-            // Enable verbose logging for debugging
-            WCHAR logPath[1024];
-            __try {
-                ExpandEnvironmentStringsW(L"%TEMP%\\rdi_hooks.log", logPath, 1024);
-                g_LogFile = CreateFileW(logPath, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                if (g_LogFile != INVALID_HANDLE_VALUE) {
-                    // Write UTF-16LE BOM for consistent encoding across all log entries.
-                    DWORD written;
-                    const WCHAR bom = 0xFEFF;
-                    WriteFile(g_LogFile, &bom, sizeof(WCHAR), &written, NULL);
-                }
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER) {
-                g_LogFile = INVALID_HANDLE_VALUE;
-            }
-
-            if (g_LogFile != INVALID_HANDLE_VALUE) {
-                LogDebugA("=== DLL Injection Started ===");
-            }
-#else
-            g_LogFile = INVALID_HANDLE_VALUE;
-#endif
-
             // Initialize to empty strings to prevent crashes
             g_SearchString[0] = L'\0';
             g_ReplacementString[0] = L'\0';
@@ -1282,7 +976,6 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
             g_DllRawSize = 0;
 
             // Try to get configuration from environment variables
-            SetCrashStage("InstallNtApiHooks: reading environment");
             __try {
                 // Use the same capacity as the global g_SearchString / g_ReplacementString
                 // buffers (2048 WCHARs) so that very long paths are never silently truncated.
@@ -1293,50 +986,20 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
 
                 DWORD searchLen = GetEnvironmentVariableW(L"RDI_SEARCH_PATH", envSearchString, 2048);
                 DWORD replaceLen = GetEnvironmentVariableW(L"RDI_REPLACE_PATH", envReplaceString, 2048);
-                {
-                    char msg[160];
-                    sprintf_s(msg, 160, "[ENV] RDI path lengths search=%lu replace=%lu", searchLen, replaceLen);
-                    CrashLog(msg);
-                }
 
                 // A return value >= buffer capacity means the value was truncated.
                 if (searchLen >= 2048) {
-                    CrashLog("[ENV] WARN: RDI_SEARCH_PATH is >= 2048 chars and was truncated — path redirection disabled");
                     searchLen = 0;
                 }
                 if (replaceLen >= 2048) {
-                    CrashLog("[ENV] WARN: RDI_REPLACE_PATH is >= 2048 chars and was truncated — path redirection disabled");
                     replaceLen = 0;
                 }
 
                 if (searchLen > 0 && replaceLen > 0) {
-                    CrashLog("[ENV] Search/Replace paths found");
-                    CrashLogW(envSearchString);
-                    CrashLog(" -> ");
-                    CrashLogW(envReplaceString);
                     wcsncpy_s(g_SearchString, 2048, envSearchString, searchLen);
                     g_SearchString[searchLen] = L'\0';
                     wcsncpy_s(g_ReplacementString, 2048, envReplaceString, replaceLen);
                     g_ReplacementString[replaceLen] = L'\0';
-
-                    if (g_LogFile != INVALID_HANDLE_VALUE) {
-                        LogDebug(L"========================================");
-                        LogDebug(L"[ENV] Search string from env: ");
-                        LogDebug(g_SearchString);
-                        LogDebug(L"[ENV] Replacement string from env: ");
-                        LogDebug(g_ReplacementString);
-
-                        char lenMsg[256];
-                        sprintf_s(lenMsg, 256, "[ENV] Search string length: %zu characters", wcslen(g_SearchString));
-                        LogDebugA(lenMsg);
-                        LogDebug(L"========================================");
-                    }
-                }
-                else {
-                    CrashLog("[ENV] RDI_SEARCH_PATH / RDI_REPLACE_PATH not found or empty — path redirection disabled");
-                    if (g_LogFile != INVALID_HANDLE_VALUE) {
-                        LogDebugA("Environment variables not found, hooks disabled");
-                    }
                 }
 
                 // Read DLL section for child process injection (in-memory, no file on disk).
@@ -1346,18 +1009,11 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
                 WCHAR envDllSize[32] = { 0 };
                 DWORD sectionNameLen = GetEnvironmentVariableW(L"RDI_DLL_SECTION", envSectionName, 512);
                 DWORD dllSizeLen     = GetEnvironmentVariableW(L"RDI_DLL_SIZE",    envDllSize,    32);
-                {
-                    char msg[160];
-                    sprintf_s(msg, 160, "[ENV] RDI dll metadata lengths section=%lu size=%lu", sectionNameLen, dllSizeLen);
-                    CrashLog(msg);
-                }
 
                 if (sectionNameLen >= 512) {
-                    CrashLog("[ENV] WARN: RDI_DLL_SECTION is >= 512 chars and was truncated — child injection disabled");
                     sectionNameLen = 0;
                 }
                 if (dllSizeLen >= 32) {
-                    CrashLog("[ENV] WARN: RDI_DLL_SIZE is >= 32 chars and was truncated — child injection disabled");
                     dllSizeLen = 0;
                 }
 
@@ -1376,86 +1032,41 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
                         g_DllRawSize = (DWORD)wcstoul(envDllSize, &endPtr, 10);
                     } else {
                         g_DllRawSize = 0;
-                        CrashLog("[ENV] WARN: RDI_DLL_SIZE contains non-digit characters — child injection disabled");
                     }
 
                     if (g_DllRawSize == 0) {
-                        CrashLog("[ENV] WARN: g_DllRawSize is 0 after parsing — skipping section open");
                         goto skip_section_open;
                     }
                     g_DllSectionHandle = OpenFileMappingW(FILE_MAP_READ, FALSE, envSectionName);
                     if (g_DllSectionHandle) {
-                        SetCrashStage("InstallNtApiHooks: mapping DLL section");
                         g_DllRawBytes = MapViewOfFile(g_DllSectionHandle, FILE_MAP_READ, 0, 0, g_DllRawSize);
-                        if (g_DllRawBytes) {
-                            char msg[256];
-                            sprintf_s(msg, 256, "[ENV] DLL shared memory mapped OK: %lu bytes", g_DllRawSize);
-                            CrashLog(msg);
-                            if (g_LogFile != INVALID_HANDLE_VALUE) {
-                                LogDebugA(msg);
-                            }
-                        } else {
+                        if (!g_DllRawBytes) {
                             CloseHandle(g_DllSectionHandle);
                             g_DllSectionHandle = NULL;
                             g_DllRawSize = 0;
-                            CrashLog("[ENV] FAIL: MapViewOfFile failed for DLL section");
-                            if (g_LogFile != INVALID_HANDLE_VALUE) {
-                                LogDebugA("[ENV] MapViewOfFile failed for DLL section");
-                            }
                         }
                     } else {
                         g_DllRawSize = 0;
-                        CrashLog("[ENV] FAIL: OpenFileMappingW failed for DLL section");
-                        if (g_LogFile != INVALID_HANDLE_VALUE) {
-                            LogDebugA("[ENV] OpenFileMappingW failed for DLL section");
-                        }
                     }
                     skip_section_open:;
                 }
             }
             __except (EXCEPTION_EXECUTE_HANDLER) {
-                if (g_LogFile != INVALID_HANDLE_VALUE) {
-                    LogDebugA("Exception reading environment variables");
-                }
                 g_SearchString[0] = L'\0';
                 g_ReplacementString[0] = L'\0';
             }
 
             // Initialize MinHook (this must succeed)
-            SetCrashStage("InstallNtApiHooks: initializing MinHook");
-            if (g_LogFile != INVALID_HANDLE_VALUE) {
-                LogDebugA("Initializing MinHook...");
-            }
-
             if (MH_Initialize() != MH_OK) {
-                CrashLog("FATAL: MH_Initialize() failed — MinHook could not start");
-                if (g_LogFile != INVALID_HANDLE_VALUE) {
-                    LogDebugA("ERROR: MinHook initialization failed!");
-                }
                 return;
             }
-            CrashLog("[INIT] MinHook initialized OK");
 
-            if (g_LogFile != INVALID_HANDLE_VALUE) {
-                LogDebugA("MinHook initialized successfully");
-            }
-
-            SetCrashStage("InstallNtApiHooks: resolving ntdll");
             HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
             if (!ntdll) {
-                CrashLog("FATAL: GetModuleHandleW(ntdll.dll) returned NULL");
-                if (g_LogFile != INVALID_HANDLE_VALUE) {
-                    LogDebugA("ERROR: Failed to get ntdll.dll handle!");
-                }
                 MH_Uninitialize();
                 return;
             }
 
-            if (g_LogFile != INVALID_HANDLE_VALUE) {
-                LogDebugA("Got ntdll.dll handle");
-            }
-
-            SetCrashStage("InstallNtApiHooks: creating hooks");
             #define SAFE_HOOK(target, detour, ppOriginal, label) do { \
                 MH_STATUS _cr = MH_CreateHook((LPVOID)(target), (LPVOID)(detour), (LPVOID*)(ppOriginal)); \
                 if (_cr == MH_OK) { \
@@ -1463,16 +1074,9 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
                     if (_en != MH_OK) { \
                         MH_RemoveHook((LPVOID)(target)); \
                         *(ppOriginal) = NULL; \
-                        CrashLog("FAIL: MH_EnableHook failed for " label); \
-                        if (g_LogFile != INVALID_HANDLE_VALUE) LogDebugA("WARN: MH_EnableHook failed for " label); \
-                    } else { \
-                        CrashLog("[HOOK] OK: " label); \
-                        if (g_LogFile != INVALID_HANDLE_VALUE) LogDebugA("Hooked " label); \
                     } \
                 } else { \
                     *(ppOriginal) = NULL; \
-                    CrashLog("FAIL: MH_CreateHook failed for " label); \
-                    if (g_LogFile != INVALID_HANDLE_VALUE) LogDebugA("WARN: MH_CreateHook failed for " label); \
                 } \
             } while(0)
 
@@ -1528,18 +1132,8 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
             #undef SAFE_HOOK
 
             if (OriginalNtCreateFile && OriginalNtOpenFile) {
-                SetCrashStage("InstallNtApiHooks: hooks initialized");
                 g_HooksInitialized = TRUE;
-                CrashLog("=== All hooks installed successfully ===");
-                if (g_LogFile != INVALID_HANDLE_VALUE) {
-                    LogDebugA("=== All hooks installed successfully ===");
-                }
             } else {
-                SetCrashStage("InstallNtApiHooks: critical hook failure cleanup");
-                CrashLog("FATAL: Critical hooks (NtCreateFile/NtOpenFile) failed — tearing down all hooks");
-                if (g_LogFile != INVALID_HANDLE_VALUE) {
-                    LogDebugA("ERROR: Critical hooks (NtCreateFile/NtOpenFile) failed. Removing all hooks.");
-                }
                 MH_DisableHook(MH_ALL_HOOKS);
                 MH_Uninitialize();
                 OriginalNtCreateFile = NULL;
@@ -1554,26 +1148,15 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
             }
         }
         __except (EXCEPTION_EXECUTE_HANDLER) {
-            {
-                char excMsg[256];
-                sprintf_s(excMsg, 256, "CRITICAL EXCEPTION during hook install! Code: 0x%X", GetExceptionCode());
-                CrashLog(excMsg);
-                if (g_LogFile != INVALID_HANDLE_VALUE) {
-                    LogDebugA(excMsg);
-                }
-            }
+            // Fail silently on hook installation.
         }
     }
 
     void RemoveNtApiHooks() {
         __try {
-            SetCrashStage("RemoveNtApiHooks: begin");
-            CrashLog("=== Removing hooks ===");
-            LogDebugA("=== Removing hooks ===");
             g_HooksInitialized = FALSE;
 
             // Disable JMP patches in all target functions.
-            SetCrashStage("RemoveNtApiHooks: disabling hooks");
             MH_DisableHook(MH_ALL_HOOKS);
 
             // Give any thread that passed the g_HooksInitialized guard but has not yet
@@ -1585,7 +1168,6 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
             // dangling.  NULL them immediately so any racing thread that calls through
             // them gets a clean NULL-dereference AV (caught by the hook's __try/__except)
             // rather than a use-after-free at an arbitrary freed address.
-            SetCrashStage("RemoveNtApiHooks: uninitializing MinHook");
             MH_Uninitialize();
 
             OriginalNtCreateFile             = NULL;
@@ -1599,27 +1181,13 @@ static inline void _hvnc_wcsncpy_s(wchar_t *dst, size_t dstSize, const wchar_t *
             OriginalCreateProcessW           = NULL;
 
             if (g_DllRawBytes) {
-                SetCrashStage("RemoveNtApiHooks: unmapping DLL section");
                 UnmapViewOfFile(g_DllRawBytes);
                 g_DllRawBytes = NULL;
             }
             g_DllRawSize = 0;
             if (g_DllSectionHandle) {
-                SetCrashStage("RemoveNtApiHooks: closing DLL section");
                 CloseHandle(g_DllSectionHandle);
                 g_DllSectionHandle = NULL;
-            }
-
-            SetCrashStage("RemoveNtApiHooks: cleanup complete");
-            CrashLog("=== Cleanup complete ===");
-
-            if (g_LogFile != INVALID_HANDLE_VALUE) {
-                CloseHandle(g_LogFile);
-                g_LogFile = INVALID_HANDLE_VALUE;
-            }
-            if (g_CrashLog != INVALID_HANDLE_VALUE) {
-                CloseHandle(g_CrashLog);
-                g_CrashLog = INVALID_HANDLE_VALUE;
             }
         }
         __except (EXCEPTION_EXECUTE_HANDLER) {
