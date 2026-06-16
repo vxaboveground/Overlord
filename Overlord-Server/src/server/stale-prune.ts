@@ -20,6 +20,7 @@ export function pruneStaleClients(params: PruneStaleClientsParams): void {
       if (info.role === "client") {
         info.ws.close(4000, "stale");
         params.setOnlineState(id, false);
+        params.deleteClient(id);
         processed += 1;
         continue;
       }

@@ -566,7 +566,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       hasRenderedFrame = true;
       bitmap.close();
       updateViewerFps();
-      setStreamState("streaming", "Streaming");
+      if (desiredStreaming) setStreamState("streaming", "Streaming");
     } finally {
       drawPending = false;
     }
@@ -600,7 +600,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
         h264TimestampUs += 66_666;
         videoDecoder.decode(chunk);
         updateViewerFps();
-        setStreamState("streaming", "Streaming");
+        if (desiredStreaming) setStreamState("streaming", "Streaming");
       } catch (err) {
         console.warn("webcam h264 decode failed", err, "payloadBytes=", payload.length);
       }
@@ -698,6 +698,13 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       if (msg.status === "offline") {
         desiredStreaming = false;
         setStreamState("offline", msg.reason || "Client offline");
+      } else if (msg.status === "starting") {
+        if (desiredStreaming && streamState !== "streaming") {
+          setStreamState("starting", "Starting");
+        }
+      } else if (msg.status === "stopped") {
+        desiredStreaming = false;
+        setStreamState("idle", "Stopped");
       } else if (msg.status === "connecting") {
         setStreamState("idle", "Ready");
       } else if (msg.status === "online") {
@@ -790,12 +797,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     send("webcam_stop");
     stopAllWebrtc();
     disconnectAudio();
-    setStreamState("stopping", "Stopping");
-    setTimeout(() => {
-      if (streamState === "stopping") {
-        setStreamState("idle", "Stopped");
-      }
-    }, 300);
+    setStreamState("idle", "Stopped");
   });
 
   function stopOnExit() {

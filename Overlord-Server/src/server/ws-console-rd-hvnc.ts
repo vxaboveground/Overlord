@@ -390,6 +390,7 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
             whepPath: `/api/webrtc/${streamPath}/whep`,
           });
         }
+        safeSendViewer(ws, { type: "status", status: "starting" });
         sendDesktopCommand(target, "desktop_set_fps", { fps: clampDesktopFps(state.maxFps) });
         sendDesktopCommand(target, "desktop_start", {});
         state.isStreaming = true;
@@ -403,6 +404,7 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
           logger.info(`[rd-debug] desktop_start reasserting stale stream client=${clientId} lastFrameAgeMs=${Number.isFinite(lastFrameAgeMs) ? lastFrameAgeMs : -1} state=${JSON.stringify(state)} viewers=${sessionManager.getRdSessionsForClient(clientId).length}`);
           sendDesktopCommand(target, "desktop_set_fps", { fps: clampDesktopFps(state.maxFps) });
           sendDesktopCommand(target, "desktop_start", {});
+          safeSendViewer(ws, { type: "status", status: "starting" });
           state.isStreaming = true;
           state.startedAt = Date.now();
           rdStreamingState.set(clientId, state);
@@ -437,6 +439,7 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
       } else {
         logger.debug(`[rd] ignoring desktop_stop for client ${clientId} - ${otherViewers.length} other viewer(s) still active`);
       }
+      safeSendViewer(ws, { type: "status", status: "stopped" });
       break;
     }
     case "desktop_record_start": {
@@ -994,6 +997,7 @@ export function handleWebcamViewerMessage(ws: ServerWebSocket<SocketData>, raw: 
             whepPath: `/api/webrtc/${streamPath}/whep`,
           });
         }
+        safeSendViewer(ws, { type: "status", status: "starting" });
         sendDesktopCommand(target, "webcam_start", {});
         state.isStreaming = true;
         webcamStreamingState.set(clientId, state);
@@ -1019,6 +1023,7 @@ export function handleWebcamViewerMessage(ws: ServerWebSocket<SocketData>, raw: 
       } else {
         logger.debug(`[webcam] ignoring webcam_stop for client ${clientId} - ${otherWebcamViewers.length} other viewer(s) still active`);
       }
+      safeSendViewer(ws, { type: "status", status: "stopped" });
       break;
     }
     case "webrtc_p2p_offer": {

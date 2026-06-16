@@ -36,7 +36,7 @@ describe("pruneStaleClients", () => {
     expect(deleted).toEqual([]);
   });
 
-  test("closes and marks offline stale role=client entries without deleting", () => {
+  test("closes, marks offline, and deletes stale role=client entries", () => {
     const clients = new Map<string, ClientInfo>();
     const staleClient = makeClient("stale-c", Date.now() - 120_000, "client");
     clients.set("stale-c", staleClient);
@@ -53,7 +53,7 @@ describe("pruneStaleClients", () => {
     });
 
     expect(offlined).toContain("stale-c");
-    expect(deleted).not.toContain("stale-c");
+    expect(deleted).toContain("stale-c");
     expect((staleClient.ws as any)._calls[0]).toStartWith("close:");
   });
 

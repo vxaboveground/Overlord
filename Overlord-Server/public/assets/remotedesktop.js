@@ -857,6 +857,20 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       setStreamState("connecting", "Connecting");
       return;
     }
+    if (msg.status === "starting") {
+      clearOfflineTimer();
+      if (desiredStreaming && streamState !== "streaming") {
+        setStreamState("starting", "Starting stream");
+      }
+      return;
+    }
+    if (msg.status === "stopped") {
+      clearOfflineTimer();
+      desiredStreaming = false;
+      lastFrameAt = 0;
+      setStreamState("idle", "Stopped");
+      return;
+    }
     if (msg.status === "online") {
       clearOfflineTimer();
       if (elevationPending) {
@@ -1348,10 +1362,12 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   stopBtn.addEventListener("click", function () {
     if (isRecording()) stopRecording();
     desiredStreaming = false;
+    lastFrameAt = 0;
     setStreamState("stopping", "Stopping stream");
     sendCmd("desktop_stop", {});
     disconnectAudio();
     stopAllWebrtc();
+    setStreamState("idle", "Stopped");
   });
   if (recordBtn) {
     recordBtn.addEventListener("click", function () {

@@ -547,7 +547,7 @@ func runSession(ctx context.Context, cancel context.CancelFunc, conn *websocket.
 		sendCtx, sendCancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer sendCancel()
 		_ = wire.WriteMsg(sendCtx, conn, di)
-		conn.Close(websocket.StatusNormalClosure, "bye")
+		conn.CloseNow()
 	}()
 
 	identity := config.DeriveIdentity()
@@ -747,8 +747,8 @@ func runSession(ctx context.Context, cancel context.CancelFunc, conn *websocket.
 					last := env.LastPong()
 					if !last.IsZero() && time.Since(last) > grace {
 						log.Printf("ping: no pong for %s, forcing reconnect", time.Since(last))
-						conn.Close(websocket.StatusGoingAway, "pong timeout")
 						cancel()
+						conn.CloseNow()
 						return
 					}
 				}
