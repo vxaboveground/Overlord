@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLUGIN_DIR="${1:-${ROOT_DIR}/sample-go}"
+PLUGIN_DIR="${1:-${ROOT_DIR}}"
 NATIVE_DIR="${PLUGIN_DIR}/native"
 PLUGIN_NAME="sample"
 ZIP_OUT="${PLUGIN_DIR}/${PLUGIN_NAME}.zip"
@@ -69,10 +69,9 @@ fi
 
 # Optional: sign the plugin if PLUGIN_SIGN_KEY is set
 if [[ -n "${PLUGIN_SIGN_KEY:-}" ]]; then
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   if command -v bun >/dev/null 2>&1; then
     echo "[sign] Signing plugin with key: ${PLUGIN_SIGN_KEY}"
-    bun run "${SCRIPT_DIR}/Overlord-Server/scripts/plugin-sign.ts" --key "${PLUGIN_SIGN_KEY}" "${ZIP_OUT}"
+    bun run "${ROOT_DIR}/../../Overlord-Server/scripts/plugin-sign.ts" --key "${PLUGIN_SIGN_KEY}" "${ZIP_OUT}"
   else
     echo "[warn] bun not found, skipping plugin signing" >&2
   fi

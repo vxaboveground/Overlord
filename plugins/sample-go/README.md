@@ -16,13 +16,14 @@ Use the provided build scripts:
 
 ```bash
 # Linux/macOS
-./build-plugin.sh
+cd sample-go
+./build.sh
 
 # Multiple targets
-BUILD_TARGETS="linux-amd64 linux-arm64 darwin-arm64" ./build-plugin.sh
+BUILD_TARGETS="linux-amd64 linux-arm64 darwin-arm64" ./build.sh
 
 # Windows
-build-plugin.bat
+sample-go\build.bat
 ```
 
 ## Create the zip

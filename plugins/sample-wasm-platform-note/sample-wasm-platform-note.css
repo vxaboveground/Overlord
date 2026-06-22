@@ -1,0 +1,22 @@
+#sample-wasm-platform-note-output {
+  min-height: 8rem;
+}
+
+.sample-wasm-platform-note-field {
+  border: 1px solid rgba(5, 150, 105, 0.45);
+  background: rgba(6, 78, 59, 0.25);
+  padding: 0.75rem;
+}
+
+.sample-wasm-platform-note-field span {
+  display: block;
+  color: rgb(148, 163, 184);
+  font-size: 0.75rem;
+}
+
+.sample-wasm-platform-note-field strong {
+  display: block;
+  color: rgb(209, 250, 229);
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+}

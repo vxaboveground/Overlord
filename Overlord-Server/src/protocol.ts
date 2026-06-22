@@ -334,10 +334,14 @@ export type ScriptResult = {
 export type PluginManifest = {
   id: string;
   name: string;
+  apiVersion?: number;
+  runtime?: "native" | "wasm" | string;
   version?: string;
   description?: string;
   binary?: string;
   binaries?: Record<string, string>;
+  wasm?: string;
+  needs?: PluginNeeds;
   entry?: string;
   assets?: {
     html?: string;
@@ -349,6 +353,16 @@ export type PluginManifest = {
     icon?: string;
   };
   hasServer?: boolean;
+};
+
+export type PluginFileNeed = {
+  bucket: "home" | "desktop" | "documents" | "downloads" | "temp" | "appData" | "pluginData" | "fullDisk" | string;
+  access: Array<"read" | "write" | "list" | "delete" | "mkdir" | string>;
+  reason?: string;
+};
+
+export type PluginNeeds = {
+  files?: PluginFileNeed[];
 };
 
 export type PluginSignatureInfo = {

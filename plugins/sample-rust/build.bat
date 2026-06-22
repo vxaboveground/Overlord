@@ -1,8 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-set "ROOT=%~dp0"
-set "PLUGIN_DIR=%ROOT%sample-rust"
+set "PLUGIN_DIR=%~dp0."
 if not "%~1"=="" set "PLUGIN_DIR=%~1"
 
 set "NATIVE_DIR=%PLUGIN_DIR%\native"

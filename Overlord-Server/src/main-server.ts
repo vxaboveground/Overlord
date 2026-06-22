@@ -73,6 +73,7 @@ import {
   savePluginStateToDisk,
   sendPluginBundle,
   dispatchAutoLoadPlugins,
+  arePluginNeedsApproved,
 } from "./server/plugin-state-bundle";
 import { createPluginRuntime } from "./server/plugin-runtime/runtime";
 import {
@@ -276,7 +277,7 @@ const MAX_HTTP_BODY_BYTES = parseMaxHttpBodyBytes();
 const pluginLoadedByClient = new Map<string, Set<string>>();
 const pendingPluginEvents = new Map<string, Array<{ event: string; payload: any }>>();
 const pluginLoadingByClient = new Map<string, Set<string>>();
-let pluginState = { enabled: {} as Record<string, boolean>, lastError: {} as Record<string, string>, autoLoad: {} as Record<string, boolean>, autoStartEvents: {} as Record<string, Array<{ event: string; payload: any }>> };
+let pluginState = { enabled: {} as Record<string, boolean>, lastError: {} as Record<string, string>, autoLoad: {} as Record<string, boolean>, autoStartEvents: {} as Record<string, Array<{ event: string; payload: any }>>, approvedNeeds: {} as Record<string, string> };
 
 const savePluginState = () => savePluginStateToDisk(PLUGIN_ROOT, PLUGIN_STATE_PATH, pluginState);
 const loadPluginState = async () => {
@@ -633,6 +634,12 @@ async function startServer() {
         notificationPluginHandlers.markPluginLoading,
         notificationPluginHandlers.enqueuePluginEvent,
         loadPluginBundle,
+        async (pluginId: string) => {
+          const manifests = await listPluginManifests();
+          const manifest = manifests.find((p) => p.id === pluginId);
+          if (!manifest) return false;
+          return arePluginNeedsApproved(pluginState, pluginId, manifest.needs);
+        },
       ).catch((err) => {
         logger.warn(`[plugin-autoload] dispatch error for ${info.id}: ${(err as Error).message}`);
       });

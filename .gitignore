@@ -513,3 +513,5 @@ FodyWeavers.xsd
 *.exp
 *.lib
 save.txt
+*.wasm
+Albedo/*

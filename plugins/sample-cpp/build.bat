@@ -1,16 +1,15 @@
 @echo off
 setlocal enabledelayedexpansion
 
-set "ROOT=%~dp0"
-set "PLUGIN_DIR=%ROOT%sample-c"
+set "PLUGIN_DIR=%~dp0."
 if not "%~1"=="" set "PLUGIN_DIR=%~1"
 
 set "NATIVE_DIR=%PLUGIN_DIR%\native"
-set "PLUGIN_NAME=sample-c"
+set "PLUGIN_NAME=sample-cpp"
 set "ZIP_OUT=%PLUGIN_DIR%\%PLUGIN_NAME%.zip"
 
-if not exist "%NATIVE_DIR%\plugin.c" (
-  echo [error] native\plugin.c not found in %NATIVE_DIR%
+if not exist "%NATIVE_DIR%\plugin.cpp" (
+  echo [error] native\plugin.cpp not found in %NATIVE_DIR%
   exit /b 1
 )
 
@@ -38,22 +37,22 @@ for %%T in (%BUILD_TARGETS%) do (
   set "OUTFILE=%PLUGIN_DIR%\%PLUGIN_NAME%-!TARGET_OS!-!TARGET_ARCH!.!EXT!"
 
   if "!TARGET_OS!"=="windows" (
-    REM Pick cross-compiler flags for MSVC or gcc
+    REM Pick cross-compiler flags for MSVC or g++
     set "CL_MACHINE="
-    set "GCC_CMD=gcc"
+    set "GXX_CMD=g++"
     if "!TARGET_ARCH!"=="arm64" (
       set "CL_MACHINE=/machine:ARM64"
-      set "GCC_CMD=aarch64-w64-mingw32-gcc"
+      set "GXX_CMD=aarch64-w64-mingw32-g++"
     ) else if "!TARGET_ARCH!"=="amd64" (
       set "CL_MACHINE=/machine:X64"
-      set "GCC_CMD=x86_64-w64-mingw32-gcc"
+      set "GXX_CMD=x86_64-w64-mingw32-g++"
     )
 
-    echo [build] cl /LD /O2 "%NATIVE_DIR%\plugin.c" /Fe:"!OUTFILE!" /link !CL_MACHINE!
-    cl /LD /O2 "%NATIVE_DIR%\plugin.c" /Fe:"!OUTFILE!" /link !CL_MACHINE! >nul 2>&1
+    echo [build] cl /LD /EHsc /O2 "%NATIVE_DIR%\plugin.cpp" /Fe:"!OUTFILE!" /link !CL_MACHINE!
+    cl /LD /EHsc /O2 "%NATIVE_DIR%\plugin.cpp" /Fe:"!OUTFILE!" /link !CL_MACHINE! >nul 2>&1
     if errorlevel 1 (
-      echo [build] cl failed, trying !GCC_CMD!...
-      !GCC_CMD! -shared -O2 -o "!OUTFILE!" "%NATIVE_DIR%\plugin.c"
+      echo [build] cl failed, trying !GXX_CMD!...
+      !GXX_CMD! -shared -O2 -o "!OUTFILE!" "%NATIVE_DIR%\plugin.cpp"
       if errorlevel 1 (
         echo [error] build failed for !TARGET_OS!-!TARGET_ARCH!
         exit /b 1
@@ -61,13 +60,13 @@ for %%T in (%BUILD_TARGETS%) do (
     )
   ) else (
     REM Cross-compile for non-Windows targets
-    set "GCC_CMD=gcc"
+    set "GXX_CMD=g++"
     if "!TARGET_OS!"=="linux" (
-      if "!TARGET_ARCH!"=="arm64" set "GCC_CMD=aarch64-linux-gnu-gcc"
-      if "!TARGET_ARCH!"=="amd64" set "GCC_CMD=x86_64-linux-gnu-gcc"
+      if "!TARGET_ARCH!"=="arm64" set "GXX_CMD=aarch64-linux-gnu-g++"
+      if "!TARGET_ARCH!"=="amd64" set "GXX_CMD=x86_64-linux-gnu-g++"
     )
-    echo [build] !GCC_CMD! -shared -fPIC -O2 -o "!OUTFILE!" "%NATIVE_DIR%\plugin.c"
-    !GCC_CMD! -shared -fPIC -O2 -o "!OUTFILE!" "%NATIVE_DIR%\plugin.c"
+    echo [build] !GXX_CMD! -shared -fPIC -O2 -o "!OUTFILE!" "%NATIVE_DIR%\plugin.cpp"
+    !GXX_CMD! -shared -fPIC -O2 -o "!OUTFILE!" "%NATIVE_DIR%\plugin.cpp"
     if errorlevel 1 (
       echo [error] build failed for !TARGET_OS!-!TARGET_ARCH!
       exit /b 1

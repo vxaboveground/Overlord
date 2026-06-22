@@ -1,23 +1,24 @@
 @echo off
 setlocal enabledelayedexpansion
 
-set "ROOT=%~dp0"
-set "PLUGIN_DIR=%ROOT%sample-go"
+set "PLUGIN_DIR=%~dp0."
 if not "%~1"=="" set "PLUGIN_DIR=%~1"
 
 set "NATIVE_DIR=%PLUGIN_DIR%\native"
-set "PLUGIN_NAME=sample"
+set "PLUGIN_NAME=sample-c"
 set "ZIP_OUT=%PLUGIN_DIR%\%PLUGIN_NAME%.zip"
 
-if not exist "%NATIVE_DIR%" (
-  echo [error] native folder not found: %NATIVE_DIR%
+if not exist "%NATIVE_DIR%\plugin.c" (
+  echo [error] native\plugin.c not found in %NATIVE_DIR%
   exit /b 1
 )
 
-pushd "%NATIVE_DIR%"
-
 REM Build targets - default to windows-amd64 on Windows
 if not defined BUILD_TARGETS set "BUILD_TARGETS=windows-amd64"
+
+REM Detect host architecture
+set "HOST_ARCH=amd64"
+if "%PROCESSOR_ARCHITECTURE%"=="ARM64" set "HOST_ARCH=arm64"
 
 set "BUILT_FILES="
 for %%T in (%BUILD_TARGETS%) do (
@@ -33,27 +34,46 @@ for %%T in (%BUILD_TARGETS%) do (
   ) else (
     set "EXT=so"
   )
-  set "BUILDMODE=c-shared"
-
   set "OUTFILE=%PLUGIN_DIR%\%PLUGIN_NAME%-!TARGET_OS!-!TARGET_ARCH!.!EXT!"
-  echo [build] GOOS=!TARGET_OS! GOARCH=!TARGET_ARCH! CGO_ENABLED=1 go build -buildmode=!BUILDMODE! -o "!OUTFILE!"
-  set "GOOS=!TARGET_OS!"
-  set "GOARCH=!TARGET_ARCH!"
-  set "CGO_ENABLED=1"
-  go build -buildmode=!BUILDMODE! -o "!OUTFILE!" .
-  if errorlevel 1 (
-    echo [error] build failed for !TARGET_OS!-!TARGET_ARCH!
-    popd
-    exit /b 1
+
+  if "!TARGET_OS!"=="windows" (
+    REM Pick cross-compiler flags for MSVC or gcc
+    set "CL_MACHINE="
+    set "GCC_CMD=gcc"
+    if "!TARGET_ARCH!"=="arm64" (
+      set "CL_MACHINE=/machine:ARM64"
+      set "GCC_CMD=aarch64-w64-mingw32-gcc"
+    ) else if "!TARGET_ARCH!"=="amd64" (
+      set "CL_MACHINE=/machine:X64"
+      set "GCC_CMD=x86_64-w64-mingw32-gcc"
+    )
+
+    echo [build] cl /LD /O2 "%NATIVE_DIR%\plugin.c" /Fe:"!OUTFILE!" /link !CL_MACHINE!
+    cl /LD /O2 "%NATIVE_DIR%\plugin.c" /Fe:"!OUTFILE!" /link !CL_MACHINE! >nul 2>&1
+    if errorlevel 1 (
+      echo [build] cl failed, trying !GCC_CMD!...
+      !GCC_CMD! -shared -O2 -o "!OUTFILE!" "%NATIVE_DIR%\plugin.c"
+      if errorlevel 1 (
+        echo [error] build failed for !TARGET_OS!-!TARGET_ARCH!
+        exit /b 1
+      )
+    )
+  ) else (
+    REM Cross-compile for non-Windows targets
+    set "GCC_CMD=gcc"
+    if "!TARGET_OS!"=="linux" (
+      if "!TARGET_ARCH!"=="arm64" set "GCC_CMD=aarch64-linux-gnu-gcc"
+      if "!TARGET_ARCH!"=="amd64" set "GCC_CMD=x86_64-linux-gnu-gcc"
+    )
+    echo [build] !GCC_CMD! -shared -fPIC -O2 -o "!OUTFILE!" "%NATIVE_DIR%\plugin.c"
+    !GCC_CMD! -shared -fPIC -O2 -o "!OUTFILE!" "%NATIVE_DIR%\plugin.c"
+    if errorlevel 1 (
+      echo [error] build failed for !TARGET_OS!-!TARGET_ARCH!
+      exit /b 1
+    )
   )
   set "BUILT_FILES=!BUILT_FILES! '%PLUGIN_DIR%\%PLUGIN_NAME%-!TARGET_OS!-!TARGET_ARCH!.!EXT!'"
 )
-
-set "GOOS="
-set "GOARCH="
-set "CGO_ENABLED="
-
-popd
 
 if exist "%ZIP_OUT%" del /f /q "%ZIP_OUT%"
 
@@ -85,17 +105,6 @@ powershell -NoProfile -Command "Compress-Archive -Path !ZIP_SOURCES! -Destinatio
 if errorlevel 1 (
   echo [error] zip failed
   exit /b 1
-)
-
-REM Optional: sign the plugin if PLUGIN_SIGN_KEY is set
-if defined PLUGIN_SIGN_KEY (
-  where bun >nul 2>&1
-  if not errorlevel 1 (
-    echo [sign] Signing plugin with key: %PLUGIN_SIGN_KEY%
-    bun run "%ROOT%Overlord-Server\scripts\plugin-sign.ts" --key "%PLUGIN_SIGN_KEY%" "%ZIP_OUT%"
-  ) else (
-    echo [warn] bun not found, skipping plugin signing
-  )
 )
 
 echo [ok] %ZIP_OUT%

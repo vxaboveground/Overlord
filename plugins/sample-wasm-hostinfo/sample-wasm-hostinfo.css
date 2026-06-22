@@ -1,0 +1,22 @@
+#sample-wasm-hostinfo-output {
+  min-height: 8rem;
+}
+
+.sample-wasm-hostinfo-field {
+  border: 1px solid rgba(8, 145, 178, 0.45);
+  background: rgba(8, 47, 73, 0.28);
+  padding: 0.75rem;
+}
+
+.sample-wasm-hostinfo-field span {
+  display: block;
+  color: rgb(148, 163, 184);
+  font-size: 0.75rem;
+}
+
+.sample-wasm-hostinfo-field strong {
+  display: block;
+  color: rgb(224, 242, 254);
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+}

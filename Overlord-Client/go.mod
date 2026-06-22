@@ -19,8 +19,9 @@ require (
 	github.com/jezek/xgb v1.1.1
 	github.com/pion/rtcp v1.2.15
 	github.com/pion/webrtc/v4 v4.0.7
+	github.com/tetratelabs/wazero v1.12.0
 	golang.org/x/crypto v0.49.0
-	golang.org/x/sys v0.42.0
+	golang.org/x/sys v0.44.0
 )
 
 require (

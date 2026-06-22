@@ -21,7 +21,7 @@ type Manager struct {
 type pluginInstance struct {
 	id       string
 	manifest PluginManifest
-	native   NativePlugin
+	native   PluginRuntime
 }
 
 func NewManager(writer wire.Writer, host HostInfo) *Manager {
@@ -49,7 +49,13 @@ func (m *Manager) Load(ctx context.Context, manifest PluginManifest, binary []by
 	}
 	m.mu.Unlock()
 
-	np, err := loadNativePlugin(binary)
+	var np PluginRuntime
+	var err error
+	if manifest.RuntimeKind == "wasm" || manifest.WASM != "" {
+		np, err = loadWASMPlugin(ctx, manifest, binary)
+	} else {
+		np, err = loadNativePlugin(binary)
+	}
 	if err != nil {
 		return err
 	}
@@ -107,7 +113,7 @@ func (m *Manager) Load(ctx context.Context, manifest PluginManifest, binary []by
 
 	rt := np.Runtime()
 	freeable := rt != "go"
-	log.Printf("[plugin] loaded %s (native, runtime=%s, freeable=%v)", pluginID, rt, freeable)
+	log.Printf("[plugin] loaded %s (runtime=%s, freeable=%v)", pluginID, rt, freeable)
 	return nil
 }
 

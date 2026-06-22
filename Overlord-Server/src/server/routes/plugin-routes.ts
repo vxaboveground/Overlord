@@ -12,7 +12,7 @@ import { encodeMessage, type PluginSignatureInfo } from "../../protocol";
 import { getConfig, updatePluginsConfig } from "../../config";
 import { getOrVerifySignature, BUILTIN_TRUSTED_KEYS } from "../plugin-signature";
 import type { PluginRuntime } from "../plugin-runtime/runtime";
-import { getPluginPull, deletePluginPull, detectPluginIdFromZip } from "../plugin-state-bundle";
+import { arePluginNeedsApproved, computePluginNeedsHash, getPluginPull, deletePluginPull, detectPluginIdFromZip } from "../plugin-state-bundle";
 import { isAuthorizedAgentRequest } from "../agent-auth";
 import { logger } from "../../logger";
 
@@ -21,6 +21,11 @@ type PluginManifest = {
   name: string;
   signature?: PluginSignatureInfo;
   hasServer?: boolean;
+  apiVersion?: number;
+  runtime?: string;
+  wasm?: string;
+  needs?: any;
+  needsHash?: string;
 };
 
 type PluginBundle = {
@@ -34,6 +39,7 @@ type PluginState = {
   lastError: Record<string, string>;
   autoLoad: Record<string, boolean>;
   autoStartEvents: Record<string, Array<{ event: string; payload: any }>>;
+  approvedNeeds: Record<string, string>;
 };
 
 type PluginRouteDeps = {
@@ -70,6 +76,34 @@ export async function handlePluginRoutes(
     !url.pathname.match(/^\/api\/clients\/.+\/plugins/)
   ) {
     return null;
+  }
+
+  async function loadManifest(pluginId: string): Promise<PluginManifest> {
+    await deps.ensurePluginExtracted(pluginId);
+    const raw = await fs.readFile(path.join(deps.PLUGIN_ROOT, pluginId, "manifest.json"), "utf-8");
+    const manifest = JSON.parse(raw) as PluginManifest;
+    manifest.id = manifest.id || pluginId;
+    manifest.name = manifest.name || pluginId;
+    manifest.needsHash = computePluginNeedsHash(manifest.needs);
+    return manifest;
+  }
+
+  function needsApproved(manifest: PluginManifest): boolean {
+    return arePluginNeedsApproved(deps.pluginState, manifest.id, manifest.needs);
+  }
+
+  async function requireNeedsApproval(pluginId: string): Promise<Response | null> {
+    const manifest = await loadManifest(pluginId);
+    if (needsApproved(manifest)) return null;
+    return Response.json(
+      {
+        ok: false,
+        error: "needs_approval_required",
+        needs: manifest.needs || {},
+        needsHash: manifest.needsHash || "",
+      },
+      { status: 428 },
+    );
   }
 
   if (req.method === "GET" && url.pathname.startsWith("/api/plugins/pull/")) {
@@ -137,6 +171,11 @@ export async function handlePluginRoutes(
         autoLoad: deps.pluginState.autoLoad[p.id] === true,
         autoStartEvents: deps.pluginState.autoStartEvents[p.id] || [],
         signature: p.signature || { signed: false, trusted: false, valid: false },
+        runtime: p.runtime || "native",
+        apiVersion: p.apiVersion || 1,
+        needs: p.needs || {},
+        needsHash: p.needsHash || computePluginNeedsHash(p.needs),
+        needsApproved: arePluginNeedsApproved(deps.pluginState, p.id, p.needs),
         hasServer: p.hasServer === true || deps.pluginRuntime.hasServerCode(p.id),
         serverRunning: deps.pluginRuntime.isRunning(p.id),
       }));
@@ -229,6 +268,11 @@ export async function handlePluginRoutes(
         enabled: deps.pluginState.enabled[manifest.id] !== false,
         lastError: deps.pluginState.lastError[manifest.id] || "",
         signature: manifest.signature || { signed: false, trusted: false, valid: false },
+        runtime: manifest.runtime || "native",
+        apiVersion: manifest.apiVersion || 1,
+        needs: manifest.needs || {},
+        needsHash: manifest.needsHash || computePluginNeedsHash(manifest.needs),
+        needsApproved: arePluginNeedsApproved(deps.pluginState, manifest.id, manifest.needs),
       }));
     return Response.json({ plugins });
   }
@@ -312,8 +356,10 @@ export async function handlePluginRoutes(
 
     const sigInfo = await getOrVerifySignature(deps.PLUGIN_ROOT, pluginId);
 
+    const uploadedManifest = await loadManifest(pluginId);
+
     if (deps.pluginState.enabled[pluginId] === undefined) {
-      deps.pluginState.enabled[pluginId] = sigInfo.trusted === true;
+      deps.pluginState.enabled[pluginId] = sigInfo.trusted === true && needsApproved(uploadedManifest);
       await deps.savePluginState();
     }
 
@@ -364,6 +410,8 @@ export async function handlePluginRoutes(
           );
         }
       }
+      const needsResponse = await requireNeedsApproval(pluginId);
+      if (needsResponse) return needsResponse;
     }
 
     deps.pluginState.enabled[pluginId] = enabled;
@@ -410,6 +458,10 @@ export async function handlePluginRoutes(
         { status: 400 },
       );
     }
+    if (autoLoad) {
+      const needsResponse = await requireNeedsApproval(pluginId);
+      if (needsResponse) return needsResponse;
+    }
 
     deps.pluginState.autoLoad[pluginId] = autoLoad;
 
@@ -442,6 +494,33 @@ export async function handlePluginRoutes(
       autoLoad,
       autoStartEvents: deps.pluginState.autoStartEvents[pluginId] || [],
     });
+  }
+
+  const pluginNeedsApproveMatch = url.pathname.match(/^\/api\/plugins\/(.+)\/needs\/approve$/);
+  if (req.method === "POST" && pluginNeedsApproveMatch) {
+    const user = await authenticateRequest(req);
+    if (!user) return new Response("Unauthorized", { status: 401 });
+    try {
+      requirePermission(user, "plugins:manage");
+    } catch (error) {
+      if (error instanceof Response) return error;
+      return new Response("Forbidden", { status: 403 });
+    }
+    let pluginId = "";
+    try {
+      pluginId = deps.sanitizePluginId(pluginNeedsApproveMatch[1]);
+    } catch {
+      return new Response("Invalid plugin id", { status: 400 });
+    }
+    const manifest = await loadManifest(pluginId);
+    const needsHash = manifest.needsHash || "";
+    if (!needsHash) {
+      delete deps.pluginState.approvedNeeds[pluginId];
+    } else {
+      deps.pluginState.approvedNeeds[pluginId] = needsHash;
+    }
+    await deps.savePluginState();
+    return Response.json({ ok: true, id: pluginId, needsHash, needsApproved: true });
   }
 
   function resolveDataPath(pluginId: string, relPath: string): string | null {
@@ -755,6 +834,7 @@ export async function handlePluginRoutes(
     delete deps.pluginState.lastError[pluginId];
     delete deps.pluginState.autoLoad[pluginId];
     delete deps.pluginState.autoStartEvents[pluginId];
+    delete deps.pluginState.approvedNeeds[pluginId];
     await deps.savePluginState();
 
     if (deps.pluginRuntime.isRunning(pluginId)) {
@@ -821,6 +901,8 @@ export async function handlePluginRoutes(
 
     try {
       const bundle = await deps.loadPluginBundle(pluginId, target.os, target.arch);
+      const needsResponse = await requireNeedsApproval(pluginId);
+      if (needsResponse) return needsResponse;
       deps.markPluginLoading(targetId, pluginId);
       deps.sendPluginBundle(target, bundle);
       metrics.recordCommand("plugin_load");
@@ -902,6 +984,8 @@ export async function handlePluginRoutes(
     }
 
     if (!deps.isPluginLoaded(targetId, pluginId)) {
+      const needsResponse = await requireNeedsApproval(pluginId);
+      if (needsResponse) return needsResponse;
       deps.enqueuePluginEvent(targetId, pluginId, event, payload);
       if (!deps.isPluginLoading(targetId, pluginId)) {
         try {

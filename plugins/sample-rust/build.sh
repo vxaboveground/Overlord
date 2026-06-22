@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLUGIN_DIR="${1:-${ROOT_DIR}/sample-rust}"
+PLUGIN_DIR="${1:-${ROOT_DIR}}"
 NATIVE_DIR="${PLUGIN_DIR}/native"
 PLUGIN_NAME="sample-rust"
 ZIP_OUT="${PLUGIN_DIR}/${PLUGIN_NAME}.zip"

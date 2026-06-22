@@ -96,6 +96,16 @@ function getTrustBadge(sig) {
   return { icon: "fa-shield-halved", color: "text-orange-400 border-orange-600 bg-orange-900/30", label: "Unsigned", tooltip: "This plugin is not signed" };
 }
 
+function describeNeeds(needs) {
+  const files = Array.isArray(needs?.files) ? needs.files : [];
+  if (!files.length) return [];
+  return files.map((need) => {
+    const access = Array.isArray(need.access) ? need.access.join(", ") : "";
+    const reason = need.reason ? ` - ${need.reason}` : "";
+    return `${need.bucket}: ${access}${reason}`;
+  });
+}
+
 function renderPlugins(plugins) {
   pluginList.innerHTML = "";
   if (!plugins.length) {
@@ -123,6 +133,23 @@ function renderPlugins(plugins) {
     trustBadge.title = badge.tooltip;
     titleRow.appendChild(trustBadge);
 
+    const runtimeBadge = document.createElement("span");
+    const isWasm = plugin.runtime === "wasm";
+    const isV2 = Number(plugin.apiVersion || 1) >= 2;
+    runtimeBadge.className = `inline-flex items-center gap-1 text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+      isWasm
+        ? "text-cyan-300 border-cyan-700 bg-cyan-950/40"
+        : isV2
+          ? "text-emerald-300 border-emerald-700 bg-emerald-950/40"
+        : "text-slate-300 border-slate-700 bg-slate-900/60"
+    }`;
+    runtimeBadge.innerHTML = isWasm
+      ? '<i class="fa-solid fa-cube"></i> WASM 2.0'
+      : isV2
+        ? '<i class="fa-solid fa-code"></i> Plugin 2.0'
+      : '<i class="fa-solid fa-puzzle-piece"></i> Native Legacy';
+    titleRow.appendChild(runtimeBadge);
+
     const subtitle = document.createElement("div");
     subtitle.className = "text-sm text-slate-400";
     subtitle.textContent = `${plugin.id}${plugin.version ? ` • v${plugin.version}` : ""}`;
@@ -137,6 +164,19 @@ function renderPlugins(plugins) {
 
     meta.appendChild(titleRow);
     meta.appendChild(subtitle);
+    const needLines = describeNeeds(plugin.needs);
+    if (needLines.length) {
+      const needsBox = document.createElement("div");
+      needsBox.className = "mt-2 text-xs text-slate-300 space-y-1";
+      needsBox.innerHTML = `
+        <div class="${plugin.needsApproved ? "text-emerald-300" : "text-amber-300"}">
+          <i class="fa-solid ${plugin.needsApproved ? "fa-lock-open" : "fa-lock"} mr-1"></i>
+          ${plugin.needsApproved ? "Needs approved" : "Needs approval before load"}
+        </div>
+        ${needLines.map((line) => `<div class="font-mono text-slate-400">${escapeHtml(line)}</div>`).join("")}
+      `;
+      meta.appendChild(needsBox);
+    }
     const actions = document.createElement("div");
     actions.className = "flex items-center gap-2";
 
@@ -159,6 +199,13 @@ function renderPlugins(plugins) {
         });
         if (!res.ok) {
           const data = await res.json().catch(() => null);
+          if (data && data.error === "needs_approval_required") {
+            showNeedsApprovalModal(plugin, data.needs, data.needsHash, async () => {
+              await setPluginEnabled(plugin, wantEnabled, true);
+              await refresh();
+            });
+            return;
+          }
           if (data && data.error === "confirmation_required") {
             showPluginEnableConfirmModal(plugin, data.signature);
             return;
@@ -202,12 +249,35 @@ function renderPlugins(plugins) {
           }),
         });
         if (!res.ok) {
-          const text = await res.text();
-          setStatus(`Auto-load toggle failed: ${text}`, true);
+          const data = await res.json().catch(() => null);
+          if (data && data.error === "needs_approval_required") {
+            showNeedsApprovalModal(plugin, data.needs, data.needsHash, async () => {
+              await fetch(`/api/plugins/${plugin.id}/autoload`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  autoLoad: !plugin.autoLoad,
+                  autoStartEvents: plugin.autoStartEvents || [],
+                }),
+              });
+              await refresh();
+            });
+            return;
+          }
+          setStatus(`Auto-load toggle failed: ${data?.error || res.statusText}`, true);
           return;
         }
         await refresh();
       });
+    }
+
+    if (needLines.length && !plugin.needsApproved) {
+      const approveBtn = document.createElement("button");
+      approveBtn.className =
+        "inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-900/40 border border-amber-700/60 hover:bg-amber-800/60 text-amber-100";
+      approveBtn.innerHTML = '<i class="fa-solid fa-key"></i> Approve needs';
+      approveBtn.addEventListener("click", () => showNeedsApprovalModal(plugin, plugin.needs, plugin.needsHash, refresh));
+      actions.appendChild(approveBtn);
     }
 
     const removeBtn = document.createElement("button");
@@ -239,6 +309,65 @@ function renderPlugins(plugins) {
     }
     pluginList.appendChild(card);
   }
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+async function setPluginEnabled(plugin, enabled, confirmed = false) {
+  return fetch(`/api/plugins/${plugin.id}/enable`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled, confirmed }),
+  });
+}
+
+function showNeedsApprovalModal(plugin, needs, needsHash, afterApprove) {
+  document.getElementById("plugin-needs-approval-modal")?.remove();
+  const needLines = describeNeeds(needs);
+  const overlay = document.createElement("div");
+  overlay.id = "plugin-needs-approval-modal";
+  overlay.className = "fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm";
+  overlay.innerHTML = `
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-lg w-full mx-4 shadow-2xl">
+      <div class="flex items-center gap-3 mb-4">
+        <i class="fa-solid fa-key text-2xl text-amber-300"></i>
+        <h3 class="text-lg font-semibold text-slate-100">Approve Plugin Needs</h3>
+      </div>
+      <p class="text-sm text-slate-300 mb-3"><strong class="text-slate-100">${escapeHtml(plugin.name || plugin.id)}</strong> is asking for filesystem bridges before it can be sent to clients.</p>
+      <div class="rounded-lg border border-slate-700 bg-slate-950/70 p-3 mb-3 space-y-2">
+        ${needLines.length ? needLines.map((line) => `<div class="text-xs font-mono text-slate-300">${escapeHtml(line)}</div>`).join("") : '<div class="text-sm text-slate-400">No filesystem needs declared.</div>'}
+      </div>
+      ${needsHash ? `<p class="text-xs text-slate-500 font-mono mb-4">Needs hash: ${escapeHtml(needsHash.slice(0, 16))}...</p>` : ""}
+      <div class="flex justify-end gap-2">
+        <button id="plugin-needs-cancel" class="px-4 py-2 rounded-lg bg-slate-800 border border-slate-600 text-slate-300 hover:bg-slate-700">Cancel</button>
+        <button id="plugin-needs-ok" class="px-4 py-2 rounded-lg bg-amber-900/40 border border-amber-700/60 text-amber-100 hover:bg-amber-800/60">Approve</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  document.getElementById("plugin-needs-cancel")?.addEventListener("click", () => overlay.remove());
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+  document.getElementById("plugin-needs-ok")?.addEventListener("click", async () => {
+    const okBtn = document.getElementById("plugin-needs-ok");
+    okBtn.disabled = true;
+    okBtn.textContent = "Approving...";
+    const res = await fetch(`/api/plugins/${plugin.id}/needs/approve`, { method: "POST" });
+    if (!res.ok) {
+      const text = await res.text();
+      setStatus(`Needs approval failed: ${text}`, true);
+      overlay.remove();
+      return;
+    }
+    overlay.remove();
+    setStatus("Plugin needs approved.");
+    if (typeof afterApprove === "function") await afterApprove();
+  });
 }
 
 function showPluginEnableConfirmModal(plugin, sigInfo) {
@@ -302,8 +431,16 @@ function showPluginEnableConfirmModal(plugin, sigInfo) {
         body: JSON.stringify({ enabled: true, confirmed: true }),
       });
       if (!res.ok) {
-        const text = await res.text();
-        setStatus(`Enable failed: ${text}`, true);
+        const data = await res.json().catch(() => null);
+        if (data && data.error === "needs_approval_required") {
+          overlay.remove();
+          showNeedsApprovalModal(plugin, data.needs, data.needsHash, async () => {
+            await setPluginEnabled(plugin, true, true);
+            await refresh();
+          });
+          return;
+        }
+        setStatus(`Enable failed: ${data?.error || res.statusText}`, true);
       }
     } catch {
       setStatus("Enable failed", true);

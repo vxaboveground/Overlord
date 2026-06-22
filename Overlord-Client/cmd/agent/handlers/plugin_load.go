@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -89,6 +90,7 @@ func HandlePluginLoadHTTP(ctx context.Context, env *agentRuntime.Env, cmdID stri
 	}
 
 	if err := env.Plugins.Load(ctx, manifest, binary); err != nil {
+		log.Printf("[plugin] load failed %s: %v", manifest.ID, err)
 		_ = wire.WriteMsg(ctx, env.Conn, wire.PluginEvent{Type: "plugin_event", PluginID: manifest.ID, Event: "error", Error: err.Error()})
 		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: err.Error()})
 	}

@@ -1,10 +1,92 @@
 # Overlord Plugins
 
-This document explains how to build Overlord plugins using the **native plugin system**. Plugins run as native shared libraries (`.so` on Linux, `.dylib` on macOS, in-memory DLL on Windows), giving them full access to system APIs.
+This document explains how to build Overlord plugins. **Plugin 2.0** uses WebAssembly modules for agent-side code and permissioned host bridges. The legacy native plugin system still works, but native plugins are now considered v1.
 
-Plugins can be written in **any language** that can produce a C-ABI shared library: **Go**, **C**, **C++**, **Rust**, or anything else that compiles to native code.
+Plugin UI and server-side logic can be written in JavaScript or TypeScript. Agent-side Plugin 2.0 code is a single WASM module that can be built from C, Rust, Zig, TinyGo, AssemblyScript, or any other toolchain that can target WASI-style WebAssembly. Legacy v1 agent plugins can still be written as native shared libraries.
 
-> TL;DR: A plugin is a zip with platform-specific binaries (`.so`/`.dll`/`.dylib`) plus `<id>.html`, `<id>.css`, `<id>.js`. Upload it in the Plugins page or drop it in Overlord-Server/plugins. Optionally include a `server.js` for a per-plugin server runtime with a private SQLite DB, an RPC API, and live broadcasts to open UIs (see [section 11](#11-server-side-plugin-runtime)).
+> TL;DR: A Plugin 2.0 bundle is a zip with `config.json`, `<id>.html`, `<id>.css`, and either `<id>.js` or TypeScript under `src/`. If it needs agent-side code, include one `.wasm` module. Upload it in the Plugins page or drop it in `Overlord-Server/plugins`. The server shows declared `needs` before a WASM plugin can be sent to a client.
+
+## Plugin 2.0: WASM runtime
+
+WASM plugins run inside the agent through a sandboxed runtime. They cannot access files directly; instead they declare broad file needs in `config.json`, and the agent exposes only those approved bridge operations.
+
+```json
+{
+  "name": "My WASM Plugin",
+  "version": "1.0.0",
+  "apiVersion": 2,
+  "runtime": "wasm",
+  "wasm": "my-plugin.wasm",
+  "needs": {
+    "files": [
+      { "bucket": "pluginData", "access": ["read", "write", "list", "mkdir"], "reason": "Store plugin state" },
+      { "bucket": "downloads", "access": ["list"], "reason": "Let the user pick downloaded files" }
+    ]
+  }
+}
+```
+
+Supported file buckets are `home`, `desktop`, `documents`, `downloads`, `temp`, `appData`, `pluginData`, and `fullDisk`. Supported operations are `read`, `write`, `list`, `delete`, and `mkdir`. Approval is tracked by a stable hash of the normalized needs; changing needs requires approval again.
+
+Required exports:
+
+| Export | Signature |
+|--------|-----------|
+| `overlord_alloc` | `ptr(uint32 size)` |
+| `overlord_free` | `void(ptr, uint32 size)` |
+| `overlord_on_load` | `int32(ptr hostInfo, uint32 hostInfoLen)` |
+| `overlord_on_event` | `int32(ptr event, uint32 eventLen, ptr payload, uint32 payloadLen)` |
+| `overlord_on_unload` | `void()` |
+
+Host imports are available from both `env` and `overlord` modules:
+
+| Import | Behavior |
+|--------|----------|
+| `overlord_emit(event, eventLen, payload, payloadLen)` | Sends an event back through the normal plugin event channel. |
+| `overlord_host_info(out, outLen)` | Writes HostInfo JSON into `out`; includes `clientId`, `os`, `arch`, and `version`. |
+| `overlord_fs_stat(bucket, bucketLen, path, pathLen, out, outLen)` | Writes JSON file metadata into `out`. |
+| `overlord_fs_list(bucket, bucketLen, path, pathLen, out, outLen)` | Writes a JSON directory listing into `out`. |
+| `overlord_fs_read(bucket, bucketLen, path, pathLen, out, outLen)` | Writes file bytes into `out`, max 32 MB. |
+| `overlord_fs_write(bucket, bucketLen, path, pathLen, data, dataLen)` | Writes bytes to a bucket-relative path. |
+| `overlord_fs_delete(bucket, bucketLen, path, pathLen)` | Deletes a bucket-relative file or directory. |
+| `overlord_fs_mkdir(bucket, bucketLen, path, pathLen)` | Creates a bucket-relative directory. |
+
+Bridge functions return non-negative byte counts or `0` on success. Negative return codes mean denied, invalid path/memory, not found, output buffer too small, file too large, or I/O failure.
+
+See `plugins/sample-wasm` for a C/WASI example, `plugins/sample-wasm-hostinfo` for a TinyGo example, and `plugins/sample-wasm-platform-note` for a Rust example.
+
+## TypeScript UI and server logic
+
+Plugin bundles can ship TypeScript source for browser UI logic and the optional server runtime. The server compiles these files during extraction, so the uploaded zip can stay clean and source-oriented.
+
+Default layout:
+
+```
+sample-ts-fullstack.zip
+  ├─ config.json
+  ├─ sample-ts-fullstack.html
+  ├─ sample-ts-fullstack.css
+  └─ src/
+     ├─ ui.ts
+     ├─ server.ts
+     └─ shared.ts
+```
+
+`src/ui.ts` is compiled to `assets/<pluginId>.js`. `src/server.ts` is compiled to `server.js`. Both entrypoints can import other local files, so plugin authors can split code across multiple TypeScript modules instead of maintaining one large JavaScript file. This is only for browser UI and server-side plugin runtime logic; agent-side WASM is still supplied as a prebuilt `.wasm` file.
+
+You can override entrypoints in `config.json`:
+
+```json
+{
+  "apiVersion": 2,
+  "uiEntry": "src/browser/main.ts",
+  "serverEntry": "src/backend/index.ts"
+}
+```
+
+Only files under `src/` are copied for compilation. Extraction does not run `npm install`, download packages, or execute arbitrary build scripts; use relative imports and APIs already available in the browser or the Overlord plugin server runtime.
+
+See `plugins/sample-ts-fullstack` for a multi-file TypeScript UI/backend example.
 
 ## 1) How plugins are structured
 
@@ -16,47 +98,84 @@ A plugin bundle is a zip file named after the plugin ID:
 <pluginId>.zip
 ```
 
-Inside the zip (root level), you need:
-
-- **Platform-specific binaries** named `<pluginId>-<os>-<arch>.<ext>`
-- **Web assets**: `<pluginId>.html`, `<pluginId>.css`, `<pluginId>.js`
-
-Example for plugin ID `sample`:
+For a Plugin 2.0 source-oriented bundle, the root normally contains:
 
 ```
-sample.zip
-  ├─ sample-linux-amd64.so
-  ├─ sample-linux-arm64.so
-  ├─ sample-darwin-arm64.dylib
-  ├─ sample-windows-amd64.dll
-  ├─ sample.html
-  ├─ sample.css
-  ├─ sample.js
-  ├─ server.js            (optional — server-side runtime, see section 11)
-  └─ config.json          (optional — enables navbar & metadata)
+<pluginId>.zip
+  ├─ config.json
+  ├─ <pluginId>.html
+  ├─ <pluginId>.css
+  ├─ <pluginId>.js              (optional when src/ui.ts exists)
+  ├─ <pluginId>.wasm            (optional agent-side WASM module)
+  └─ src/                       (optional TypeScript/JavaScript source)
+     ├─ ui.ts                   (compiled to assets/<pluginId>.js)
+     ├─ server.ts               (compiled to server.js)
+     └─ shared.ts
+```
+
+For a legacy native v1 bundle, include platform-specific binaries named `<pluginId>-<os>-<arch>.<ext>` plus web assets.
+
+Plugin 2.0 example for plugin ID `sample-wasm`:
+
+```
+sample-wasm.zip
+  ├─ config.json
+  ├─ sample-wasm.html
+  ├─ sample-wasm.css
+  ├─ sample-wasm.wasm
+  └─ src/
+     ├─ ui.ts
+     └─ server.ts
 ```
 
 When the server extracts the zip:
 
 ```
-Overlord-Server/plugins/sample/
-  ├─ sample-linux-amd64.so
-  ├─ sample-linux-arm64.so
-  ├─ sample-darwin-arm64.dylib
-  ├─ sample-windows-amd64.dll
-  ├─ server.js              (optional — picked up by the plugin runtime)
+Overlord-Server/plugins/sample-wasm/
+  ├─ sample-wasm.wasm
+  ├─ server.js              (compiled from src/server.ts when present)
   ├─ manifest.json          (auto-generated, merged with config.json)
+  ├─ src/                   (copied source files)
   ├─ data/
   │  └─ plugin.db           (auto-created when server.js is present)
   └─ assets/
-     ├─ sample.html
-     ├─ sample.css
-     └─ sample.js
+     ├─ sample-wasm.html
+     ├─ sample-wasm.css
+     └─ sample-wasm.js      (compiled from src/ui.ts or copied from root JS)
 ```
 
-### Architecture validation
+### Runtime selection
 
-The server matches binaries to clients by OS and architecture. Binary filenames **must** follow the naming convention `<pluginId>-<os>-<arch>.<ext>`:
+`config.json` controls the runtime style:
+
+```json
+{
+  "apiVersion": 2,
+  "runtime": "wasm",
+  "wasm": "sample-wasm.wasm"
+}
+```
+
+Use `runtime: "wasm"` when the plugin has an agent-side WASM module. Use `runtime: "server"` for UI/server-only Plugin 2.0 bundles. Legacy native bundles omit `apiVersion`/`runtime` or use `runtime: "native"`.
+
+### WASM architecture behavior
+
+WASM plugins are universal: the same `.wasm` file is sent to Windows, Linux, and macOS clients on any supported architecture. To branch by client platform, read HostInfo either from `overlord_on_load(hostInfo, hostInfoLen)` or by calling `overlord_host_info(out, outLen)`.
+
+Example HostInfo:
+
+```json
+{
+  "clientId": "abc123",
+  "os": "windows",
+  "arch": "amd64",
+  "version": "1.0.0"
+}
+```
+
+### Legacy native architecture validation
+
+Legacy native v1 binaries are still matched to clients by OS and architecture. Binary filenames **must** follow the naming convention `<pluginId>-<os>-<arch>.<ext>`:
 
 | OS       | Arch    | Example filename             |
 |----------|---------|------------------------------|
@@ -67,7 +186,7 @@ The server matches binaries to clients by OS and architecture. Binary filenames 
 | darwin   | amd64   | `sample-darwin-amd64.dylib`  |
 | darwin   | arm64   | `sample-darwin-arm64.dylib`  |
 
-The server will **never** send an x64 binary to an ARM client (or vice versa). If no binary matches the client's platform, loading is skipped with an error.
+The server will **never** send an x64 native binary to an ARM client (or vice versa). If no native binary matches the client's platform, loading is skipped with an error.
 
 ### Manifest fields
 
@@ -77,13 +196,18 @@ The auto-generated manifest (merged with `config.json` if present):
 {
   "id": "sample",
   "name": "Sample Plugin",
+  "apiVersion": 2,
+  "runtime": "wasm",
   "version": "1.0.0",
   "description": "An example plugin",
+  "wasm": "sample.wasm",
+  "needs": {
+    "files": [
+      { "bucket": "pluginData", "access": ["read", "write"], "reason": "Store plugin state" }
+    ]
+  },
   "binaries": {
-    "linux-amd64": "sample-linux-amd64.so",
-    "linux-arm64": "sample-linux-arm64.so",
-    "darwin-arm64": "sample-darwin-arm64.dylib",
-    "windows-amd64": "sample-windows-amd64.dll"
+    "wasm32-wasi": "sample.wasm"
   },
   "entry": "sample.html",
   "assets": {
@@ -98,7 +222,7 @@ The auto-generated manifest (merged with `config.json` if present):
 }
 ```
 
-The `navbar` field is only present when a `config.json` is included in the bundle.
+The `navbar`, `needs`, `wasm`, and TypeScript entrypoint fields are present only when declared or inferred from the bundle.
 
 ### Global Nav Bar Plugins (`config.json`)
 
@@ -125,9 +249,11 @@ When the server extracts the bundle:
 
 > **Important:** `config.json` must be in the **root** of the zip (not inside a subfolder). The build scripts automatically include it if it exists at the plugin source root. The manifest is re-generated on every extraction (triggered when the zip is newer than `manifest.json`), so keep `config.json` in the zip to avoid losing the navbar registration on re-upload.
 
-## 2) Plugin ABI (all languages)
+## 2) Legacy native plugin ABI
 
-Every plugin — regardless of language — must export **C-callable functions** with specific signatures. The ABI differs slightly between Windows and Unix.
+This section applies only to legacy v1 native agent plugins. Plugin 2.0 WASM modules use the `overlord_*` ABI described above.
+
+Every native plugin must export **C-callable functions** with specific signatures. The ABI differs slightly between Windows and Unix.
 
 ### Required exports
 
@@ -199,7 +325,18 @@ The `hostInfo` buffer passed to `PluginOnLoad` is JSON:
 - **Linux** — Shared libraries are loaded in memory via `memfd_create` + `dlopen` on `/proc/self/fd/`. No files touch disk.
 - **macOS** — Shared libraries are written to a temp file, `dlopen`'d, then the temp file is deleted.
 
-## 3) Sample plugins by language
+## 3) Sample plugins
+
+Current Plugin 2.0 samples:
+
+| Sample | Purpose |
+|--------|---------|
+| `sample-wasm` | C/WASI file bridge sample using `pluginData`, `downloads`, and `overlord_host_info`. |
+| `sample-wasm-hostinfo` | TinyGo sample that queries HostInfo from a universal WASM module. |
+| `sample-wasm-platform-note` | Rust sample that branches by `os`/`arch` inside one WASM module and writes a platform-specific note. |
+| `sample-ts-fullstack` | TypeScript UI plus TypeScript server runtime with shared local modules. |
+
+Legacy native samples remain available:
 
 ### Go (`sample-go/`)
 
@@ -390,18 +527,20 @@ cargo build --release --target=x86_64-pc-windows-msvc
 cargo build --release --target=aarch64-unknown-linux-gnu
 ```
 
-## 4) Build scripts & cross-compilation
+## 4) Legacy native build scripts & cross-compilation
 
-Each language has `.bat` (Windows) and `.sh` (Unix) build scripts. All scripts support the `BUILD_TARGETS` environment variable to compile for multiple platforms in one invocation.
+This section applies to legacy native v1 plugins. Plugin 2.0 WASM modules are universal and do not need one binary per OS/architecture, though you still need a WASM toolchain such as WASI clang, Rust `wasm32-wasip1`, Zig, TinyGo, or AssemblyScript.
+
+Each legacy native sample keeps its `.bat` (Windows) and `.sh` (Unix) build scripts in the plugin's own directory. All scripts support the `BUILD_TARGETS` environment variable to compile for multiple platforms in one invocation.
 
 ### Available build scripts
 
 | Language | Windows                  | Unix                    |
 |----------|--------------------------|-------------------------|
-| Go       | `build-plugin.bat`       | `build-plugin.sh`       |
-| C        | `build-plugin-c.bat`     | `build-plugin-c.sh`     |
-| C++      | `build-plugin-cpp.bat`   | `build-plugin-cpp.sh`   |
-| Rust     | `build-plugin-rust.bat`  | `build-plugin-rust.sh`  |
+| Go       | `sample-go/build.bat`       | `sample-go/build.sh`       |
+| C        | `sample-c/build.bat`        | `sample-c/build.sh`        |
+| C++      | `sample-cpp/build.bat`      | `sample-cpp/build.sh`      |
+| Rust     | `sample-rust/build.bat`     | `sample-rust/build.sh`     |
 
 ### Usage
 
@@ -409,25 +548,26 @@ All scripts default to building for the host platform only:
 
 ```bash
 # Build for current platform
-./build-plugin-c.sh
+cd sample-c
+./build.sh
 
 # Build for multiple targets
-BUILD_TARGETS="linux-amd64 linux-arm64 windows-amd64" ./build-plugin-c.sh
+BUILD_TARGETS="linux-amd64 linux-arm64 windows-amd64" ./build.sh
 
 # Custom plugin directory
-./build-plugin-c.sh /path/to/my-plugin
+./build.sh /path/to/my-plugin
 ```
 
 ```bat
 REM Build for current platform
-build-plugin-c.bat
+sample-c\build.bat
 
 REM Build for multiple targets
 set BUILD_TARGETS=windows-amd64 windows-arm64
-build-plugin-c.bat
+sample-c\build.bat
 
 REM Custom plugin directory
-build-plugin-c.bat C:\path\to\my-plugin
+sample-c\build.bat C:\path\to\my-plugin
 ```
 
 ### Cross-compilation
@@ -460,8 +600,8 @@ On Windows `.bat` scripts, MSVC (`cl`) is tried first with the appropriate `/lin
 On Unix `.sh` scripts, override the compiler with `CC=<compiler>` (C) or `CXX=<compiler>` (C++):
 
 ```bash
-CC=zig-cc BUILD_TARGETS="linux-arm64" ./build-plugin-c.sh
-CXX=zig-c++ BUILD_TARGETS="linux-arm64" ./build-plugin-cpp.sh
+CC=zig-cc BUILD_TARGETS="linux-arm64" ./sample-c/build.sh
+CXX=zig-c++ BUILD_TARGETS="linux-arm64" ./sample-cpp/build.sh
 ```
 
 ### Installing cross-compiler toolchains
@@ -487,6 +627,50 @@ brew install FiloSottile/musl-cross/musl-cross
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
 ```
 
+### WASM build examples
+
+Plugin 2.0 samples keep their Windows builders in their own plugin directories:
+
+| Script | Purpose |
+|--------|---------|
+| `sample-wasm/build.bat` | Builds and packages `sample-wasm`. |
+| `sample-wasm-hostinfo/build.bat` | Builds and packages `sample-wasm-hostinfo`. |
+| `sample-wasm-platform-note/build.bat` | Builds and packages `sample-wasm-platform-note`. |
+| `sample-ts-fullstack/build.bat` | Packages the TypeScript UI/server sample; the server compiles TypeScript during extraction. |
+
+Usage:
+
+```bat
+REM Per-sample Plugin 2.0 build
+sample-ts-fullstack\build.bat
+sample-wasm\build.bat
+```
+
+The sample WASM plugins intentionally use different source languages:
+
+| Sample | Source language | Toolchain |
+|--------|-----------------|-----------|
+| `sample-wasm` | C | WASI-capable `clang` |
+| `sample-wasm-hostinfo` | Go | TinyGo 0.41.0+ with `-target=wasi` |
+| `sample-wasm-platform-note` | Rust | Rust target `wasm32-wasip1` |
+
+A minimal manual C/WASI build for `sample-wasm` looks like:
+
+```bash
+clang --target=wasm32-wasi -O2 \
+  -Wl,--no-entry \
+  -Wl,--export=overlord_alloc \
+  -Wl,--export=overlord_free \
+  -Wl,--export=overlord_on_load \
+  -Wl,--export=overlord_on_event \
+  -Wl,--export=overlord_on_unload \
+  -o sample-wasm.wasm native/sample_wasm.c
+```
+
+The generated `.wasm` goes at the root of the plugin zip and is referenced by `config.json`.
+
+For the TinyGo sample, install TinyGo 0.41.0 or newer and run `sample-wasm-hostinfo\build.bat`. For the Rust sample, install the target with `rustup target add wasm32-wasip1`, then run `sample-wasm-platform-note\build.bat`.
+
 ## 5) Install & open a plugin
 
 ### Install / upload
@@ -508,7 +692,7 @@ For **global nav bar plugins** (those registered via `config.json`), the UI open
 /plugins/<pluginId>
 ```
 
-The server reads your `<pluginId>.html`, extracts the body content, and renders it inside the standard Overlord layout. Your CSS and JS are loaded from `/plugins/<pluginId>/assets/`.
+The server reads your `<pluginId>.html`, extracts the body content, and renders it inside the standard Overlord layout. Your CSS and generated/copied JS are loaded from `/plugins/<pluginId>/assets/`.
 
 To get the `clientId` in your JS (for per-client plugins):
 
@@ -529,7 +713,9 @@ const onlineIds = items.filter(c => c.online).map(c => c.id);
 Overlord plugins have **two parts**:
 
 1. **UI (HTML/CSS/JS)** — Runs in the browser, calls server APIs.
-2. **Native module** — Runs in the agent (client) process as a loaded shared library.
+2. **Optional agent module** — Plugin 2.0 uses WASM; legacy v1 uses native shared libraries.
+
+Plugins can also include optional **server-side logic** through `server.js` or compiled `src/server.ts`. That code runs in the server plugin worker and exposes RPC/broadcast APIs to the UI.
 
 ### UI → agent (plugin event)
 
@@ -545,13 +731,13 @@ POST /api/clients/<clientId>/plugins/<pluginId>/event
 
 If the plugin is not loaded yet, the server will load it on the client, queue the event, and deliver it once ready.
 
-### Agent → plugin (direct function call)
+### Agent → plugin
 
-The agent calls your `OnEvent(event, payload)` function directly with JSON-encoded data. No stdin/stdout pipes, no msgpack — just a direct function call.
+For WASM plugins, the agent calls `overlord_on_event(eventPtr, eventLen, payloadPtr, payloadLen)`. For legacy native plugins, the agent calls `PluginOnEvent(event, payload)`. In both cases the payload is JSON-encoded data from the UI/server.
 
-### Plugin → agent (callback)
+### Plugin → agent/server events
 
-Your plugin sends events back to the host using the callback received during `OnLoad`:
+WASM plugins send events with `overlord_emit(event, eventLen, payload, payloadLen)`. Legacy native plugins use the callback received during `PluginOnLoad`.
 
 **Go:**
 ```go
@@ -582,7 +768,16 @@ The agent sends these events to the server:
 
 ## 7) What can plugins do?
 
-Since plugins run as native code, they can:
+WASM Plugin 2.0 agent modules are sandboxed. They can:
+
+- Receive UI/server events.
+- Send events back through `overlord_emit`.
+- Read HostInfo (`clientId`, `os`, `arch`, `version`).
+- Use declared file bridges after the user approves the plugin's `needs`.
+
+WASM modules cannot directly access arbitrary files, processes, network sockets, or OS APIs unless Overlord exposes an explicit host bridge.
+
+Legacy native v1 plugins run as native code and can:
 
 - Call any system API (file I/O, network, processes, etc.)
 - Use any library available to their language
@@ -590,7 +785,7 @@ Since plugins run as native code, they can:
 - Access hardware
 - Do anything a normal native program can do
 
-Plugins have the same capabilities as the agent itself.
+Legacy native plugins have the same capabilities as the agent itself.
 
 | Language | Can be fully unloaded? | Runtime overhead |
 |----------|----------------------|------------------|
@@ -647,9 +842,10 @@ If you want defensive scoping anyway, wrap your plugin JS in an IIFE so top-leve
 
 ### Plugin management
 
-- `GET /api/plugins` — list installed plugins (includes `autoLoad` and `autoStartEvents` per plugin)
+- `GET /api/plugins` — list installed plugins, including `runtime`, `apiVersion`, `needs`, `needsHash`, `needsApproved`, `autoLoad`, and `autoStartEvents`
 - `POST /api/plugins/upload` — upload zip
 - `POST /api/plugins/<id>/enable` — enable/disable
+- `POST /api/plugins/<id>/needs/approve` — approve the currently declared Plugin 2.0 needs hash
 - `POST /api/plugins/<id>/autoload` — configure auto-load on client connect
 - `DELETE /api/plugins/<id>` — remove (preserves `data/` directory)
 
@@ -775,10 +971,11 @@ Content-Type: application/json
 ### Notes
 
 - Auto-load respects the `enabled` flag — disabled plugins are never auto-loaded
+- Auto-load for plugins with declared `needs` is blocked until those needs are approved
 - Auto-load state is persisted in `.plugin-state.json` and survives server restarts
 - Deleting a plugin also removes its auto-load configuration
-- The server selects the correct binary for each client's OS/architecture automatically
-- If a plugin binary isn't available for a client's platform, the auto-load silently skips that client
+- WASM plugins use one universal module for every OS/architecture
+- Legacy native plugins still require a compatible binary for each target platform; if one is unavailable, auto-load skips that client
 
 ## 10) Server-side plugin data directory
 
@@ -1197,11 +1394,11 @@ Set the `PLUGIN_SIGN_KEY` environment variable to automatically sign plugins dur
 
 ```bash
 # Unix
-PLUGIN_SIGN_KEY=path/to/my-signing-key.key ./build-plugin.sh
+PLUGIN_SIGN_KEY=path/to/my-signing-key.key ./sample-go/build.sh
 
 # Windows
 set PLUGIN_SIGN_KEY=path\to\my-signing-key.key
-build-plugin.bat
+sample-go\build.bat
 ```
 
 ### How Signing Works

@@ -616,8 +616,13 @@ function showPluginConfirmModal(pluginId, clientId, sigInfo) {
         body: JSON.stringify({ confirmed: true }),
       });
       if (!res.ok) {
-        const text = await res.text();
-        alert(`Plugin load failed: ${text}`);
+        const data = await res.json().catch(() => null);
+        if (data?.error === "needs_approval_required") {
+          modal.remove();
+          showPluginNeedsModal(pluginId, clientId, data.needs, data.needsHash);
+          return;
+        }
+        alert(`Plugin load failed: ${data?.error || res.statusText}`);
       } else {
         window.open(`/plugins/${pluginId}?clientId=${clientId}`, "_blank", "noopener");
       }
@@ -628,6 +633,79 @@ function showPluginConfirmModal(pluginId, clientId, sigInfo) {
   });
 
   input.focus();
+}
+
+function escapePluginHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function pluginNeedLines(needs) {
+  const files = Array.isArray(needs?.files) ? needs.files : [];
+  return files.map((need) => {
+    const access = Array.isArray(need.access) ? need.access.join(", ") : "";
+    const reason = need.reason ? ` - ${need.reason}` : "";
+    return `${need.bucket}: ${access}${reason}`;
+  });
+}
+
+function showPluginNeedsModal(pluginId, clientId, needs, needsHash) {
+  document.getElementById("plugin-needs-modal")?.remove();
+  const lines = pluginNeedLines(needs);
+  const modal = document.createElement("div");
+  modal.id = "plugin-needs-modal";
+  modal.className = "fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm";
+  modal.innerHTML = `
+    <div class="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl max-w-lg w-full mx-4 p-6">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-10 h-10 rounded-full flex items-center justify-center bg-amber-900/60 text-amber-300">
+          <i class="fa-solid fa-key text-lg"></i>
+        </div>
+        <div>
+          <h3 class="font-semibold text-lg">Approve Plugin Needs</h3>
+          <p class="text-sm text-slate-400">${escapePluginHtml(pluginId)}</p>
+        </div>
+      </div>
+      <p class="text-sm text-slate-300 mb-3">This plugin declares filesystem bridges that must be approved before loading.</p>
+      <div class="rounded-lg border border-slate-700 bg-slate-950/70 p-3 mb-3 space-y-2">
+        ${lines.length ? lines.map((line) => `<div class="text-xs font-mono text-slate-300">${escapePluginHtml(line)}</div>`).join("") : '<div class="text-sm text-slate-400">No filesystem needs declared.</div>'}
+      </div>
+      ${needsHash ? `<p class="text-xs text-slate-500 font-mono mb-4">Needs hash: ${escapePluginHtml(needsHash.slice(0, 16))}...</p>` : ""}
+      <div class="flex gap-3 justify-end">
+        <button id="plugin-needs-cancel" class="px-4 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-800">Cancel</button>
+        <button id="plugin-needs-approve" class="px-4 py-2 rounded-lg bg-amber-900/40 border border-amber-700/60 text-amber-100 hover:bg-amber-800/60">Approve and Load</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  document.getElementById("plugin-needs-cancel")?.addEventListener("click", () => modal.remove());
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+  document.getElementById("plugin-needs-approve")?.addEventListener("click", async () => {
+    const approveBtn = document.getElementById("plugin-needs-approve");
+    approveBtn.disabled = true;
+    approveBtn.textContent = "Approving...";
+    const approve = await fetch(`/api/plugins/${pluginId}/needs/approve`, { method: "POST" });
+    if (!approve.ok) {
+      alert("Needs approval failed");
+      modal.remove();
+      return;
+    }
+    const res = await fetch(`/api/clients/${clientId}/plugins/${pluginId}/load`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmed: true }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      alert(`Plugin load failed: ${data?.error || res.statusText}`);
+    } else {
+      window.open(`/plugins/${pluginId}?clientId=${clientId}`, "_blank", "noopener");
+    }
+    modal.remove();
+  });
 }
 
 function renderPluginMenu(plugins) {
@@ -1708,7 +1786,11 @@ menu.addEventListener("click", async (e) => {
       if (res.status === 428) {
         const data = await res.json();
         closeMenu(clearContext);
-        showPluginConfirmModal(pluginId, savedClientId, data.signature);
+        if (data.error === "needs_approval_required") {
+          showPluginNeedsModal(pluginId, savedClientId, data.needs, data.needsHash);
+        } else {
+          showPluginConfirmModal(pluginId, savedClientId, data.signature);
+        }
         return;
       }
 
