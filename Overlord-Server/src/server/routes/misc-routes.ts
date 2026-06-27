@@ -470,6 +470,27 @@ export async function handleMiscRoutes(
     return new Response("ok", { headers: deps.CORS_HEADERS });
   }
 
+  if (req.method === "GET" && url.pathname === "/api/public-ip") {
+    try {
+      const resp = await fetch("https://api.ipify.org?format=text", { signal: AbortSignal.timeout(8000) });
+      if (!resp.ok) {
+        return new Response(JSON.stringify({ error: "Upstream IP service unavailable" }), {
+          status: 502,
+          headers: { ...deps.CORS_HEADERS, "Content-Type": "application/json" },
+        });
+      }
+      const ip = (await resp.text()).trim();
+      return new Response(JSON.stringify({ ip }), {
+        headers: { ...deps.CORS_HEADERS, "Content-Type": "application/json" },
+      });
+    } catch {
+      return new Response(JSON.stringify({ error: "Failed to fetch public IP" }), {
+        status: 502,
+        headers: { ...deps.CORS_HEADERS, "Content-Type": "application/json" },
+      });
+    }
+  }
+
   if (req.method === "GET" && url.pathname === "/api/version") {
     return new Response(JSON.stringify({ version: deps.SERVER_VERSION }), {
       headers: {
