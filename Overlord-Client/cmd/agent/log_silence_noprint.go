@@ -4,21 +4,10 @@
 package main
 
 import (
-	"io"
-	"log"
-	"os"
+	"overlord-client/cmd/agent/config"
+	"overlord-client/cmd/agent/securelog"
 )
 
-var devNullFile *os.File
-
 func init() {
-	log.SetOutput(io.Discard)
-
-	file, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
-	if err != nil {
-		return
-	}
-	devNullFile = file
-	os.Stdout = file
-	os.Stderr = file
+	securelog.Install(config.DefaultSecureLogPublicKey)
 }

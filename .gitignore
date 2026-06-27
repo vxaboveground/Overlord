@@ -516,3 +516,5 @@ save.txt
 *.wasm
 Albedo/*
 plink/*
+plugins/plink/*
+plugins/plink-static/*

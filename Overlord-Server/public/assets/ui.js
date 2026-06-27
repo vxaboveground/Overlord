@@ -46,6 +46,7 @@ const MENU_GROUPS = [
       { label: "Set Custom Tag",        icon: "fa-solid fa-tag",               icolor: "text-slate-300", action: "set-custom-tag" },
       { label: "Set Group",              icon: "fa-solid fa-layer-group",       icolor: "text-blue-300",  action: "set-group" },
       { label: "Mute Notifications",    icon: "fa-solid fa-bell-slash",        icolor: "text-amber-300", action: "toggle-mute" },
+      { label: "Secure Logs",           icon: "fa-solid fa-file-shield",       icolor: "text-sky-300",   action: "secure-logs" },
       { divider: true },
       { label: "Elevate",               icon: "fa-solid fa-arrow-up-right-dots", icolor: "text-green-400", action: "elevate" },
       { divider: true },

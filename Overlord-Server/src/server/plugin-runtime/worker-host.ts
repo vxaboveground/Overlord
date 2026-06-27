@@ -46,6 +46,7 @@ type PluginContext = {
     warn: (message: string) => void;
     error: (message: string) => void;
   };
+  fetch: typeof fetch;
   broadcast: (channel: string, data: unknown) => void;
 };
 
@@ -86,6 +87,7 @@ self.onmessage = async (e: MessageEvent<WorkerInbound>) => {
         db,
         dataDir,
         log: makeLogger(),
+        fetch: globalThis.fetch.bind(globalThis),
         broadcast: (channel, data) => send({ type: "broadcast", channel, data }),
       };
 

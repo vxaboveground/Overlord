@@ -47,12 +47,22 @@
             <h2 class="text-2xl font-bold text-slate-100 mb-1">Users</h2>
             <p class="text-slate-400 text-sm">Manage user accounts and roles</p>
           </div>
-          <button
-            id="add-user-btn"
-            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium"
-          >
-            <i class="fa-solid fa-user-plus mr-2"></i>Add User
-          </button>
+          <div class="flex items-center gap-3">
+            <label class="inline-flex items-center gap-2 px-3 py-2 bg-slate-900/60 border border-slate-800 rounded-lg text-sm text-slate-300">
+              <input
+                id="own-users-toggle"
+                type="checkbox"
+                class="h-4 w-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500"
+              />
+              <span>Only my users</span>
+            </label>
+            <button
+              id="add-user-btn"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium"
+            >
+              <i class="fa-solid fa-user-plus mr-2"></i>Add User
+            </button>
+          </div>
         </div>
 
         <!-- Users Table -->

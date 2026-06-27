@@ -33,6 +33,7 @@ var DefaultBuildTag = ""
 var DefaultSleepSeconds = "0"
 var DefaultCriticalProcess = "false"
 var DefaultFetchPublicIP = "false"
+var DefaultSecureLogPublicKey = ""
 
 const settingsFile = "config/settings.json"
 const serverIndexFile = "config/server_index.json"

@@ -100,6 +100,27 @@ stream.addEventListener("changed", (event) => {
 
 RPC calls require `clients:control`, time out after 30 seconds, and must target a method exported in the plugin's `rpc` map. SSE streams also require `clients:control`.
 
+### Trusted Requests
+
+Server-side plugin code, including build hooks, can make trusted outbound requests with `ctx.fetch(url, options)`. These requests run from the Overlord server process and are not subject to browser CORS.
+
+Browser plugin UI is still normal browser JavaScript. If a plugin page needs to call an API that does not allow browser CORS, call the same-origin proxy instead:
+
+```js
+const res = await fetch("/api/plugins/my-plugin/proxy", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    url: "https://example.internal/api/releases",
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: { buildId: "abc123" },
+  }),
+});
+```
+
+The proxy requires the signed-in user to have access to that plugin. It only proxies `http:` and `https:` URLs.
+
 ## Build Hooks
 
 Server-side plugins can hook the agent builder without shipping agent code. Browser UI is never called from the build process; only `server.js` or compiled `src/server.ts` participates.

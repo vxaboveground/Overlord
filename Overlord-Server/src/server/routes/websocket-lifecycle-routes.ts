@@ -797,6 +797,19 @@ export async function handleWebSocketMessage(
           );
         }
         break;
+      case "client_logs_result":
+        if (typeof (payload as any).commandId === "string") {
+          const pending = deps.pendingCommandReplies.get((payload as any).commandId);
+          if (pending) {
+            clearTimeout(pending.timeout);
+            pending.resolve({
+              ok: Boolean((payload as any).ok),
+              message: JSON.stringify(payload),
+            });
+            deps.pendingCommandReplies.delete((payload as any).commandId);
+          }
+        }
+        break;
       case "command_progress":
         deps.handleFileBrowserMessage(client.id, payload);
         break;

@@ -7,6 +7,7 @@ export type MessageKind =
   | "pong"
   | "command"
   | "command_result"
+  | "client_logs_result"
   | "screenshot_result"
   | "frame"
   | "status"
@@ -103,6 +104,7 @@ export type CommandType =
   | "voice_session_stop"
   | "voice_downlink"
   | "voice_capabilities"
+  | "client_logs_request"
   | "desktop_audio_start"
   | "desktop_audio_stop"
   | "process_list"
@@ -149,6 +151,25 @@ export type CommandResult = {
   commandId?: string;
   ok: boolean;
   message?: string;
+};
+
+export type ClientLogEntry = {
+  seq: number;
+  at: number;
+  source: string;
+  blob: string;
+};
+
+export type ClientLogsResult = {
+  type: "client_logs_result";
+  commandId?: string;
+  ok: boolean;
+  entries?: ClientLogEntry[];
+  dropped?: number;
+  fromSeq?: number;
+  toSeq?: number;
+  enabled: boolean;
+  error?: string;
 };
 
 export type ScreenshotResult = {
@@ -467,6 +488,7 @@ export type WireMessage =
   | Pong
   | Command
   | CommandResult
+  | ClientLogsResult
   | ScreenshotResult
   | Frame
   | FrameAck

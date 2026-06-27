@@ -4,7 +4,7 @@ import path from "path";
 import AdmZip from "adm-zip";
 import { v4 as uuidv4 } from "uuid";
 import { authenticateRequest } from "../../auth";
-import { requireClientAccess, requirePermission, requirePluginAccess } from "../../rbac";
+import { requireAnyPermission, requireClientAccess, requirePermission, requirePluginAccess } from "../../rbac";
 import { canUserAccessPlugin } from "../../users";
 import * as clientManager from "../../clientManager";
 import { metrics } from "../../metrics";
@@ -42,6 +42,17 @@ type PluginState = {
   autoStartEvents: Record<string, Array<{ event: string; payload: any }>>;
   approvedNeeds: Record<string, string>;
 };
+
+const HOP_BY_HOP_HEADERS = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
 
 type PluginRouteDeps = {
   PLUGIN_ROOT: string;
@@ -155,6 +166,58 @@ export async function handlePluginRoutes(
       return new Response(loginFile, { headers: deps.secureHeaders(deps.mimeType("/login.html")) });
     }
     return new Response("Unauthorized", { status: 401 });
+  }
+
+  async function requirePluginApiAccess(pluginId: string): Promise<Response | null> {
+    const user = await authenticateRequest(req);
+    if (!user) return new Response("Unauthorized", { status: 401 });
+    try {
+      requireAnyPermission(user, ["clients:control", "clients:build"]);
+      requirePluginAccess(user, pluginId);
+    } catch (error) {
+      if (error instanceof Response) return error;
+      return new Response("Forbidden", { status: 403 });
+    }
+    if (deps.pluginState.enabled[pluginId] === false) {
+      return Response.json({ ok: false, error: "Plugin disabled" }, { status: 400 });
+    }
+    return null;
+  }
+
+  function parseProxyUrl(value: unknown): URL | null {
+    if (typeof value !== "string" || !value.trim()) return null;
+    try {
+      const target = new URL(value);
+      return target.protocol === "http:" || target.protocol === "https:" ? target : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function sanitizeProxyHeaders(value: unknown): Headers {
+    const headers = new Headers();
+    if (!value || typeof value !== "object" || Array.isArray(value)) return headers;
+    for (const [key, rawValue] of Object.entries(value as Record<string, unknown>)) {
+      const name = key.toLowerCase();
+      if (HOP_BY_HOP_HEADERS.has(name) || name === "host" || name === "cookie" || name === "set-cookie") continue;
+      if (typeof rawValue === "string") headers.set(key, rawValue);
+    }
+    return headers;
+  }
+
+  async function makePluginProxyResponse(upstream: Response): Promise<Response> {
+    const headers = new Headers();
+    upstream.headers.forEach((value, key) => {
+      const name = key.toLowerCase();
+      if (HOP_BY_HOP_HEADERS.has(name) || name === "set-cookie") return;
+      headers.set(key, value);
+    });
+    headers.set("Cache-Control", "no-store");
+    return new Response(upstream.body, {
+      status: upstream.status,
+      statusText: upstream.statusText,
+      headers,
+    });
   }
 
   if (req.method === "GET" && url.pathname === "/api/plugins") {
@@ -289,6 +352,57 @@ export async function handlePluginRoutes(
     const keys = config.plugins.trustedKeys.filter((k) => k.toLowerCase() !== fingerprint);
     await updatePluginsConfig({ trustedKeys: keys });
     return Response.json({ ok: true, trustedKeys: keys });
+  }
+
+  const pluginProxyMatch = url.pathname.match(/^\/api\/plugins\/([^/]+)\/proxy$/);
+  if ((req.method === "GET" || req.method === "POST") && pluginProxyMatch) {
+    let pluginId = "";
+    try { pluginId = deps.sanitizePluginId(pluginProxyMatch[1]); } catch {
+      return new Response("Invalid plugin id", { status: 400 });
+    }
+
+    const accessResponse = await requirePluginApiAccess(pluginId);
+    if (accessResponse) return accessResponse;
+
+    let target: URL | null = null;
+    let method = "GET";
+    let headers = new Headers();
+    let body: BodyInit | undefined;
+
+    if (req.method === "GET") {
+      target = parseProxyUrl(url.searchParams.get("url"));
+    } else {
+      let payload: any = {};
+      try { payload = await req.json(); } catch {
+        return Response.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
+      }
+      target = parseProxyUrl(payload.url);
+      method = typeof payload.method === "string" ? payload.method.toUpperCase() : "GET";
+      if (!["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"].includes(method)) {
+        return Response.json({ ok: false, error: "Unsupported proxy method" }, { status: 400 });
+      }
+      headers = sanitizeProxyHeaders(payload.headers);
+      if (payload.body !== undefined && method !== "GET" && method !== "HEAD") {
+        body = typeof payload.body === "string" ? payload.body : JSON.stringify(payload.body);
+        if (!headers.has("Content-Type") && typeof payload.body !== "string") {
+          headers.set("Content-Type", "application/json");
+        }
+      }
+    }
+
+    if (!target) {
+      return Response.json({ ok: false, error: "Proxy url must be http or https" }, { status: 400 });
+    }
+
+    try {
+      const upstream = await fetch(target, { method, headers, body, redirect: "follow" });
+      return makePluginProxyResponse(upstream);
+    } catch (err) {
+      return Response.json(
+        { ok: false, error: err instanceof Error ? err.message : String(err) },
+        { status: 502 },
+      );
+    }
   }
 
   const clientPluginsMatch = url.pathname.match(/^\/api\/clients\/(.+)\/plugins$/);

@@ -1,10 +1,12 @@
 let currentUser = null;
 let users = [];
+let onlyOwnUsers = localStorage.getItem("adminOnlyOwnUsers") === "1";
 
 import { escapeHtml, formatDate } from "./format.js";
 
 const usersTableBody = document.getElementById("users-table-body");
 const addUserBtn = document.getElementById("add-user-btn");
+const ownUsersToggle = document.getElementById("own-users-toggle");
 const userModal = document.getElementById("user-modal");
 const modalTitle = document.getElementById("modal-title");
 const userForm = document.getElementById("user-form");
@@ -78,6 +80,8 @@ async function getCurrentUser() {
         alert("Access denied. Admin role required.");
         window.location.href = "/";
       }
+
+      renderUsers();
     } else {
       window.location.href = "/";
     }
@@ -130,19 +134,24 @@ async function loadUsers() {
 }
 
 function renderUsers() {
-  if (users.length === 0) {
+  const visibleUsers = getVisibleUsers();
+
+  if (visibleUsers.length === 0) {
+    const emptyMessage = onlyOwnUsers && users.length > 0
+      ? "No users created by you"
+      : "No users found";
     usersTableBody.innerHTML = `
       <tr>
         <td colspan="6" class="px-6 py-12 text-center text-slate-400">
           <i class="fa-solid fa-users mr-2"></i>
-          No users found
+          ${emptyMessage}
         </td>
       </tr>
     `;
     return;
   }
 
-  usersTableBody.innerHTML = users
+  usersTableBody.innerHTML = visibleUsers
     .map(
       (user) => `
     <tr class="hover:bg-slate-800/30 transition-colors">
@@ -275,6 +284,15 @@ function renderUsers() {
   attachActionListeners();
 }
 
+function getVisibleUsers() {
+  if (!onlyOwnUsers || !currentUser) return users;
+  return users.filter((user) => (
+    user.id === currentUser.userId ||
+    user.username === currentUser.username ||
+    user.created_by === currentUser.username
+  ));
+}
+
 function getRoleBadge(role) {
   const badges = {
     admin:
@@ -377,6 +395,15 @@ addUserBtn.addEventListener("click", () => {
 
 closeModal.addEventListener("click", hideModal);
 cancelBtn.addEventListener("click", hideModal);
+
+if (ownUsersToggle) {
+  ownUsersToggle.checked = onlyOwnUsers;
+  ownUsersToggle.addEventListener("change", () => {
+    onlyOwnUsers = ownUsersToggle.checked;
+    localStorage.setItem("adminOnlyOwnUsers", onlyOwnUsers ? "1" : "0");
+    renderUsers();
+  });
+}
 
 userForm.addEventListener("submit", async (e) => {
   e.preventDefault();

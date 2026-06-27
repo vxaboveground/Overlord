@@ -34,6 +34,7 @@ import { notifyDashboardViewers } from "../../sessions/sessionManager";
 import { clearThumbnail } from "../../thumbnails";
 import { handleClientCommandRoute } from "./client-command-routes";
 import { handleClientGroupRoutes } from "./client-group-routes";
+import { decryptClientLogBlob, extractSecureLogBlobs } from "../client-log-crypto";
 
 type RequestIpProvider = {
   requestIP: (req: Request) => { address?: string } | null | undefined;
@@ -66,8 +67,32 @@ export async function handleClientRoutes(
   server: RequestIpProvider,
   deps: ClientRouteDeps,
 ): Promise<Response | null> {
-  if (!url.pathname.startsWith("/api/clients") && !url.pathname.startsWith("/api/groups")) {
+  if (!url.pathname.startsWith("/api/clients") && !url.pathname.startsWith("/api/groups") && !url.pathname.startsWith("/api/client-logs")) {
     return null;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/client-logs/decrypt") {
+    const user = await authenticateRequest(req);
+    if (!user) return new Response("Unauthorized", { status: 401 });
+    try { requirePermission(user, "clients:control"); } catch (error) {
+      if (error instanceof Response) return error;
+      return new Response("Forbidden", { status: 403 });
+    }
+    let body: any = {};
+    try { body = await req.json(); } catch {}
+    const raw = typeof body?.blob === "string" ? body.blob : "";
+    const blobs = extractSecureLogBlobs(raw).slice(0, 1000);
+    const logs = [];
+    const errors = [];
+    for (const blob of blobs) {
+      try {
+        logs.push(decryptClientLogBlob(blob));
+      } catch (err) {
+        errors.push((err as Error).message);
+      }
+    }
+    logs.sort((a, b) => a.seq - b.seq || a.at - b.at);
+    return Response.json({ ok: errors.length === 0, logs, errors }, { headers: deps.CORS_HEADERS });
   }
 
   if (url.pathname === "/api/clients") {
@@ -113,6 +138,73 @@ export async function handleClientRoutes(
     const user = await authenticateRequest(req);
     if (!user) return new Response("Unauthorized", { status: 401 });
     return Response.json({ countries: listDistinctCountries() }, { headers: deps.CORS_HEADERS });
+  }
+
+  const logsMatch = url.pathname.match(/^\/api\/clients\/(.+)\/logs$/);
+  if (req.method === "POST" && logsMatch) {
+    const user = await authenticateRequest(req);
+    if (!user) return new Response("Unauthorized", { status: 401 });
+    try { requirePermission(user, "clients:control"); } catch (error) {
+      if (error instanceof Response) return error;
+      return new Response("Forbidden", { status: 403 });
+    }
+    const targetId = logsMatch[1];
+    try { requireClientAccess(user, targetId); } catch (error) {
+      if (error instanceof Response) return error;
+      return new Response("Forbidden", { status: 403 });
+    }
+    const target = clientManager.getClient(targetId);
+    if (!target) return Response.json({ ok: false, error: "Client not online or not found" }, { status: 404 });
+    let body: any = {};
+    try { body = await req.json(); } catch {}
+    const limit = Math.max(1, Math.min(512, Math.floor(Number(body?.limit || 200))));
+    const sinceSeq = Math.max(0, Math.floor(Number(body?.sinceSeq || 0)));
+    const cmdId = uuidv4();
+    const replyPromise: Promise<{ ok: boolean; message?: string }> = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        deps.pendingCommandReplies.delete(cmdId);
+        reject(new Error("Client logs request timed out"));
+      }, 30_000);
+      deps.pendingCommandReplies.set(cmdId, { resolve, reject, timeout, clientId: targetId });
+    });
+
+    target.ws.send(encodeMessage({
+      type: "command",
+      commandType: "client_logs_request",
+      id: cmdId,
+      payload: { sinceSeq, limit },
+    } as any));
+    metrics.recordCommand("client_logs_request");
+    const ip = server.requestIP(req)?.address || "unknown";
+    logAudit({ timestamp: Date.now(), username: user.username, ip, action: AuditAction.COMMAND, targetClientId: targetId, details: "client_logs_request", success: true });
+
+    try {
+      const result = await replyPromise;
+      const rawPayload = result.message ? JSON.parse(result.message) : {};
+      const entries = Array.isArray(rawPayload.entries) ? rawPayload.entries : [];
+      const logs = [];
+      const errors = [];
+      for (const entry of entries) {
+        try {
+          logs.push(decryptClientLogBlob(String(entry.blob || "")));
+        } catch (err) {
+          errors.push({ seq: Number(entry.seq) || 0, error: (err as Error).message });
+        }
+      }
+      logs.sort((a, b) => a.seq - b.seq || a.at - b.at);
+      return Response.json({
+        ok: result.ok && errors.length === 0,
+        enabled: Boolean(rawPayload.enabled),
+        dropped: Number(rawPayload.dropped) || 0,
+        fromSeq: Number(rawPayload.fromSeq) || 0,
+        toSeq: Number(rawPayload.toSeq) || 0,
+        logs,
+        errors,
+        clientError: typeof rawPayload.error === "string" ? rawPayload.error : "",
+      }, { headers: deps.CORS_HEADERS });
+    } catch (error: any) {
+      return Response.json({ ok: false, error: error.message || "Client logs request failed" }, { status: 504 });
+    }
   }
 
   if (url.pathname === "/api/clients/banned-ips") {

@@ -20,6 +20,7 @@ export const ALLOWED_CLIENT_MESSAGE_TYPES = new Set([
   "file_peek_result",
   "file_hash_result",
   "command_result",
+  "client_logs_result",
   "screenshot_result",
   "command_progress",
   "process_list_result",

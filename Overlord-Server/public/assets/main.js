@@ -1783,6 +1783,100 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+function renderClientLogs(logs) {
+  if (!Array.isArray(logs) || logs.length === 0) {
+    return '<div class="text-sm text-slate-500 p-3">No secure logs returned.</div>';
+  }
+  return logs.map((entry) => {
+    const ts = entry.at ? new Date(entry.at).toLocaleString() : "";
+    const source = entry.source || "log";
+    return `<div class="border-b border-slate-800 py-2">
+      <div class="text-xs text-slate-500 mb-1">#${escapeHtml(entry.seq)} ${escapeHtml(source)} ${escapeHtml(ts)}</div>
+      <pre class="whitespace-pre-wrap text-xs text-slate-200 font-mono">${escapeHtml(entry.text || "")}</pre>
+    </div>`;
+  }).join("");
+}
+
+function openSecureLogsModal(clientId) {
+  const overlay = document.createElement("div");
+  overlay.className = "fixed inset-0 z-[10000] flex items-center justify-center bg-black/60";
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+
+  const modal = document.createElement("div");
+  modal.className = "bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-5 w-[760px] max-w-[calc(100vw-24px)] max-h-[86vh] flex flex-col gap-4";
+  modal.innerHTML = `
+    <div class="flex items-center justify-between gap-3">
+      <h3 class="text-lg font-semibold text-slate-100 flex items-center gap-2"><i class="fa-solid fa-file-shield text-sky-400"></i> Secure Logs</h3>
+      <button class="secure-logs-close text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <button class="secure-logs-fetch px-3 py-2 rounded-lg bg-sky-700 hover:bg-sky-600 text-white text-sm"><i class="fa-solid fa-download mr-1"></i> Request From Client</button>
+      <button class="secure-logs-decrypt px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-sm"><i class="fa-solid fa-key mr-1"></i> Decrypt Pasted Blob</button>
+    </div>
+    <textarea class="secure-logs-input min-h-28 bg-slate-950 border border-slate-700 rounded-lg p-3 text-xs text-slate-200 font-mono outline-none focus:border-sky-500" placeholder="Paste OVERLORD-SECURE-LOG lines here for offline recovery"></textarea>
+    <div class="secure-logs-meta text-xs text-slate-500"></div>
+    <div class="secure-logs-output overflow-auto rounded-lg border border-slate-800 bg-slate-950/70 p-3 min-h-48"></div>
+  `;
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  const output = modal.querySelector(".secure-logs-output");
+  const meta = modal.querySelector(".secure-logs-meta");
+  const input = modal.querySelector(".secure-logs-input");
+  const fetchBtn = modal.querySelector(".secure-logs-fetch");
+  const decryptBtn = modal.querySelector(".secure-logs-decrypt");
+  modal.querySelector(".secure-logs-close")?.addEventListener("click", () => overlay.remove());
+
+  fetchBtn.addEventListener("click", async () => {
+    fetchBtn.disabled = true;
+    output.innerHTML = '<div class="text-sm text-slate-400 p-3">Requesting logs...</div>';
+    try {
+      const res = await fetch(`/api/clients/${encodeURIComponent(clientId)}/logs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ limit: 200 }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        meta.textContent = data.clientError || data.error || "Secure logs request failed";
+      } else {
+        meta.textContent = `Entries ${data.fromSeq || 0}-${data.toSeq || 0}; dropped ${data.dropped || 0}`;
+      }
+      output.innerHTML = renderClientLogs(data.logs || []);
+    } catch (err) {
+      meta.textContent = err.message || "Secure logs request failed";
+      output.innerHTML = "";
+    } finally {
+      fetchBtn.disabled = false;
+    }
+  });
+
+  decryptBtn.addEventListener("click", async () => {
+    const blob = input.value.trim();
+    if (!blob) {
+      input.focus();
+      return;
+    }
+    decryptBtn.disabled = true;
+    output.innerHTML = '<div class="text-sm text-slate-400 p-3">Decrypting...</div>';
+    try {
+      const res = await fetch("/api/client-logs/decrypt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ blob }),
+      });
+      const data = await res.json().catch(() => ({}));
+      meta.textContent = data.errors?.length ? `${data.errors.length} blob(s) could not decrypt` : "Offline blob decrypted";
+      output.innerHTML = renderClientLogs(data.logs || []);
+    } catch (err) {
+      meta.textContent = err.message || "Decrypt failed";
+      output.innerHTML = "";
+    } finally {
+      decryptBtn.disabled = false;
+    }
+  });
+}
+
 window.banClient = async (clientId) => {
   if (!clientId) return;
   if (!confirm(`Ban IP for ${clientId} and block future connections?`)) return;
@@ -2053,6 +2147,11 @@ menu.addEventListener("click", async (e) => {
     const ok = await window.setClientNotificationsMuted(contextCard, !currentlyMuted);
     if (ok) setTimeout(() => loadWithOptions({ force: true }), 200);
     closeMenu(clearContext);
+    return;
+  } else if (action === "secure-logs") {
+    const savedClientId = contextCard;
+    closeMenu(clearContext);
+    openSecureLogsModal(savedClientId);
     return;
   }
 

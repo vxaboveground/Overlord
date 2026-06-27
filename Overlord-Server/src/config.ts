@@ -208,9 +208,18 @@ type SaveSecrets = {
     privateKey?: string;
     publicKey?: string;
   };
+  clientLogs?: {
+    privateKey?: string;
+    publicKey?: string;
+  };
 };
 
 export type BuildSigningSecrets = {
+  privateKey: string;
+  publicKey: string;
+};
+
+export type ClientLogSecrets = {
   privateKey: string;
   publicKey: string;
 };
@@ -1022,6 +1031,26 @@ export function setBuildSigningSecrets(secrets: BuildSigningSecrets): void {
   const savePath = resolve(dataDir, "save.json");
   const saved = loadSaveSecrets(savePath);
   saved.buildSigning = { privateKey: secrets.privateKey, publicKey: secrets.publicKey };
+  persistSaveSecrets(savePath, saved);
+}
+
+export function getClientLogSecrets(): ClientLogSecrets | null {
+  const dataDir = ensureDataDir();
+  const savePath = resolve(dataDir, "save.json");
+  const saved = loadSaveSecrets(savePath);
+  const priv = saved.clientLogs?.privateKey;
+  const pub = saved.clientLogs?.publicKey;
+  if (typeof priv === "string" && priv && typeof pub === "string" && pub) {
+    return { privateKey: priv, publicKey: pub };
+  }
+  return null;
+}
+
+export function setClientLogSecrets(secrets: ClientLogSecrets): void {
+  const dataDir = ensureDataDir();
+  const savePath = resolve(dataDir, "save.json");
+  const saved = loadSaveSecrets(savePath);
+  saved.clientLogs = { privateKey: secrets.privateKey, publicKey: secrets.publicKey };
   persistSaveSecrets(savePath, saved);
 }
 

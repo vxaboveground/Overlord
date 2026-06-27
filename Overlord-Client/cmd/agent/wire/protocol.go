@@ -67,6 +67,25 @@ type CommandResult struct {
 	Message   string `msgpack:"message,omitempty"`
 }
 
+type ClientLogEntry struct {
+	Seq    uint64 `msgpack:"seq" json:"seq"`
+	At     int64  `msgpack:"at" json:"at"`
+	Source string `msgpack:"source" json:"source"`
+	Blob   string `msgpack:"blob" json:"blob"`
+}
+
+type ClientLogsResult struct {
+	Type      string           `msgpack:"type"`
+	CommandID string           `msgpack:"commandId,omitempty"`
+	OK        bool             `msgpack:"ok"`
+	Entries   []ClientLogEntry `msgpack:"entries,omitempty"`
+	Dropped   uint64           `msgpack:"dropped,omitempty"`
+	FromSeq   uint64           `msgpack:"fromSeq,omitempty"`
+	ToSeq     uint64           `msgpack:"toSeq,omitempty"`
+	Enabled   bool             `msgpack:"enabled"`
+	Error     string           `msgpack:"error,omitempty"`
+}
+
 type FrameHeader struct {
 	Monitor int    `msgpack:"monitor"`
 	FPS     int    `msgpack:"fps"`
