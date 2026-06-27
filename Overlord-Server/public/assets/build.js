@@ -854,6 +854,31 @@ if (rawServerListCheckbox && serverUrlInput) {
   });
 }
 
+const grabPublicIpBtn = document.getElementById("grab-public-ip-btn");
+if (grabPublicIpBtn && serverUrlInput) {
+  grabPublicIpBtn.addEventListener("click", async () => {
+    grabPublicIpBtn.disabled = true;
+    const origHTML = grabPublicIpBtn.innerHTML;
+    grabPublicIpBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Fetching...';
+    try {
+      const resp = await fetch("/api/public-ip");
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const { ip } = await resp.json();
+      if (!ip) throw new Error("Empty response");
+      const port = window.location.port || (window.location.protocol === "https:" ? "443" : "80");
+      serverUrlInput.value = rawServerListCheckbox?.checked
+        ? `${window.location.protocol}//${ip}:${port}/list.txt`
+        : `${ip}:${port}`;
+      updateServerUrlHintMode();
+    } catch (e) {
+      alert("Could not fetch public IP: " + (e.message || "Unknown error"));
+    } finally {
+      grabPublicIpBtn.disabled = false;
+      grabPublicIpBtn.innerHTML = origHTML;
+    }
+  });
+}
+
 const rawServerListHelpBtn = document.getElementById("raw-server-list-help");
 const rawServerListModal = document.getElementById("raw-server-list-modal");
 const rawServerListModalClose = document.getElementById("raw-server-list-modal-close");
