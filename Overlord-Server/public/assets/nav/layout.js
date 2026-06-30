@@ -165,7 +165,7 @@ function initSidebarTree(navLinks) {
    ────────────────────────────────────────────── */
 
 function createTopbarController(host, refs) {
-  const { panel, navLinks, navUtility } = refs;
+  const { panel, navLinks, navUtility, topbarToggle } = refs;
   if (!panel || !navLinks || !navUtility) {
     return { applyAdaptiveNavLayout: () => {} };
   }
@@ -175,8 +175,105 @@ function createTopbarController(host, refs) {
   initDropdowns(navUtility);
   initNotifyBadgeMirror(navUtility);
 
+  const grid = host.querySelector(".topbar-grid");
+  const left = host.querySelector(".topbar-left");
+  let compact = false;
+  let layoutFrame = 0;
+
+  const closeCompactMenu = () => {
+    document.body.classList.remove("topbar-menu-open");
+    topbarToggle?.setAttribute("aria-expanded", "false");
+  };
+
+  const setCompact = (next) => {
+    if (compact === next) return;
+    compact = next;
+    document.body.classList.toggle("topbar-compact", next);
+    host.dataset.navMode = next ? "compact" : "desktop";
+    if (!next) closeCompactMenu();
+  };
+
+  const measureDesktopWidth = () => {
+    const wasCompact = document.body.classList.contains("topbar-compact");
+    const wasOpen = document.body.classList.contains("topbar-menu-open");
+    if (wasCompact) {
+      document.body.classList.remove("topbar-compact", "topbar-menu-open");
+    }
+
+    const style = getComputedStyle(host);
+    const horizontalPadding = parseFloat(style.paddingLeft || "0") + parseFloat(style.paddingRight || "0");
+    const gridGap = grid ? parseFloat(getComputedStyle(grid).columnGap || "0") || 0 : 0;
+    const navGap = parseFloat(getComputedStyle(navLinks).columnGap || getComputedStyle(navLinks).gap || "0") || 0;
+    const visibleNavItems = Array.from(navLinks.children).filter((el) => {
+      const itemStyle = getComputedStyle(el);
+      return itemStyle.display !== "none" && !el.classList.contains("hidden");
+    });
+    const navWidth = visibleNavItems.reduce((sum, el) => sum + el.getBoundingClientRect().width, 0) +
+      Math.max(0, visibleNavItems.length - 1) * navGap;
+    const requiredWidth =
+      (left?.scrollWidth || 0) +
+      navWidth +
+      (navUtility?.scrollWidth || 0) +
+      (gridGap * 2) +
+      horizontalPadding +
+      24;
+
+    if (wasCompact) {
+      document.body.classList.add("topbar-compact");
+      document.body.classList.toggle("topbar-menu-open", wasOpen);
+    }
+    return requiredWidth;
+  };
+
+  const applyAdaptiveNavLayout = () => {
+    const availableWidth = host.clientWidth || window.innerWidth;
+    const requiredWidth = measureDesktopWidth();
+    const shouldCompact = requiredWidth > availableWidth;
+    setCompact(shouldCompact);
+  };
+
+  const scheduleAdaptiveNavLayout = () => {
+    if (layoutFrame) return;
+    layoutFrame = requestAnimationFrame(() => {
+      layoutFrame = 0;
+      applyAdaptiveNavLayout();
+    });
+  };
+
+  topbarToggle?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const nextOpen = !document.body.classList.contains("topbar-menu-open");
+    document.body.classList.toggle("topbar-menu-open", nextOpen);
+    topbarToggle.setAttribute("aria-expanded", String(nextOpen));
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!compact) return;
+    if (event.target.closest("#top-nav")) return;
+    closeCompactMenu();
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeCompactMenu();
+  });
+
+  navLinks.addEventListener("click", (event) => {
+    if (event.target.closest("a[href]")) closeCompactMenu();
+  });
+
+  window.addEventListener("resize", scheduleAdaptiveNavLayout);
+
+  if ("ResizeObserver" in window) {
+    const resizeObserver = new ResizeObserver(scheduleAdaptiveNavLayout);
+    resizeObserver.observe(host);
+    resizeObserver.observe(navLinks);
+    resizeObserver.observe(navUtility);
+  }
+
+  scheduleAdaptiveNavLayout();
+
   host.dataset.navMode = "desktop";
-  return { applyAdaptiveNavLayout: () => {} };
+  return { applyAdaptiveNavLayout };
 }
 
 /* ──────────────────────────────────────────────

@@ -4485,6 +4485,26 @@ body.sb-open #sb-backdrop { display: block; }
   justify-self: start;
   min-width: 0;
 }
+.topbar-nav-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: rgba(14, 165, 233, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  color: #7dd3fc;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.topbar-nav-toggle:hover,
+.topbar-nav-toggle[aria-expanded="true"] {
+  background: rgba(14, 165, 233, 0.2);
+  color: #bae6fd;
+  border-color: rgba(125, 211, 252, 0.48);
+}
 .topbar-center {
   grid-area: center;
   display: flex;
@@ -4500,6 +4520,99 @@ body.sb-open #sb-backdrop { display: block; }
   gap: 8px;
   justify-self: end;
   min-width: 0;
+}
+
+body.topbar-compact #top-nav {
+  position: sticky;
+  overflow: visible;
+}
+body.topbar-compact .topbar-grid {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "left right";
+  position: relative;
+}
+body.topbar-compact .topbar-left {
+  max-width: 100%;
+}
+body.topbar-compact .topbar-right {
+  flex: 0 0 auto;
+  min-width: max-content;
+}
+body.topbar-compact .topbar-nav-toggle {
+  display: inline-flex;
+}
+body.topbar-compact .topbar-center {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  right: 0;
+  display: none;
+  justify-self: stretch;
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(8, 13, 28, 0.98);
+  border: 1px solid rgba(51, 65, 85, 0.82);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.5);
+  z-index: 230;
+  max-height: min(68vh, 520px);
+  overflow-y: auto;
+}
+body.topbar-compact.topbar-menu-open .topbar-center {
+  display: flex;
+}
+body.topbar-compact .nav-dd-bar {
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 6px;
+  width: 100%;
+  padding-top: 0;
+  flex-direction: column;
+}
+body.topbar-compact .nav-dd-wrapper {
+  width: 100%;
+}
+body.topbar-compact .nav-dd-group-btn {
+  width: 100%;
+  justify-content: flex-start;
+}
+body.topbar-compact .nav-dd-group-btn i.fa-chevron-down {
+  margin-left: auto;
+}
+body.topbar-compact .nav-dd-menu {
+  position: static;
+  display: none;
+  min-width: 0;
+  width: 100%;
+  margin-top: 6px;
+  transform: none;
+  box-shadow: none;
+  border-radius: 8px;
+  background: rgba(2, 8, 22, 0.55);
+  border-color: rgba(51, 65, 85, 0.45);
+}
+body.topbar-compact .nav-dd-menu.nav-dd-open {
+  display: flex;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: none;
+}
+body.topbar-compact #account-settings-btn {
+  flex: 0 0 auto;
+  max-width: none;
+  min-width: max-content;
+}
+body.topbar-compact #username-display {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+body.topbar-compact #role-badge {
+  white-space: nowrap;
 }
 
 @media (max-width: 767px) {

@@ -136,6 +136,9 @@ function mountTopbar(host) {
         <a href="/" class="flex items-center gap-2 font-semibold tracking-wide">
           <i class="fa-solid fa-crown header-crown"></i> Overlord
         </a>
+        <button id="topbar-nav-toggle" class="topbar-nav-toggle" aria-label="Open navigation menu" aria-expanded="false" type="button">
+          <i class="fa-solid fa-layer-group"></i>
+        </button>
       </div>
       <div
         id="nav-panel"
@@ -186,6 +189,7 @@ function mountTopbar(host) {
   // Collect all link refs
   const refs = {
     toggle: null,
+    topbarToggle: document.getElementById("topbar-nav-toggle"),
     panel: document.getElementById("nav-panel"),
     collapseBtn: null,
     navLinks: document.getElementById("nav-links"),
