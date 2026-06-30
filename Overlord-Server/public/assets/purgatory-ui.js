@@ -12,7 +12,7 @@ const searchInput = document.getElementById("search-input");
 const bannedIpsSection = document.getElementById("banned-ips-section");
 const bannedIpsBody = document.getElementById("banned-ips-body");
 const bannedIpsEmpty = document.getElementById("banned-ips-empty");
-const clientsTable = document.getElementById("enrollment-table")?.closest(".bg-slate-900\\/50");
+const clientsTable = document.getElementById("clients-table-panel");
 const addBanBtn = document.getElementById("add-ban-btn");
 const manualBanForm = document.getElementById("manual-ban-form");
 const banIpInput = document.getElementById("ban-ip-input");
@@ -80,6 +80,7 @@ async function loadStats() {
     statPending.textContent = s.pending ?? 0;
     statApproved.textContent = s.approved ?? 0;
     statDenied.textContent = s.denied ?? 0;
+    if (statSuspicious) statSuspicious.textContent = s.suspicious ?? 0;
 
     // Load banned IPs count
     try {
@@ -105,7 +106,7 @@ async function loadClients() {
   loadingRow.classList.toggle("hidden", !!hasRows);
   emptyEl.classList.add("hidden");
 
-  const fetchFilter = currentFilter === "suspicious" ? "all" : currentFilter;
+  const fetchFilter = currentFilter;
   try {
     const data = await api(`/api/clients?page=1&pageSize=1000&enrollmentFilter=${fetchFilter}`);
     clients = data.items || [];
@@ -115,10 +116,6 @@ async function loadClients() {
 
   // Sort by newest first (highest lastSeen = most recent)
   clients.sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
-
-  // Update suspicious stat from full loaded set
-  const suspiciousCount = clients.filter((c) => (c.suspiciousFlags || []).length > 0).length;
-  if (statSuspicious) statSuspicious.textContent = suspiciousCount;
 
   // Apply suspicious tab filter
   let base = clients;
@@ -177,16 +174,27 @@ async function loadClients() {
 
   for (const c of filtered) {
     const tr = document.createElement("tr");
-    tr.className = "hover:bg-slate-800/40 transition-colors";
+    tr.className = "group hover:bg-slate-800/45 transition-colors";
     tr.dataset.id = c.id;
 
     const statusPill = statusBadgeWithReason(c.enrollmentStatus || "pending", c.denyReason);
     const fp = c.keyFingerprint ? c.keyFingerprint.substring(0, 16) + "..." : "-";
     const lastSeen = c.lastSeen ? timeAgo(c.lastSeen) : "-";
+    const riskBadges = suspiciousBadges(c.suspiciousFlags);
 
     tr.innerHTML = `
-      <td class="px-4 py-3"><input type="checkbox" class="row-check h-4 w-4 rounded border-slate-600" data-id="${esc(c.id)}" ${selectedBeforeRender.has(c.id) ? "checked" : ""} /></td>
-      <td class="px-4 py-3 text-sm font-medium text-slate-200">${esc(c.host || c.id)}${suspiciousBadges(c.suspiciousFlags)}</td>
+      <td class="px-4 py-3"><input type="checkbox" class="row-check h-4 w-4 rounded border-slate-600 bg-slate-950/60" data-id="${esc(c.id)}" ${selectedBeforeRender.has(c.id) ? "checked" : ""} /></td>
+      <td class="px-4 py-3 text-sm font-medium text-slate-200">
+        <div class="flex items-center gap-3 min-w-[190px]">
+          <span class="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-slate-700 bg-slate-950/70 text-slate-400 group-hover:border-amber-400/40 group-hover:text-amber-300 transition-colors">
+            <i class="fa-solid fa-desktop text-xs"></i>
+          </span>
+          <span class="min-w-0">
+            <span class="block truncate">${esc(c.host || c.id)}</span>
+            ${riskBadges ? `<span class="mt-1 flex flex-wrap gap-1">${riskBadges}</span>` : ""}
+          </span>
+        </div>
+      </td>
       <td class="px-4 py-3 text-sm text-slate-400">${esc(c.user || "-")}</td>
       <td class="px-4 py-3 text-sm text-slate-400">${esc(c.os || "-")}</td>
       <td class="px-4 py-3 text-sm text-slate-400">${expandableCell(c.id, "cpu", c.cpu)}</td>
@@ -216,11 +224,11 @@ function tableDigest(items, fields) {
 function statusBadge(status) {
   const map = {
     pending:
-      '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/20 text-amber-300 border border-amber-500/40"><i class="fa-solid fa-clock"></i>Pending</span>',
+      '<span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/35"><i class="fa-solid fa-clock"></i>Pending</span>',
     approved:
-      '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"><i class="fa-solid fa-check"></i>Approved</span>',
+      '<span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/35"><i class="fa-solid fa-check"></i>Approved</span>',
     denied:
-      '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/20 text-red-300 border border-red-500/40"><i class="fa-solid fa-ban"></i>Denied</span>',
+      '<span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium bg-red-500/15 text-red-300 border border-red-500/35"><i class="fa-solid fa-ban"></i>Denied</span>',
   };
   return map[status] || map.pending;
 }
@@ -239,7 +247,7 @@ function suspiciousBadges(flags) {
     const label = SUSPICIOUS_FLAG_LABELS[f] || f;
     const isFlood = f.endsWith("_flood");
     const color = isFlood ? "bg-red-500/20 text-red-300 border-red-500/40" : "bg-amber-500/20 text-amber-300 border-amber-500/40";
-    return `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs ${color} border cursor-help" title="${esc(label)}"><i class="fa-solid fa-triangle-exclamation text-[9px]"></i>${esc(label.split(" ")[0])}</span>`;
+    return `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs ${color} border cursor-help" title="${esc(label)}"><i class="fa-solid fa-triangle-exclamation text-[9px]"></i>${esc(label.split(" ")[0])}</span>`;
   }).join(" ");
 }
 
@@ -247,16 +255,16 @@ function actionButtons(c) {
   const status = c.enrollmentStatus || "pending";
   let html = "";
   if (status !== "approved") {
-    html += `<button class="act-approve whitespace-nowrap px-2 py-1 rounded text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white" data-id="${esc(c.id)}"><i class="fa-solid fa-check mr-1"></i>Approve</button>`;
+    html += `<button class="act-approve whitespace-nowrap px-2.5 py-1.5 rounded-md text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm shadow-emerald-950/30" data-id="${esc(c.id)}"><i class="fa-solid fa-check mr-1"></i>Approve</button>`;
   }
   if (status !== "denied") {
-    html += `<button class="act-deny whitespace-nowrap px-2 py-1 rounded text-xs font-medium bg-red-600 hover:bg-red-700 text-white" data-id="${esc(c.id)}"><i class="fa-solid fa-ban mr-1"></i>Deny</button>`;
+    html += `<button class="act-deny whitespace-nowrap px-2.5 py-1.5 rounded-md text-xs font-medium bg-red-600 hover:bg-red-700 text-white shadow-sm shadow-red-950/30" data-id="${esc(c.id)}"><i class="fa-solid fa-ban mr-1"></i>Deny</button>`;
   }
   if (status !== "pending") {
-    html += `<button class="act-reset whitespace-nowrap px-2 py-1 rounded text-xs font-medium bg-slate-600 hover:bg-slate-700 text-white" data-id="${esc(c.id)}"><i class="fa-solid fa-rotate-left mr-1"></i>Reset</button>`;
+    html += `<button class="act-reset whitespace-nowrap px-2.5 py-1.5 rounded-md text-xs font-medium bg-slate-700 hover:bg-slate-600 text-white" data-id="${esc(c.id)}"><i class="fa-solid fa-rotate-left mr-1"></i>Reset</button>`;
   }
   if (c.ip) {
-    html += `<button class="act-ban-ip whitespace-nowrap px-2 py-1 rounded text-xs font-medium bg-rose-700 hover:bg-rose-800 text-white" data-id="${esc(c.id)}" title="Ban IP ${esc(c.ip)}"><i class="fa-solid fa-shield-halved mr-1"></i>Ban IP</button>`;
+    html += `<button class="act-ban-ip whitespace-nowrap px-2.5 py-1.5 rounded-md text-xs font-medium bg-rose-700 hover:bg-rose-800 text-white" data-id="${esc(c.id)}" title="Ban IP ${esc(c.ip)}"><i class="fa-solid fa-shield-halved mr-1"></i>Ban IP</button>`;
   }
   return html;
 }
@@ -363,7 +371,7 @@ document.querySelectorAll(".enrollment-tab").forEach((tab) => {
     currentFilter = tab.dataset.filter;
     document.querySelectorAll(".enrollment-tab").forEach((t) => {
       t.className =
-        "enrollment-tab px-4 py-2 rounded-lg text-sm font-medium bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700";
+        "enrollment-tab px-4 py-2 rounded-md text-sm font-medium bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700";
     });
     const colorMap = {
       pending: "bg-amber-500/20 text-amber-300 border-amber-500/40",
@@ -372,7 +380,7 @@ document.querySelectorAll(".enrollment-tab").forEach((tab) => {
       "banned-ips": "bg-rose-500/20 text-rose-300 border-rose-500/40",
       suspicious: "bg-orange-500/20 text-orange-300 border-orange-500/40",
     };
-    tab.className = `enrollment-tab px-4 py-2 rounded-lg text-sm font-medium ${colorMap[currentFilter] || ""} border`;
+    tab.className = `enrollment-tab px-4 py-2 rounded-md text-sm font-medium ${colorMap[currentFilter] || ""} border`;
 
     if (currentFilter === "banned-ips") {
       if (clientsTable) clientsTable.classList.add("hidden");

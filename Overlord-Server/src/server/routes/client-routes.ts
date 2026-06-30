@@ -101,7 +101,9 @@ export async function handleClientRoutes(
       return new Response("Unauthorized", { status: 401 });
     }
     const page = Math.max(1, Number(url.searchParams.get("page") || 1));
-    const pageSize = Math.min(200, Math.max(1, Number(url.searchParams.get("pageSize") || 12)));
+    const isEnrollmentRequest = url.searchParams.has("enrollmentFilter");
+    const maxPageSize = isEnrollmentRequest ? 1000 : 200;
+    const pageSize = Math.min(maxPageSize, Math.max(1, Number(url.searchParams.get("pageSize") || 12)));
     const search = (url.searchParams.get("q") || "").toLowerCase().trim();
     const sort = url.searchParams.get("sort") || "last_seen_desc";
     const statusFilter = url.searchParams.get("status") || "all";
@@ -110,7 +112,6 @@ export async function handleClientRoutes(
     const enrollmentFilter = url.searchParams.get("enrollmentFilter") || "approved";
     const groupFilter = url.searchParams.get("group") || "all";
     const webcamFilter = url.searchParams.get("webcam") || "all";
-    const isEnrollmentRequest = url.searchParams.has("enrollmentFilter");
 
     if (user.role === "admin") {
       const result = listClients({ page, pageSize, search, sort, statusFilter, osFilter, countryFilter, enrollmentFilter, groupFilter, webcamFilter });

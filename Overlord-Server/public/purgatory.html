@@ -20,26 +20,60 @@
     <header id="top-nav"></header>
 
     <div class="min-h-full flex flex-col">
-      <main class="flex-1 max-w-7xl w-full mx-auto px-4 py-8">
+      <main class="flex-1 max-w-[1500px] w-full mx-auto px-4 sm:px-6 py-6">
         <!-- Header -->
-        <div class="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h2 class="text-2xl font-bold text-slate-100 mb-1">
-              <i class="fa-solid fa-user-clock text-amber-400 mr-2"></i>Purgatory
-            </h2>
-            <p class="text-slate-400 text-sm">
-              Approve or deny clients before they can connect to the server.
-            </p>
-          </div>
-          <div class="flex items-center gap-3 flex-wrap justify-end">
-            <div id="stats-bar" class="flex items-center gap-3 text-sm">
-              <span class="text-amber-400"><i class="fa-solid fa-clock mr-1"></i><span id="stat-pending">0</span> pending</span>
-              <span class="text-emerald-400"><i class="fa-solid fa-check mr-1"></i><span id="stat-approved">0</span> approved</span>
-              <span class="text-red-400"><i class="fa-solid fa-ban mr-1"></i><span id="stat-denied">0</span> denied</span>
-              <span class="text-orange-400"><i class="fa-solid fa-triangle-exclamation mr-1"></i><span id="stat-suspicious">0</span> suspicious</span>
-              <span class="text-rose-400"><i class="fa-solid fa-shield-halved mr-1"></i><span id="stat-banned-ips">0</span> banned IPs</span>
+        <div class="mb-5 rounded-lg border border-slate-800 bg-slate-900/60 px-5 py-4 shadow-[0_18px_55px_rgba(2,6,23,0.22)]">
+          <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-5">
+          <div class="flex items-center gap-3">
+            <div class="grid h-11 w-11 place-items-center rounded-lg border border-amber-400/30 bg-amber-400/10 text-amber-300">
+              <i class="fa-solid fa-user-clock"></i>
             </div>
-            <div class="flex flex-col gap-1 border border-amber-500/30 rounded-lg px-3 py-2 bg-amber-500/5 text-sm">
+            <div>
+              <h2 class="text-2xl font-bold text-slate-100 leading-tight">Purgatory</h2>
+              <p class="text-slate-400 text-sm">
+                Approve or deny clients before they can connect to the server.
+              </p>
+            </div>
+          </div>
+          <div class="flex items-stretch gap-3 flex-wrap justify-start xl:justify-end">
+            <div id="stats-bar" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 text-sm">
+              <span class="min-w-[120px] rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2 text-amber-300">
+                <span class="flex items-center gap-2">
+                  <i class="fa-solid fa-clock text-amber-400"></i>
+                  <span class="text-lg font-semibold leading-none" id="stat-pending">0</span>
+                </span>
+                <span class="mt-1 block text-xs text-slate-400">pending</span>
+              </span>
+              <span class="min-w-[120px] rounded-lg border border-emerald-400/20 bg-emerald-400/5 px-3 py-2 text-emerald-300">
+                <span class="flex items-center gap-2">
+                  <i class="fa-solid fa-check text-emerald-400"></i>
+                  <span class="text-lg font-semibold leading-none" id="stat-approved">0</span>
+                </span>
+                <span class="mt-1 block text-xs text-slate-400">approved</span>
+              </span>
+              <span class="min-w-[120px] rounded-lg border border-red-400/20 bg-red-400/5 px-3 py-2 text-red-300">
+                <span class="flex items-center gap-2">
+                  <i class="fa-solid fa-ban text-red-400"></i>
+                  <span class="text-lg font-semibold leading-none" id="stat-denied">0</span>
+                </span>
+                <span class="mt-1 block text-xs text-slate-400">denied</span>
+              </span>
+              <span class="min-w-[120px] rounded-lg border border-orange-400/20 bg-orange-400/5 px-3 py-2 text-orange-300">
+                <span class="flex items-center gap-2">
+                  <i class="fa-solid fa-triangle-exclamation text-orange-400"></i>
+                  <span class="text-lg font-semibold leading-none" id="stat-suspicious">0</span>
+                </span>
+                <span class="mt-1 block text-xs text-slate-400">suspicious</span>
+              </span>
+              <span class="min-w-[120px] rounded-lg border border-rose-400/20 bg-rose-400/5 px-3 py-2 text-rose-300">
+                <span class="flex items-center gap-2">
+                  <i class="fa-solid fa-shield-halved text-rose-400"></i>
+                  <span class="text-lg font-semibold leading-none" id="stat-banned-ips">0</span>
+                </span>
+                <span class="mt-1 block text-xs text-slate-400">banned IPs</span>
+              </span>
+            </div>
+            <div class="flex flex-col justify-center gap-1 border border-amber-500/30 rounded-lg px-3 py-2 bg-slate-950/50 text-sm shadow-inner shadow-amber-950/10">
               <div class="flex items-center gap-2" title="When enabled, all connecting agents are approved automatically without review">
                 <i class="fa-solid fa-door-open text-amber-400"></i>
                 <span class="text-slate-300 font-medium">Always Allow</span>
@@ -60,28 +94,29 @@
               </div>
             </div>
           </div>
+          </div>
         </div>
 
         <!-- Filter Tabs -->
-        <div class="mb-4 flex items-center gap-2 flex-wrap">
+        <div class="mb-4 flex items-center gap-2 flex-wrap rounded-lg border border-slate-800 bg-slate-900/45 p-2">
           <button data-filter="pending"
-            class="enrollment-tab px-4 py-2 rounded-lg text-sm font-medium bg-amber-500/20 text-amber-300 border border-amber-500/40">
+            class="enrollment-tab px-4 py-2 rounded-md text-sm font-medium bg-amber-500/20 text-amber-300 border border-amber-500/40">
             Pending
           </button>
           <button data-filter="denied"
-            class="enrollment-tab px-4 py-2 rounded-lg text-sm font-medium bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700">
+            class="enrollment-tab px-4 py-2 rounded-md text-sm font-medium bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700">
             Denied
           </button>
           <button data-filter="approved"
-            class="enrollment-tab px-4 py-2 rounded-lg text-sm font-medium bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700">
+            class="enrollment-tab px-4 py-2 rounded-md text-sm font-medium bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700">
             Approved
           </button>
           <button data-filter="banned-ips"
-            class="enrollment-tab px-4 py-2 rounded-lg text-sm font-medium bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700">
+            class="enrollment-tab px-4 py-2 rounded-md text-sm font-medium bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700">
             <i class="fa-solid fa-shield-halved mr-1"></i>Banned IPs
           </button>
           <button data-filter="suspicious"
-            class="enrollment-tab px-4 py-2 rounded-lg text-sm font-medium bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700">
+            class="enrollment-tab px-4 py-2 rounded-md text-sm font-medium bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700">
             <i class="fa-solid fa-triangle-exclamation mr-1"></i>Suspicious
           </button>
           <div class="flex-1"></div>
@@ -96,7 +131,7 @@
           <div class="relative">
             <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none"></i>
             <input type="text" id="search-input" placeholder="Search host, user, IP..."
-              class="w-56 pl-9 pr-3 py-2 rounded-lg text-sm bg-slate-800 border border-slate-700 text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent" />
+              class="w-56 pl-9 pr-3 py-2 rounded-md text-sm bg-slate-950/70 border border-slate-700 text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent" />
           </div>
           <button id="bulk-approve-btn"
             class="hidden px-3 py-2 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white transition-colors">
@@ -113,9 +148,9 @@
         </div>
 
         <!-- Clients Table -->
-        <div class="bg-slate-900/50 border border-slate-800 rounded-xl overflow-x-auto">
+        <div id="clients-table-panel" class="bg-slate-900/55 border border-slate-800 rounded-lg overflow-x-auto shadow-[0_18px_55px_rgba(2,6,23,0.18)]">
           <table class="w-full min-w-[1200px]" id="enrollment-table">
-            <thead class="bg-slate-800/50 border-b border-slate-700">
+            <thead class="bg-slate-950/55 border-b border-slate-700">
               <tr>
                 <th class="w-10 px-4 py-3">
                   <input type="checkbox" id="select-all" class="h-4 w-4 rounded border-slate-600" />

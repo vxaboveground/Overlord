@@ -969,6 +969,7 @@ export function listClients(filters: ListFilters): ListResult {
   } = filters;
   const where: string[] = [];
   const params: any[] = [];
+  const suspiciousEnrollmentFilter = enrollmentFilter === "suspicious";
 
   if (statusFilter === "online") {
     where.push("c.online=1");
@@ -976,7 +977,7 @@ export function listClients(filters: ListFilters): ListResult {
     where.push("c.online=0");
   }
 
-  if (enrollmentFilter && enrollmentFilter !== "all") {
+  if (enrollmentFilter && enrollmentFilter !== "all" && !suspiciousEnrollmentFilter) {
     if (enrollmentFilter === "pending") {
       where.push("(c.enrollment_status='pending' OR c.enrollment_status IS NULL)");
     } else {
@@ -1108,7 +1109,22 @@ export function listClients(filters: ListFilters): ListResult {
   let totalCount = 0;
   let onlineCount = 0;
 
-  if (search) {
+  if (suspiciousEnrollmentFilter && !search) {
+    const candidates = db
+      .query<any>(
+        `SELECT ${clientFields}, g.name as groupName, g.color as groupColor
+         FROM clients c
+         LEFT JOIN client_groups g ON g.id = c.group_id
+         ${whereSql}
+         ${orderBy}`,
+      )
+      .all(...params);
+    const suspiciousSets = getFloodSetsWithCache();
+    const matches = candidates.filter((row: any) => computeClientSuspiciousFlags(row, suspiciousSets).length > 0);
+    totalCount = matches.length;
+    onlineCount = matches.filter((row: any) => row.online === 1).length;
+    rows = matches.slice(offset, offset + pageSize);
+  } else if (search) {
     const searchWhere = [...where];
     const searchParams = [...params];
     const candidateLimit = Math.min(5000, Math.max(1000, offset + pageSize * 8));
@@ -2183,13 +2199,14 @@ export function getEnrollmentStats(opts?: {
   pending: number;
   approved: number;
   denied: number;
+  suspicious: number;
 } {
   let sql = `SELECT COALESCE(enrollment_status,'pending') as status, COUNT(*) as c FROM clients`;
   const params: any[] = [];
 
   const where: string[] = [];
   if (opts?.allowedClientIds) {
-    if (opts.allowedClientIds.length === 0) return { pending: 0, approved: 0, denied: 0 };
+    if (opts.allowedClientIds.length === 0) return { pending: 0, approved: 0, denied: 0, suspicious: 0 };
     const placeholders = opts.allowedClientIds.map(() => "?").join(",");
     where.push(`id IN (${placeholders})`);
     params.push(...opts.allowedClientIds);
@@ -2214,12 +2231,19 @@ export function getEnrollmentStats(opts?: {
   sql += ` GROUP BY enrollment_status`;
 
   const rows = db.query<{ status: string; c: number }>(sql).all(...params);
-  const stats = { pending: 0, approved: 0, denied: 0 };
+  const stats = { pending: 0, approved: 0, denied: 0, suspicious: 0 };
   for (const r of rows) {
     if (r.status === "approved") stats.approved = Number(r.c);
     else if (r.status === "denied") stats.denied = Number(r.c);
     else stats.pending = Number(r.c);
   }
+
+  const suspiciousSql =
+    `SELECT id, hwid, cpu, gpu, ram, os, host, user, ip, monitors FROM clients${where.length > 0 ? ` WHERE ${where.join(" AND ")}` : ""}`;
+  const suspiciousSets = getFloodSetsWithCache();
+  const suspiciousRows = db.query<any>(suspiciousSql).all(...params);
+  stats.suspicious = suspiciousRows.filter((row: any) => computeClientSuspiciousFlags(row, suspiciousSets).length > 0).length;
+
   return stats;
 }
 

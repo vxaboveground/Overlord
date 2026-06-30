@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { db } from "./db/connection";
-import { deleteClientRow, getClientMetricsSummary, listClients, setClientBookmark, setClientTag, setClientWebcamInfo, upsertClientRow } from "./db";
+import { deleteClientRow, getClientMetricsSummary, getEnrollmentStats, listClients, setClientBookmark, setClientTag, setClientWebcamInfo, upsertClientRow } from "./db";
 
 const createdClientIds: string[] = [];
 
@@ -157,6 +157,68 @@ describe("client list ordering", () => {
 });
 
 describe("client metrics summary", () => {
+  test("suspicious enrollment filter and stats scan the full matching set", () => {
+    try {
+      const prefix = `suspicious-filter-${Date.now().toString(36)}`;
+      const suspiciousId = `${prefix}-missing-identity`;
+      const normalId = `${prefix}-normal`;
+      const uniqueOs = `${prefix}-os`;
+      const beforeStats = getEnrollmentStats();
+
+      upsertClientRow({
+        id: suspiciousId,
+        hwid: suspiciousId,
+        role: "client",
+        host: "",
+        os: uniqueOs,
+        arch: "amd64",
+        version: "1.0.0",
+        user: "",
+        country: "US",
+        lastSeen: Date.now(),
+        online: 0,
+        enrollmentStatus: "pending",
+      });
+      createdClientIds.push(suspiciousId);
+
+      upsertClientRow({
+        id: normalId,
+        hwid: normalId,
+        role: "client",
+        host: "normal-host",
+        os: uniqueOs,
+        arch: "amd64",
+        version: "1.0.0",
+        user: "tester",
+        country: "US",
+        lastSeen: Date.now() - 1,
+        online: 0,
+        enrollmentStatus: "pending",
+      });
+      createdClientIds.push(normalId);
+
+      const result = listClients({
+        page: 1,
+        pageSize: 12,
+        search: "",
+        sort: "last_seen_desc",
+        statusFilter: "all",
+        osFilter: uniqueOs,
+        countryFilter: "all",
+        enrollmentFilter: "suspicious",
+      });
+      const afterStats = getEnrollmentStats();
+
+      expect(result.total).toBe(1);
+      expect(result.items.map((item) => item.id)).toEqual([suspiciousId]);
+      expect(result.items[0]?.suspiciousFlags).toContain("no_hostname");
+      expect(result.items[0]?.suspiciousFlags).toContain("no_user");
+      expect(afterStats.suspicious).toBe(beforeStats.suspicious + 1);
+    } finally {
+      cleanupCreatedClients();
+    }
+  });
+
   test("operating system breakdown excludes purgatory clients", () => {
     try {
       const prefix = `metrics-purgatory-${Date.now().toString(36)}`;
