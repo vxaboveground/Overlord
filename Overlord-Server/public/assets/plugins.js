@@ -3,6 +3,14 @@ const fileInput = document.getElementById("file-input");
 const pluginList = document.getElementById("plugin-list");
 const refreshBtn = document.getElementById("refresh-btn");
 const uploadStatus = document.getElementById("upload-status");
+const PLUGIN_CACHE_INVALIDATION_KEY = "overlord_plugin_cache_invalidated_at";
+
+function notifyPluginsChanged() {
+  try {
+    localStorage.setItem(PLUGIN_CACHE_INVALIDATION_KEY, String(Date.now()));
+  } catch {}
+  window.dispatchEvent(new CustomEvent("overlord:plugins-changed"));
+}
 
 async function checkAuth() {
   try {
@@ -249,6 +257,7 @@ function renderPlugins(plugins) {
           setStatus(`Enable failed: ${data?.error || res.statusText}`, true);
           return;
         }
+        notifyPluginsChanged();
         await refresh();
       } catch (err) {
         setStatus("Enable failed", true);
@@ -305,6 +314,7 @@ function renderPlugins(plugins) {
             setStatus(`Auto-load toggle failed: ${data?.error || res.statusText}`, true);
             return;
           }
+          notifyPluginsChanged();
           await refresh();
         });
       }
@@ -332,6 +342,7 @@ function renderPlugins(plugins) {
         return;
       }
       setStatus("Plugin removed.");
+      notifyPluginsChanged();
       await refresh();
     });
     actions.appendChild(toggle);
@@ -405,6 +416,7 @@ function showNeedsApprovalModal(plugin, needs, needsHash, afterApprove) {
     }
     overlay.remove();
     setStatus("Plugin needs approved.");
+    notifyPluginsChanged();
     if (typeof afterApprove === "function") await afterApprove();
   });
 }
@@ -463,6 +475,7 @@ function showPluginEnableConfirmModal(plugin, sigInfo) {
   okBtn.addEventListener("click", async () => {
     okBtn.disabled = true;
     okBtn.textContent = "Enabling...";
+    let enabled = false;
     try {
       const res = await fetch(`/api/plugins/${plugin.id}/enable`, {
         method: "POST",
@@ -480,11 +493,14 @@ function showPluginEnableConfirmModal(plugin, sigInfo) {
           return;
         }
         setStatus(`Enable failed: ${data?.error || res.statusText}`, true);
+      } else {
+        enabled = true;
       }
     } catch {
       setStatus("Enable failed", true);
     }
     overlay.remove();
+    if (enabled) notifyPluginsChanged();
     await refresh();
   });
 
@@ -508,6 +524,7 @@ async function uploadFile(file) {
     return;
   }
   setStatus("Upload complete.");
+  notifyPluginsChanged();
   await refresh();
 }
 

@@ -139,6 +139,7 @@ const clearContext = () => {
 let _pluginCache = null;
 let _pluginCacheAge = 0;
 const PLUGIN_CACHE_TTL = 30_000;
+const PLUGIN_CACHE_INVALIDATION_KEY = "overlord_plugin_cache_invalidated_at";
 const pluginDashboardBadges = new Map();
 let pluginDashboardDigest = "";
 let pluginDashboardRefreshInFlight = false;
@@ -151,6 +152,11 @@ async function refreshPluginCache() {
     _pluginCache = Array.isArray(data.plugins) ? data.plugins : [];
     _pluginCacheAge = Date.now();
   } catch {}
+}
+
+function invalidatePluginCache() {
+  _pluginCache = null;
+  _pluginCacheAge = 0;
 }
 
 function getCachedPlugins() {
@@ -934,6 +940,15 @@ async function loadPluginsForClient(clientId) {
     // ignore — cache render is already showing
   }
 }
+
+window.addEventListener("storage", (event) => {
+  if (event.key !== PLUGIN_CACHE_INVALIDATION_KEY) return;
+  invalidatePluginCache();
+});
+
+window.addEventListener("overlord:plugins-changed", () => {
+  invalidatePluginCache();
+});
 
 const PREF_LAYOUT_KEY = "overlord_layout";
 let rendererSetLayout = null;
