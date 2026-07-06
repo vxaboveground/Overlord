@@ -687,7 +687,9 @@ func (s *duplicationState) closeLocked() {
 	s.bounds = image.Rectangle{}
 	s.cursorBounds = image.Rectangle{}
 	s.display = -1
+	PutRGBA(s.lastBase)
 	s.lastBase = nil
+	PutRGBA(s.lastFrame)
 	s.lastFrame = nil
 	s.lastFrameAt = time.Time{}
 	s.cursorScratch = nil
@@ -807,11 +809,15 @@ func (s *duplicationState) capture(display int) (*image.RGBA, error) {
 		}
 	}
 
-	// Cache an independent clone so the timeout path (which serves the cached
+	// Cache an independent copy so the timeout path (which serves the cached
 	// frame back to callers) doesn't alias a buffer the caller will return to
 	// the RGBA pool via PutRGBA.
-	s.lastBase = cloneRGBA(img)
-	img = s.composeFrame(img, width, height)
+	captured := img
+	s.copyLastBaseLocked(captured)
+	img = s.composeFrame(captured, width, height)
+	if img != captured {
+		PutRGBA(captured)
+	}
 	if img == s.cursorScratch {
 		// cursorScratch is reused across captures; clone before returning so
 		// the next compose doesn't write into a buffer the caller has pooled.
@@ -821,6 +827,26 @@ func (s *duplicationState) capture(display int) (*image.RGBA, error) {
 	s.lastFrameAt = time.Now()
 
 	return img, nil
+}
+
+func (s *duplicationState) copyLastBaseLocked(src *image.RGBA) {
+	if src == nil {
+		PutRGBA(s.lastBase)
+		s.lastBase = nil
+		return
+	}
+	width := src.Rect.Dx()
+	height := src.Rect.Dy()
+	need := len(src.Pix)
+	if s.lastBase != nil && cap(s.lastBase.Pix) >= need && cap(s.lastBase.Pix) <= need*2 {
+		s.lastBase.Pix = s.lastBase.Pix[:need]
+		s.lastBase.Stride = width * 4
+		s.lastBase.Rect = image.Rect(0, 0, width, height)
+		copy(s.lastBase.Pix, src.Pix)
+		return
+	}
+	PutRGBA(s.lastBase)
+	s.lastBase = cloneRGBA(src)
 }
 
 func (s *duplicationState) captureH264(display int, forceKeyframe bool) ([]byte, int, int, time.Duration, time.Duration, bool, error) {

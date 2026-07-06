@@ -494,10 +494,11 @@ var (
 	statBlockRegions    atomic.Int64
 	statBlockFallbacks  atomic.Int64
 
-	overrideQuality atomic.Int64
-	overrideCodec   atomic.Value
-	h264WarnOnce    sync.Once
-	codecLogOnce    sync.Once
+	overrideQuality     atomic.Int64
+	overrideCodec       atomic.Value
+	desktopSoftwareH264 atomic.Bool
+	h264WarnOnce        sync.Once
+	codecLogOnce        sync.Once
 
 	prevMu    sync.Mutex
 	prevFrame *prevImage
@@ -625,6 +626,19 @@ func ResetPrevHVNC() {
 func RequestDesktopFullFrame() {
 	requestFullFrames(2)
 	RequestDesktopH264Keyframe()
+}
+
+func SetDesktopSoftwareH264(enabled bool) {
+	if desktopSoftwareH264.Swap(enabled) == enabled {
+		return
+	}
+	resetH264Encoder()
+	requestFullFrames(2)
+	log.Printf("capture: desktop software h264 %v", enabled)
+}
+
+func useDesktopSoftwareH264() bool {
+	return desktopSoftwareH264.Load()
 }
 
 func RequestHVNCFullFrame() {

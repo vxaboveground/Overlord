@@ -774,6 +774,7 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		payload, _ := envelope["payload"].(map[string]interface{})
 		quality := 90
 		codec := ""
+		softwareH264 := false
 		reason := ""
 		source := ""
 		if payload != nil {
@@ -783,6 +784,9 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			if v, ok := payload["codec"].(string); ok {
 				codec = v
 			}
+			if v, ok := payload["softwareH264"].(bool); ok {
+				softwareH264 = v
+			}
 			if v, ok := payload["reason"].(string); ok {
 				reason = strings.TrimSpace(v)
 			}
@@ -790,11 +794,13 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 				source = strings.TrimSpace(v)
 			}
 		}
+		softwareH264 = softwareH264 && strings.EqualFold(strings.TrimSpace(codec), "h264")
 		if source != "" || reason != "" {
-			log.Printf("desktop: set quality=%d codec=%s source=%s reason=%s", quality, codec, source, reason)
+			log.Printf("desktop: set quality=%d codec=%s software_h264=%v source=%s reason=%s", quality, codec, softwareH264, source, reason)
 		} else {
-			log.Printf("desktop: set quality=%d codec=%s", quality, codec)
+			log.Printf("desktop: set quality=%d codec=%s software_h264=%v", quality, codec, softwareH264)
 		}
+		capture.SetDesktopSoftwareH264(softwareH264)
 		capture.SetQualityAndCodec(quality, codec)
 		sendCommandResultSafe(env, cmdID, true, "")
 		return nil

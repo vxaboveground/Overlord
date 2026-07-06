@@ -10,7 +10,7 @@ import (
 )
 
 func tryBuildDirectH264Frame(display int) (wire.Frame, time.Duration, time.Duration, bool, error) {
-	if blockCodec() != "h264" || !useDesktopDuplication() {
+	if blockCodec() != "h264" || useDesktopSoftwareH264() || !useDesktopDuplication() {
 		return wire.Frame{}, 0, 0, false, nil
 	}
 	forceKeyframe := webrtcpub.ConsumeKeyframeRequest()

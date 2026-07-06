@@ -547,6 +547,10 @@ func closeH264Encoder(slot *h264FrameEncoder) {
 }
 
 func newWindowsH264Encoder(stream string, width, height, fps int) (h264FrameEncoder, error) {
+	if stream == "desktop" && useDesktopSoftwareH264() {
+		log.Printf("capture: desktop software h264 requested; skipping native NVENC and Media Foundation hardware encoders")
+		return newMFSoftwareH264Encoder(width, height, fps)
+	}
 	if enc, err := newNativeH264Encoder(stream, width, height, fps); err == nil {
 		return enc, nil
 	} else {
@@ -592,6 +596,21 @@ func newMFH264Encoder(width, height, fps int) (*mfH264Encoder, error) {
 	if fallbackErr != nil {
 		return nil, fallbackErr
 	}
+	return newMFH264EncoderFromSoftwareTransform(transform, fallbackHardware, fallbackProvider, width, height, fps)
+}
+
+func newMFSoftwareH264Encoder(width, height, fps int) (*mfH264Encoder, error) {
+	if err := ensureMFStartup(); err != nil {
+		return nil, err
+	}
+	transform, fallbackHardware, fallbackProvider, fallbackErr := createSoftwareH264Transform()
+	if fallbackErr != nil {
+		return nil, fallbackErr
+	}
+	return newMFH264EncoderFromSoftwareTransform(transform, fallbackHardware, fallbackProvider, width, height, fps)
+}
+
+func newMFH264EncoderFromSoftwareTransform(transform *mfTransform, fallbackHardware bool, fallbackProvider string, width, height, fps int) (*mfH264Encoder, error) {
 	enc := newMFH264EncoderFromTransform(transform, width, height, fps, fps, fallbackHardware, fallbackProvider, MFVideoFormat_NV12, "NV12")
 	if err := enc.configure(); err != nil {
 		enc.Close()

@@ -132,6 +132,7 @@ describe("remote desktop viewer control", () => {
       display: 0,
       quality: 90,
       codec: "h264",
+      softwareH264: false,
       duplication: true,
       maxHeight: 1080,
       maxFps: 120,

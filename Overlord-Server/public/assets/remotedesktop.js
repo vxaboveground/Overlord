@@ -70,6 +70,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   const qualitySlider = document.getElementById("qualitySlider");
   const qualityValue = document.getElementById("qualityValue");
   const codecH264 = document.getElementById("codecH264");
+  const softwareH264Ctrl = document.getElementById("softwareH264Ctrl");
   const codecMode = document.getElementById("codecMode");
   const canvas = document.getElementById("frameCanvas");
   const canvasContainer = document.getElementById("canvasContainer");
@@ -403,6 +404,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     if (kbdCtrl && typeof settings.keyboard === "boolean") kbdCtrl.checked = settings.keyboard;
     if (cursorCtrl && typeof settings.cursor === "boolean") cursorCtrl.checked = settings.cursor;
     if (duplicationCtrl && typeof settings.duplication === "boolean") duplicationCtrl.checked = settings.duplication;
+    if (softwareH264Ctrl && typeof settings.softwareH264 === "boolean") softwareH264Ctrl.checked = settings.softwareH264;
     if (clipboardSyncCtrl && typeof settings.clipboardSync === "boolean") clipboardSyncCtrl.checked = settings.clipboardSync;
     if (audioCtrl && typeof settings.audio === "boolean") audioCtrl.checked = settings.audio;
     if (typeof settings.preferH264 === "boolean") {
@@ -423,6 +425,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       keyboard: !!kbdCtrl?.checked,
       cursor: !!cursorCtrl?.checked,
       duplication: !!duplicationCtrl?.checked,
+      softwareH264: !!softwareH264Ctrl?.checked,
       clipboardSync: !!clipboardSyncCtrl?.checked,
       audio: !!audioCtrl?.checked,
       audioTransport: getAudioTransport(),
@@ -438,6 +441,9 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   if (codecH264) {
     codecH264.checked = prefersH264;
     codecH264.disabled = typeof VideoDecoder !== "function";
+  }
+  if (softwareH264Ctrl) {
+    softwareH264Ctrl.disabled = !prefersH264;
   }
 
   function setCodecModeLabel(mode, detail) {
@@ -1216,12 +1222,17 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   function pushQuality(val) {
     const q = Number(val) || 90;
     const codec = q >= 100 ? "raw" : (prefersH264 ? "h264" : "jpeg");
-    console.debug("rd: pushQuality val=", val, "q=", q, "codec=", codec);
+    const softwareH264 = codec === "h264" && useSoftwareH264();
+    console.debug("rd: pushQuality val=", val, "q=", q, "codec=", codec, "softwareH264=", softwareH264);
     setCodecModeLabel(codec, "requested");
-    if (codec === "h264") {
+    if (codec === "h264" && !softwareH264) {
       ensureDuplicationForH264();
     }
-    sendCmd("desktop_set_quality", { quality: q, codec });
+    sendCmd("desktop_set_quality", { quality: q, codec, softwareH264 });
+  }
+
+  function useSoftwareH264() {
+    return !!softwareH264Ctrl?.checked && prefersH264;
   }
 
   function ensureDuplicationForH264() {
@@ -1236,13 +1247,25 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     codecH264.addEventListener("change", function () {
       resetH264SessionState();
       prefersH264 = !!codecH264.checked && typeof VideoDecoder === "function";
-      if (prefersH264) {
+      if (softwareH264Ctrl) {
+        softwareH264Ctrl.disabled = !prefersH264;
+      }
+      if (prefersH264 && !useSoftwareH264()) {
         ensureDuplicationForH264();
       }
       if (!prefersH264) {
         destroyVideoDecoder();
         h264LowFpsStreak = 0;
       }
+      if (qualitySlider) {
+        pushQuality(qualitySlider.value);
+      }
+      sharedSettingsSaver.scheduleSave();
+    });
+  }
+  if (softwareH264Ctrl) {
+    softwareH264Ctrl.addEventListener("change", function () {
+      resetH264SessionState();
       if (qualitySlider) {
         pushQuality(qualitySlider.value);
       }
@@ -1335,7 +1358,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     if (qualitySlider) {
       pushQuality(qualitySlider.value);
     }
-    if (prefersH264) {
+    if (prefersH264 && !useSoftwareH264()) {
       ensureDuplicationForH264();
     }
     pushTargetFps();
@@ -1588,6 +1611,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     prefersH264 = false;
     destroyVideoDecoder();
     if (codecH264) codecH264.checked = false;
+    if (softwareH264Ctrl) softwareH264Ctrl.disabled = true;
     sharedSettingsSaver.scheduleSave();
     console.warn("rd: falling back to jpeg codec", reasonText);
     const q = Number(qualitySlider?.value) || 90;
@@ -1636,6 +1660,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       sendCmd("desktop_set_quality", {
         quality: q,
         codec: "h264",
+        softwareH264: useSoftwareH264(),
         source: "rd_viewer",
         reason: "h264_recovery_quality_push",
       });

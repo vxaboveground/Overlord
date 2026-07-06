@@ -177,6 +177,7 @@ export const rdStreamingState = new Map<string, {
   display: number;
   quality: number;
   codec: string;
+  softwareH264: boolean;
   duplication: boolean;
   maxHeight: number;
   maxFps: number;
@@ -201,6 +202,7 @@ function defaultRdStreamingState() {
     display: 0,
     quality: 90,
     codec: "",
+    softwareH264: false,
     duplication: false,
     maxHeight: 0,
     maxFps: 120,
@@ -507,23 +509,26 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
     case "desktop_set_quality": {
       const newQuality = Number(payload.quality) || 90;
       const newCodec = String(payload.codec || "").toLowerCase();
+      const newSoftwareH264 = newCodec === "h264" && !!(payload as any).softwareH264;
       const reason = typeof payload.reason === "string"
         ? payload.reason.slice(0, 512)
         : "";
       const source = typeof payload.source === "string"
         ? payload.source.slice(0, 128)
         : "";
-      if (state.quality !== newQuality || state.codec !== newCodec) {
+      if (state.quality !== newQuality || state.codec !== newCodec || state.softwareH264 !== newSoftwareH264) {
         sendDesktopCommand(target, "desktop_set_quality", {
           quality: newQuality,
           codec: newCodec,
+          softwareH264: newSoftwareH264,
           ...(reason ? { reason } : {}),
           ...(source ? { source } : {}),
         });
         state.quality = newQuality;
         state.codec = newCodec;
+        state.softwareH264 = newSoftwareH264;
         rdStreamingState.set(clientId, state);
-        logger.debug(`[rd] set quality=${newQuality} codec=${newCodec || "(default)"}${source ? ` source=${source}` : ""}${reason ? ` reason=${reason}` : ""}`);
+        logger.debug(`[rd] set quality=${newQuality} codec=${newCodec || "(default)"} software_h264=${newSoftwareH264}${source ? ` source=${source}` : ""}${reason ? ` reason=${reason}` : ""}`);
       }
       break;
     }
