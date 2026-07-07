@@ -414,70 +414,75 @@ static nvenc_d3d11_texture_create_result nvenc_create_d3d11_texture_encoder(ID3D
 		return out;
 	}
 
-	HRESULT hr = enc->device->lpVtbl->QueryInterface(enc->device, &nvenc_iid_id3d11_video_device, (void**)&enc->video_device);
-	if (FAILED(hr) || !enc->video_device) {
-		out.stage = 11;
-		out.hr = hr;
-		strncpy(out.message, "ID3D11VideoDevice unavailable for GPU BGRA->NV12 conversion", sizeof(out.message)-1);
-		nvenc_release_texture_encoder(enc);
-		return out;
-	}
-	hr = enc->context->lpVtbl->QueryInterface(enc->context, &nvenc_iid_id3d11_video_context, (void**)&enc->video_context);
-	if (FAILED(hr) || !enc->video_context) {
-		out.stage = 12;
-		out.hr = hr;
-		strncpy(out.message, "ID3D11VideoContext unavailable for GPU BGRA->NV12 conversion", sizeof(out.message)-1);
-		nvenc_release_texture_encoder(enc);
-		return out;
-	}
-
-	D3D11_VIDEO_PROCESSOR_CONTENT_DESC content_desc;
-	memset(&content_desc, 0, sizeof(content_desc));
-	content_desc.InputFrameFormat = D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE;
-	content_desc.InputFrameRate.Numerator = (UINT)fps;
-	content_desc.InputFrameRate.Denominator = 1;
-	content_desc.InputWidth = (UINT)input_width;
-	content_desc.InputHeight = (UINT)input_height;
-	content_desc.OutputFrameRate.Numerator = (UINT)fps;
-	content_desc.OutputFrameRate.Denominator = 1;
-	content_desc.OutputWidth = (UINT)encode_width;
-	content_desc.OutputHeight = (UINT)encode_height;
-	content_desc.Usage = D3D11_VIDEO_USAGE_OPTIMAL_SPEED;
-	hr = enc->video_device->lpVtbl->CreateVideoProcessorEnumerator(enc->video_device, &content_desc, &enc->video_enum);
-	if (FAILED(hr) || !enc->video_enum) {
-		out.stage = 13;
-		out.hr = hr;
-		strncpy(out.message, "CreateVideoProcessorEnumerator failed for GPU BGRA->NV12 conversion", sizeof(out.message)-1);
-		nvenc_release_texture_encoder(enc);
-		return out;
-	}
-	UINT format_flags = 0;
-	hr = enc->video_enum->lpVtbl->CheckVideoProcessorFormat(enc->video_enum, (DXGI_FORMAT)dxgi_format, &format_flags);
-	if (FAILED(hr) || !(format_flags & D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_INPUT)) {
-		out.stage = 14;
-		out.hr = FAILED(hr) ? hr : E_FAIL;
-		strncpy(out.message, "desktop DXGI format is not supported as D3D11 video processor input", sizeof(out.message)-1);
-		nvenc_release_texture_encoder(enc);
-		return out;
-	}
 	DXGI_FORMAT output_dxgi_format = output_mode == 1 ? (DXGI_FORMAT)dxgi_format : DXGI_FORMAT_NV12;
 	NV_ENC_BUFFER_FORMAT output_buffer_format = output_mode == 1 ? buffer_format : NV_ENC_BUFFER_FORMAT_NV12;
-	format_flags = 0;
-	hr = enc->video_enum->lpVtbl->CheckVideoProcessorFormat(enc->video_enum, output_dxgi_format, &format_flags);
-	if (FAILED(hr) || !(format_flags & D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT)) {
-		out.stage = 15;
-		out.hr = FAILED(hr) ? hr : E_FAIL;
-		strncpy(out.message, "requested D3D11 video processor output format is not supported", sizeof(out.message)-1);
-		nvenc_release_texture_encoder(enc);
-		return out;
-	}
-	hr = enc->video_device->lpVtbl->CreateVideoProcessor(enc->video_device, enc->video_enum, 0, &enc->video_processor);
-	if (FAILED(hr) || !enc->video_processor) {
-		out.stage = 16;
-		out.hr = hr;
-		strncpy(out.message, "CreateVideoProcessor failed for GPU BGRA->NV12 conversion", sizeof(out.message)-1);
-		nvenc_release_texture_encoder(enc);
-		return out;
+	int direct_copy = output_mode == 1 && input_width == encode_width && input_height == encode_height;
+	HRESULT hr = S_OK;
+
+	if (!direct_copy) {
+		hr = enc->device->lpVtbl->QueryInterface(enc->device, &nvenc_iid_id3d11_video_device, (void**)&enc->video_device);
+		if (FAILED(hr) || !enc->video_device) {
+			out.stage = 11;
+			out.hr = hr;
+			strncpy(out.message, "ID3D11VideoDevice unavailable for GPU conversion/scaling", sizeof(out.message)-1);
+			nvenc_release_texture_encoder(enc);
+			return out;
+		}
+		hr = enc->context->lpVtbl->QueryInterface(enc->context, &nvenc_iid_id3d11_video_context, (void**)&enc->video_context);
+		if (FAILED(hr) || !enc->video_context) {
+			out.stage = 12;
+			out.hr = hr;
+			strncpy(out.message, "ID3D11VideoContext unavailable for GPU conversion/scaling", sizeof(out.message)-1);
+			nvenc_release_texture_encoder(enc);
+			return out;
+		}
+
+		D3D11_VIDEO_PROCESSOR_CONTENT_DESC content_desc;
+		memset(&content_desc, 0, sizeof(content_desc));
+		content_desc.InputFrameFormat = D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE;
+		content_desc.InputFrameRate.Numerator = (UINT)fps;
+		content_desc.InputFrameRate.Denominator = 1;
+		content_desc.InputWidth = (UINT)input_width;
+		content_desc.InputHeight = (UINT)input_height;
+		content_desc.OutputFrameRate.Numerator = (UINT)fps;
+		content_desc.OutputFrameRate.Denominator = 1;
+		content_desc.OutputWidth = (UINT)encode_width;
+		content_desc.OutputHeight = (UINT)encode_height;
+		content_desc.Usage = D3D11_VIDEO_USAGE_OPTIMAL_SPEED;
+		hr = enc->video_device->lpVtbl->CreateVideoProcessorEnumerator(enc->video_device, &content_desc, &enc->video_enum);
+		if (FAILED(hr) || !enc->video_enum) {
+			out.stage = 13;
+			out.hr = hr;
+			strncpy(out.message, "CreateVideoProcessorEnumerator failed for GPU conversion/scaling", sizeof(out.message)-1);
+			nvenc_release_texture_encoder(enc);
+			return out;
+		}
+		UINT format_flags = 0;
+		hr = enc->video_enum->lpVtbl->CheckVideoProcessorFormat(enc->video_enum, (DXGI_FORMAT)dxgi_format, &format_flags);
+		if (FAILED(hr) || !(format_flags & D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_INPUT)) {
+			out.stage = 14;
+			out.hr = FAILED(hr) ? hr : E_FAIL;
+			strncpy(out.message, "desktop DXGI format is not supported as D3D11 video processor input", sizeof(out.message)-1);
+			nvenc_release_texture_encoder(enc);
+			return out;
+		}
+		format_flags = 0;
+		hr = enc->video_enum->lpVtbl->CheckVideoProcessorFormat(enc->video_enum, output_dxgi_format, &format_flags);
+		if (FAILED(hr) || !(format_flags & D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT)) {
+			out.stage = 15;
+			out.hr = FAILED(hr) ? hr : E_FAIL;
+			strncpy(out.message, "requested D3D11 video processor output format is not supported", sizeof(out.message)-1);
+			nvenc_release_texture_encoder(enc);
+			return out;
+		}
+		hr = enc->video_device->lpVtbl->CreateVideoProcessor(enc->video_device, enc->video_enum, 0, &enc->video_processor);
+		if (FAILED(hr) || !enc->video_processor) {
+			out.stage = 16;
+			out.hr = hr;
+			strncpy(out.message, "CreateVideoProcessor failed for GPU conversion/scaling", sizeof(out.message)-1);
+			nvenc_release_texture_encoder(enc);
+			return out;
+		}
 	}
 
 	D3D11_TEXTURE2D_DESC source_desc;
@@ -514,37 +519,41 @@ static nvenc_d3d11_texture_create_result nvenc_create_d3d11_texture_encoder(ID3D
 	output_view_desc.Texture2D.MipSlice = 0;
 	for (int i = 0; i < NVENC_D3D11_TEXTURE_PIPELINE_DEPTH; i++) {
 		nvenc_d3d11_texture_slot *slot = &enc->slots[i];
-		hr = enc->device->lpVtbl->CreateTexture2D(enc->device, &source_desc, NULL, &slot->source_texture);
-		if (FAILED(hr) || !slot->source_texture) {
-			out.stage = 17;
-			out.hr = hr;
-			strncpy(out.message, "CreateTexture2D desktop video-processor input failed", sizeof(out.message)-1);
-			nvenc_release_texture_encoder(enc);
-			return out;
+		if (!direct_copy) {
+			hr = enc->device->lpVtbl->CreateTexture2D(enc->device, &source_desc, NULL, &slot->source_texture);
+			if (FAILED(hr) || !slot->source_texture) {
+				out.stage = 17;
+				out.hr = hr;
+				strncpy(out.message, "CreateTexture2D desktop video-processor input failed", sizeof(out.message)-1);
+				nvenc_release_texture_encoder(enc);
+				return out;
+			}
 		}
 		hr = enc->device->lpVtbl->CreateTexture2D(enc->device, &tex_desc, NULL, &slot->input_texture);
 		if (FAILED(hr) || !slot->input_texture) {
 			out.stage = 18;
 			out.hr = hr;
-			strncpy(out.message, "CreateTexture2D video-processor output failed", sizeof(out.message)-1);
+			strncpy(out.message, direct_copy ? "CreateTexture2D direct NVENC input failed" : "CreateTexture2D video-processor output failed", sizeof(out.message)-1);
 			nvenc_release_texture_encoder(enc);
 			return out;
 		}
-		hr = enc->video_device->lpVtbl->CreateVideoProcessorInputView(enc->video_device, (ID3D11Resource*)slot->source_texture, enc->video_enum, &input_view_desc, &slot->video_input_view);
-		if (FAILED(hr) || !slot->video_input_view) {
-			out.stage = 19;
-			out.hr = hr;
-			strncpy(out.message, "CreateVideoProcessorInputView failed", sizeof(out.message)-1);
-			nvenc_release_texture_encoder(enc);
-			return out;
-		}
-		hr = enc->video_device->lpVtbl->CreateVideoProcessorOutputView(enc->video_device, (ID3D11Resource*)slot->input_texture, enc->video_enum, &output_view_desc, &slot->video_output_view);
-		if (FAILED(hr) || !slot->video_output_view) {
-			out.stage = 20;
-			out.hr = hr;
-			strncpy(out.message, "CreateVideoProcessorOutputView failed", sizeof(out.message)-1);
-			nvenc_release_texture_encoder(enc);
-			return out;
+		if (!direct_copy) {
+			hr = enc->video_device->lpVtbl->CreateVideoProcessorInputView(enc->video_device, (ID3D11Resource*)slot->source_texture, enc->video_enum, &input_view_desc, &slot->video_input_view);
+			if (FAILED(hr) || !slot->video_input_view) {
+				out.stage = 19;
+				out.hr = hr;
+				strncpy(out.message, "CreateVideoProcessorInputView failed", sizeof(out.message)-1);
+				nvenc_release_texture_encoder(enc);
+				return out;
+			}
+			hr = enc->video_device->lpVtbl->CreateVideoProcessorOutputView(enc->video_device, (ID3D11Resource*)slot->input_texture, enc->video_enum, &output_view_desc, &slot->video_output_view);
+			if (FAILED(hr) || !slot->video_output_view) {
+				out.stage = 20;
+				out.hr = hr;
+				strncpy(out.message, "CreateVideoProcessorOutputView failed", sizeof(out.message)-1);
+				nvenc_release_texture_encoder(enc);
+				return out;
+			}
 		}
 
 		NV_ENC_REGISTER_RESOURCE reg;
@@ -580,7 +589,7 @@ static nvenc_d3d11_texture_create_result nvenc_create_d3d11_texture_encoder(ID3D
 		}
 		slot->bitstream = bs.bitstreamBuffer;
 	}
-	enc->use_video_processor = 1;
+	enc->use_video_processor = direct_copy ? 0 : 1;
 	out.encoder = enc;
 	return out;
 }
@@ -866,7 +875,7 @@ static nvenc_d3d11_encode_result nvenc_encode_d3d11_texture(nvenc_d3d11_texture_
 		strncpy(out.message, "nil encoder or texture", sizeof(out.message)-1);
 		return out;
 	}
-	if (!enc->use_video_processor || !enc->video_context || !enc->video_processor) {
+	if (enc->use_video_processor && (!enc->video_context || !enc->video_processor)) {
 		out.stage = 3;
 		out.nvstatus = NV_ENC_ERR_INVALID_PTR;
 		strncpy(out.message, "GPU BGRA->NV12 video processor is missing", sizeof(out.message)-1);
@@ -925,48 +934,56 @@ static nvenc_d3d11_encode_result nvenc_encode_d3d11_texture(nvenc_d3d11_texture_
 			return out;
 		}
 	}
-	if (slot->in_flight || !slot->source_texture || !slot->input_texture || !slot->video_input_view || !slot->video_output_view || !slot->registered_resource || !slot->bitstream) {
+	if (slot->in_flight || !slot->input_texture || !slot->registered_resource || !slot->bitstream) {
 		out.stage = 2;
 		out.nvstatus = NV_ENC_ERR_INVALID_PTR;
 		strncpy(out.message, "pipeline slot is not ready for encode", sizeof(out.message)-1);
 		return out;
 	}
+	if (enc->use_video_processor && (!slot->source_texture || !slot->video_input_view || !slot->video_output_view)) {
+		out.stage = 2;
+		out.nvstatus = NV_ENC_ERR_INVALID_PTR;
+		strncpy(out.message, "video-processor pipeline slot is not ready for encode", sizeof(out.message)-1);
+		return out;
+	}
 	QueryPerformanceCounter(&t0);
-	enc->context->lpVtbl->CopyResource(enc->context, (ID3D11Resource*)slot->source_texture, (ID3D11Resource*)texture);
+	enc->context->lpVtbl->CopyResource(enc->context, enc->use_video_processor ? (ID3D11Resource*)slot->source_texture : (ID3D11Resource*)slot->input_texture, (ID3D11Resource*)texture);
 	QueryPerformanceCounter(&t1);
 	out.copy_ms = nvenc_qpc_ms(t0, t1, qpc_freq);
 
-	RECT src_rect;
-	src_rect.left = 0;
-	src_rect.top = 0;
-	src_rect.right = enc->input_width;
-	src_rect.bottom = enc->input_height;
-	RECT dst_rect;
-	dst_rect.left = 0;
-	dst_rect.top = 0;
-	dst_rect.right = enc->encode_width;
-	dst_rect.bottom = enc->encode_height;
-	enc->video_context->lpVtbl->VideoProcessorSetStreamFrameFormat(enc->video_context, enc->video_processor, 0, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE);
-	nvenc_set_video_processor_color_space(enc);
-	enc->video_context->lpVtbl->VideoProcessorSetStreamSourceRect(enc->video_context, enc->video_processor, 0, TRUE, &src_rect);
-	enc->video_context->lpVtbl->VideoProcessorSetStreamDestRect(enc->video_context, enc->video_processor, 0, TRUE, &dst_rect);
-	enc->video_context->lpVtbl->VideoProcessorSetOutputTargetRect(enc->video_context, enc->video_processor, TRUE, &dst_rect);
-	enc->video_context->lpVtbl->VideoProcessorSetStreamAutoProcessingMode(enc->video_context, enc->video_processor, 0, FALSE);
-	D3D11_VIDEO_PROCESSOR_STREAM stream;
-	memset(&stream, 0, sizeof(stream));
-	stream.Enable = TRUE;
-	stream.OutputIndex = 0;
-	stream.InputFrameOrField = 0;
-	stream.pInputSurface = slot->video_input_view;
-	QueryPerformanceCounter(&t0);
-	HRESULT hr = enc->video_context->lpVtbl->VideoProcessorBlt(enc->video_context, enc->video_processor, slot->video_output_view, enc->frame, 1, &stream);
-	QueryPerformanceCounter(&t1);
-	out.blt_ms = nvenc_qpc_ms(t0, t1, qpc_freq);
-	if (FAILED(hr)) {
-		out.stage = 4;
-		out.nvstatus = NV_ENC_ERR_GENERIC;
-		snprintf(out.message, sizeof(out.message), "VideoProcessorBlt BGRA->NV12 failed hr=0x%08lx", (unsigned long)hr);
-		return out;
+	if (enc->use_video_processor) {
+		RECT src_rect;
+		src_rect.left = 0;
+		src_rect.top = 0;
+		src_rect.right = enc->input_width;
+		src_rect.bottom = enc->input_height;
+		RECT dst_rect;
+		dst_rect.left = 0;
+		dst_rect.top = 0;
+		dst_rect.right = enc->encode_width;
+		dst_rect.bottom = enc->encode_height;
+		enc->video_context->lpVtbl->VideoProcessorSetStreamFrameFormat(enc->video_context, enc->video_processor, 0, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE);
+		nvenc_set_video_processor_color_space(enc);
+		enc->video_context->lpVtbl->VideoProcessorSetStreamSourceRect(enc->video_context, enc->video_processor, 0, TRUE, &src_rect);
+		enc->video_context->lpVtbl->VideoProcessorSetStreamDestRect(enc->video_context, enc->video_processor, 0, TRUE, &dst_rect);
+		enc->video_context->lpVtbl->VideoProcessorSetOutputTargetRect(enc->video_context, enc->video_processor, TRUE, &dst_rect);
+		enc->video_context->lpVtbl->VideoProcessorSetStreamAutoProcessingMode(enc->video_context, enc->video_processor, 0, FALSE);
+		D3D11_VIDEO_PROCESSOR_STREAM stream;
+		memset(&stream, 0, sizeof(stream));
+		stream.Enable = TRUE;
+		stream.OutputIndex = 0;
+		stream.InputFrameOrField = 0;
+		stream.pInputSurface = slot->video_input_view;
+		QueryPerformanceCounter(&t0);
+		HRESULT hr = enc->video_context->lpVtbl->VideoProcessorBlt(enc->video_context, enc->video_processor, slot->video_output_view, enc->frame, 1, &stream);
+		QueryPerformanceCounter(&t1);
+		out.blt_ms = nvenc_qpc_ms(t0, t1, qpc_freq);
+		if (FAILED(hr)) {
+			out.stage = 4;
+			out.nvstatus = NV_ENC_ERR_GENERIC;
+			snprintf(out.message, sizeof(out.message), "VideoProcessorBlt failed hr=0x%08lx", (unsigned long)hr);
+			return out;
+		}
 	}
 
 	NV_ENC_MAP_INPUT_RESOURCE map;
@@ -1444,6 +1461,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 )
 
@@ -1668,6 +1686,10 @@ func newNativeD3D11TextureH264Encoder(device unsafe.Pointer, inputWidth, inputHe
 		}
 		return nil, fmt.Errorf("NVENC D3D11 texture encoder create failed")
 	}
+	pipeline := "d3d11_video_processor"
+	if outputMode == 1 && inputWidth == encodeWidth && inputHeight == encodeHeight {
+		pipeline = "d3d11_direct_copy"
+	}
 	enc := &nativeD3D11TextureH264Encoder{
 		enc:          raw.encoder,
 		device:       device,
@@ -1682,9 +1704,9 @@ func newNativeD3D11TextureH264Encoder(device unsafe.Pointer, inputWidth, inputHe
 		outputName:   outputName,
 	}
 	if inputWidth != encodeWidth || inputHeight != encodeHeight {
-		log.Printf("capture: native NVENC D3D11 desktop texture encoder active provider=NVIDIA NVENC input=%dx%d output=%dx%d fps=%d source_format=%s(dxgi=%d) nvenc_input=%s gpu_scale=d3d11_video_processor bitrate=%d", inputWidth, inputHeight, encodeWidth, encodeHeight, fps, name, dxgiFormat, outputName, bitrate)
+		log.Printf("capture: native NVENC D3D11 desktop texture encoder active provider=NVIDIA NVENC input=%dx%d output=%dx%d fps=%d source_format=%s(dxgi=%d) nvenc_input=%s pipeline=%s bitrate=%d", inputWidth, inputHeight, encodeWidth, encodeHeight, fps, name, dxgiFormat, outputName, pipeline, bitrate)
 	} else {
-		log.Printf("capture: native NVENC D3D11 desktop texture encoder active provider=NVIDIA NVENC size=%dx%d fps=%d source_format=%s(dxgi=%d) nvenc_input=%s gpu_scale=d3d11_video_processor bitrate=%d", encodeWidth, encodeHeight, fps, name, dxgiFormat, outputName, bitrate)
+		log.Printf("capture: native NVENC D3D11 desktop texture encoder active provider=NVIDIA NVENC size=%dx%d fps=%d source_format=%s(dxgi=%d) nvenc_input=%s pipeline=%s bitrate=%d", encodeWidth, encodeHeight, fps, name, dxgiFormat, outputName, pipeline, bitrate)
 	}
 	return enc, nil
 }
@@ -1782,7 +1804,7 @@ func preferredNVENCD3D11OutputModes() []int {
 	case "bgra", "argb":
 		return []int{1}
 	default:
-		return []int{0, 1}
+		return []int{1, 0}
 	}
 }
 
@@ -1812,8 +1834,9 @@ func envBool(name string) bool {
 }
 
 var (
-	nativeTextureH264Mu  sync.Mutex
-	nativeTextureH264Enc *nativeD3D11TextureH264Encoder
+	nativeTextureH264Mu       sync.Mutex
+	nativeTextureH264Enc      *nativeD3D11TextureH264Encoder
+	nativeTextureH264ForceIDR atomic.Bool
 )
 
 func encodeNativeH264D3D11Texture(device, texture unsafe.Pointer, inputWidth, inputHeight, encodeWidth, encodeHeight, fps int, dxgiFormat uint32, forceIDR bool) ([]byte, error) {
@@ -1834,7 +1857,11 @@ func encodeNativeH264D3D11Texture(device, texture unsafe.Pointer, inputWidth, in
 		}
 		nativeTextureH264Enc = enc
 	}
-	return nativeTextureH264Enc.EncodeTexture(texture, forceIDR)
+	return nativeTextureH264Enc.EncodeTexture(texture, forceIDR || nativeTextureH264ForceIDR.Swap(false))
+}
+
+func requestNativeH264D3D11TextureKeyframe() {
+	nativeTextureH264ForceIDR.Store(true)
 }
 
 func resetNativeH264D3D11TextureEncoder() {
@@ -1844,4 +1871,5 @@ func resetNativeH264D3D11TextureEncoder() {
 		nativeTextureH264Enc.Close()
 		nativeTextureH264Enc = nil
 	}
+	nativeTextureH264ForceIDR.Store(false)
 }

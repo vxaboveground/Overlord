@@ -3,9 +3,15 @@
 package handlers
 
 import (
+	"context"
 	"image"
 	"image/color"
 	"testing"
+
+	rt "overlord-client/cmd/agent/runtime"
+	"overlord-client/cmd/agent/wire"
+
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 func TestCaptureScreenshotImageWindows_PrimaryOnly(t *testing.T) {
@@ -103,5 +109,46 @@ func TestCaptureScreenshotImageWindows_NoDisplays(t *testing.T) {
 	}
 	if img != nil {
 		t.Fatal("expected nil image on error")
+	}
+}
+
+func TestHandleScreenshot_DoesNotEmitLiveFrame(t *testing.T) {
+	origMonitorCountFn := monitorCountFn
+	origCaptureFn := captureDisplayRGBABitBltFn
+	t.Cleanup(func() {
+		monitorCountFn = origMonitorCountFn
+		captureDisplayRGBABitBltFn = origCaptureFn
+	})
+
+	monitorCountFn = func() int { return 1 }
+	captureDisplayRGBABitBltFn = func(display int) (*image.RGBA, error) {
+		img := image.NewRGBA(image.Rect(0, 0, 2, 2))
+		img.SetRGBA(0, 0, color.RGBA{B: 255, A: 255})
+		return img, nil
+	}
+
+	ctx := context.Background()
+	writer := &testWriter{}
+	if err := HandleScreenshot(ctx, &rt.Env{Conn: writer}, "cmd-1", false); err != nil {
+		t.Fatalf("HandleScreenshot failed: %v", err)
+	}
+	if len(writer.msgs) != 2 {
+		t.Fatalf("expected 2 messages without live frame emission, got %d", len(writer.msgs))
+	}
+
+	var first wire.ScreenshotResult
+	if err := msgpack.Unmarshal(writer.msgs[0], &first); err != nil {
+		t.Fatalf("unmarshal screenshot_result: %v", err)
+	}
+	if first.Type != "screenshot_result" {
+		t.Fatalf("expected screenshot_result, got %q", first.Type)
+	}
+
+	var second wire.CommandResult
+	if err := msgpack.Unmarshal(writer.msgs[1], &second); err != nil {
+		t.Fatalf("unmarshal command_result: %v", err)
+	}
+	if second.Type != "command_result" || !second.OK {
+		t.Fatalf("expected successful command_result, got %+v", second)
 	}
 }

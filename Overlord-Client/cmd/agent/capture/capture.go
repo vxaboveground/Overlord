@@ -493,6 +493,7 @@ var (
 	statKeepaliveFrames atomic.Int64
 	statBlockRegions    atomic.Int64
 	statBlockFallbacks  atomic.Int64
+	statFrameSlotSkips  atomic.Int64
 
 	overrideQuality     atomic.Int64
 	overrideCodec       atomic.Value
@@ -700,6 +701,7 @@ func resetStats() {
 	statKeepaliveFrames.Store(0)
 	statBlockRegions.Store(0)
 	statBlockFallbacks.Store(0)
+	statFrameSlotSkips.Store(0)
 }
 
 func avgMs(ns int64, frames int64) float64 {

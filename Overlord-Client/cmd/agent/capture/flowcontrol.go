@@ -30,6 +30,7 @@ func AcquireFrameSlot() bool {
 				inFlightFrames.Store(0)
 				continue
 			}
+			statFrameSlotSkips.Add(1)
 			return false
 		}
 		if inFlightFrames.CompareAndSwap(cur, cur+1) {
@@ -80,4 +81,14 @@ func activeFrameSlotLimit() int64 {
 		return limit
 	}
 	return defaultMaxInFlightFrames
+}
+
+func frameFlowSnapshot() (inFlight, limit int64, ackSeen bool, ackAge time.Duration) {
+	inFlight = inFlightFrames.Load()
+	limit = activeFrameSlotLimit()
+	ackSeen = frameAckSeen.Load()
+	if lastAck := lastAckNano.Load(); lastAck > 0 {
+		ackAge = time.Since(time.Unix(0, lastAck))
+	}
+	return inFlight, limit, ackSeen, ackAge
 }

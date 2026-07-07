@@ -17,4 +17,6 @@ func encodeNativeH264D3D11Texture(device, texture unsafe.Pointer, inputWidth, in
 	return nil, fmt.Errorf("native NVENC D3D11 texture encode requires cgo for input=%dx%d output=%dx%d@%dfps", inputWidth, inputHeight, encodeWidth, encodeHeight, fps)
 }
 
+func requestNativeH264D3D11TextureKeyframe() {}
+
 func resetNativeH264D3D11TextureEncoder() {}

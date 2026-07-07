@@ -530,6 +530,7 @@ func resetH264Encoder() {
 }
 
 func RequestDesktopH264Keyframe() {
+	requestNativeH264D3D11TextureKeyframe()
 	resetH264Encoder()
 }
 

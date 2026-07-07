@@ -393,6 +393,28 @@ function detectAgentVersion(clientDir: string): string {
   }
 }
 
+function nvcodecHeaderPath(clientDir: string): string {
+  return path.join(clientDir, "third_party", "nvcodec", "nvEncodeAPI.h");
+}
+
+function ensureNVCodecHeaderForWindowsCgo(
+  clientDir: string,
+  sendToStream: (data: any) => void,
+): void {
+  const headerPath = nvcodecHeaderPath(clientDir);
+  if (fs.existsSync(headerPath)) {
+    sendToStream({
+      type: "output",
+      text: `Native NVENC header: ${headerPath}\n`,
+      level: "info",
+    });
+    return;
+  }
+  throw new Error(
+    "Native NVENC streaming requires Overlord-Client/third_party/nvcodec/nvEncodeAPI.h for Windows CGO builds. Restore the vendored header or run scripts/vendor-nvcodec-headers from the repo root.",
+  );
+}
+
 function writeSgnTextArtifact(
   sgnPath: string,
   txtPath: string,
@@ -1030,6 +1052,10 @@ func runBoundFiles() {
           const sep = process.platform === "win32" ? ";" : ":";
           env.PATH = `${extraBinDir}${sep}${env.PATH || process.env.PATH || ""}`;
         }
+      }
+
+      if (effectiveOs === "windows" && env.CGO_ENABLED === "1") {
+        ensureNVCodecHeaderForWindowsCgo(clientDir, sendToStream);
       }
 
       let ldflags = config.stripDebug !== false ? "-s -w -buildid=" : "";

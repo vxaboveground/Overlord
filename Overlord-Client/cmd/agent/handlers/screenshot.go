@@ -46,7 +46,7 @@ func HandleScreenshot(ctx context.Context, env *rt.Env, cmdID string, allDisplay
 		}
 	}()
 
-	img, displayIndex, bounds, err := captureScreenshotImage(allDisplays)
+	img, _, bounds, err := captureScreenshotImage(allDisplays)
 	if err != nil {
 		log.Printf("screenshot: capture failed: %v", err)
 		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{
@@ -86,20 +86,7 @@ func HandleScreenshot(ctx context.Context, env *rt.Env, cmdID string, allDisplay
 		return err
 	}
 
-	frame := wire.Frame{
-		Type: "frame",
-		Header: wire.FrameHeader{
-			Monitor: displayIndex,
-			FPS:     0,
-			Format:  "jpeg",
-		},
-		Data: jpegData,
-	}
-
-	if err := wire.WriteMsg(ctx, env.Conn, frame); err != nil {
-		log.Printf("screenshot: failed to send frame: %v", err)
-		return err
-	}
+	capture.RequestDesktopH264Keyframe()
 
 	return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{
 		Type:      "command_result",

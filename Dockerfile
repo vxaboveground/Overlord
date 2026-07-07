@@ -166,6 +166,7 @@ COPY --from=builder /app/dist-clients ./dist-clients
 
 # Go agent source needed at every agent build.
 COPY Overlord-Client/ ./Overlord-Client/
+RUN test -s ./Overlord-Client/third_party/nvcodec/nvEncodeAPI.h
 
 RUN mkdir -p certs data
 

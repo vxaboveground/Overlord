@@ -9,6 +9,7 @@ if not defined ENABLE_PERSISTENCE set ENABLE_PERSISTENCE=false
 if not defined OBFUSCATE set OBFUSCATE=false
 if not defined HIDE_CONSOLE set HIDE_CONSOLE=false
 if not defined NO_PRINTING set NO_PRINTING=false
+if not defined DISABLE_CGO set DISABLE_CGO=false
 
 set "GARBLE_FLAGS="
 
@@ -83,7 +84,16 @@ pushd "%CLIENT_DIR%"
 echo == Building agent for windows amd64 ==
 set GOOS=windows
 set GOARCH=amd64
-set CGO_ENABLED=0
+if /I "%DISABLE_CGO%"=="true" (
+    set CGO_ENABLED=0
+) else (
+    set CGO_ENABLED=1
+    if not exist "%CLIENT_DIR%\third_party\nvcodec\nvEncodeAPI.h" (
+        echo Missing NVENC header: "%CLIENT_DIR%\third_party\nvcodec\nvEncodeAPI.h"
+        echo Run scripts\vendor-nvcodec-headers.bat from the repo root or set DISABLE_CGO=true.
+        goto :err
+    )
+)
 %BUILD_CMD% %BUILD_TAGS% -ldflags="%LDFLAGS% %WIN_LDFLAGS%" -o "%OUT_DIR%\agent-windows-amd64.exe" ./cmd/agent
 if errorlevel 1 goto :err
 

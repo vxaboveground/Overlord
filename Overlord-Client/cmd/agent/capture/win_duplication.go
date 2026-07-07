@@ -617,6 +617,8 @@ type duplicationState struct {
 	context       *d3d11DeviceContext
 	staging       *d3d11Texture2D
 	stagingDesc   d3d11Texture2DDesc
+	h264LastTex   *d3d11Texture2D
+	h264LastDesc  d3d11Texture2DDesc
 	desc          dxgiOutDuplDesc
 	lastBase      *image.RGBA
 	lastFrame     *image.RGBA
@@ -657,6 +659,11 @@ func (s *duplicationState) closeLocked() {
 	if s.staging != nil {
 		s.staging.Release()
 		s.staging = nil
+	}
+	if s.h264LastTex != nil {
+		s.h264LastTex.Release()
+		s.h264LastTex = nil
+		s.h264LastDesc = d3d11Texture2DDesc{}
 	}
 	resetNativeH264D3D11TextureEncoder()
 	if s.context != nil {
@@ -888,6 +895,23 @@ func (s *duplicationState) captureH264(display int, forceKeyframe bool) ([]byte,
 	var resource *iunknown
 	hr := s.dup.AcquireNextFrame(5, &info, &resource)
 	if hr == dxgiErrorWaitTimeout {
+		if s.h264LastTex != nil {
+			captureDur := time.Since(capStart)
+			fps := activeH264FPS()
+			encStart := time.Now()
+			out, err := encodeNativeH264D3D11Texture(unsafe.Pointer(s.device), unsafe.Pointer(s.h264LastTex), width, height, encodeW, encodeH, fps, s.h264LastDesc.Format, forceKeyframe)
+			encodeDur := time.Since(encStart)
+			if err != nil {
+				directH264WarnOnce.Do(func() {
+					log.Printf("capture: direct DXGI->NVENC h264 cached-frame encode failed for %dx%d@%dfps format=%d: %v; using readback path", width, height, fps, s.h264LastDesc.Format, err)
+				})
+				return nil, 0, 0, 0, 0, false, err
+			}
+			if len(out) == 0 {
+				return nil, encodeW, encodeH, captureDur, encodeDur, true, nil
+			}
+			return out, encodeW, encodeH, captureDur, encodeDur, true, nil
+		}
 		return nil, encodeW, encodeH, time.Since(capStart), 0, true, nil
 	}
 	if hr == dxgiErrorAccessLost {
@@ -907,7 +931,12 @@ func (s *duplicationState) captureH264(display int, forceKeyframe bool) ([]byte,
 	if resource == nil {
 		return nil, 0, 0, 0, 0, false, errors.New("dxgi: acquired nil resource")
 	}
-	defer s.dup.ReleaseFrame()
+	frameReleased := false
+	defer func() {
+		if !frameReleased {
+			_ = s.dup.ReleaseFrame()
+		}
+	}()
 
 	var tex *d3d11Texture2D
 	hr = resource.QueryInterface(&IID_ID3D11Texture2D, unsafe.Pointer(&tex))
@@ -930,15 +959,24 @@ func (s *duplicationState) captureH264(display int, forceKeyframe bool) ([]byte,
 		})
 		return nil, 0, 0, 0, 0, false, fmt.Errorf("direct h264 unsupported DXGI texture format %d", srcDesc.Format)
 	}
+	if err := s.cacheH264TextureLocked(tex, srcDesc); err != nil {
+		directH264WarnOnce.Do(func() {
+			log.Printf("capture: direct DXGI->NVENC h264 cache setup failed for %dx%d format=%d: %v; using readback path", width, height, srcDesc.Format, err)
+		})
+		return nil, 0, 0, 0, 0, false, err
+	}
 
 	captureDur := time.Since(capStart)
+	_ = s.dup.ReleaseFrame()
+	frameReleased = true
+
 	fps := activeH264FPS()
 	encStart := time.Now()
-	out, err := encodeNativeH264D3D11Texture(unsafe.Pointer(s.device), unsafe.Pointer(tex), width, height, encodeW, encodeH, fps, srcDesc.Format, forceKeyframe)
+	out, err := encodeNativeH264D3D11Texture(unsafe.Pointer(s.device), unsafe.Pointer(s.h264LastTex), width, height, encodeW, encodeH, fps, s.h264LastDesc.Format, forceKeyframe)
 	encodeDur := time.Since(encStart)
 	if err != nil {
 		directH264WarnOnce.Do(func() {
-			log.Printf("capture: direct DXGI->NVENC h264 failed for %dx%d@%dfps format=%d: %v; using readback path", width, height, fps, srcDesc.Format, err)
+			log.Printf("capture: direct DXGI->NVENC h264 failed for %dx%d@%dfps format=%d: %v; using readback path", width, height, fps, s.h264LastDesc.Format, err)
 		})
 		return nil, 0, 0, 0, 0, false, err
 	}
@@ -949,6 +987,40 @@ func (s *duplicationState) captureH264(display int, forceKeyframe bool) ([]byte,
 		log.Printf("capture: direct DXGI->NVENC h264 path active input=%dx%d output=%dx%d fps=%d dxgi_format=%d", width, height, encodeW, encodeH, fps, srcDesc.Format)
 	})
 	return out, encodeW, encodeH, captureDur, encodeDur, true, nil
+}
+
+func (s *duplicationState) cacheH264TextureLocked(src *d3d11Texture2D, srcDesc d3d11Texture2DDesc) error {
+	if src == nil || s.device == nil || s.context == nil {
+		return errors.New("nil D3D11 source/device/context")
+	}
+	recreate := s.h264LastTex == nil ||
+		s.h264LastDesc.Width != srcDesc.Width ||
+		s.h264LastDesc.Height != srcDesc.Height ||
+		s.h264LastDesc.Format != srcDesc.Format
+	if recreate {
+		if s.h264LastTex != nil {
+			s.h264LastTex.Release()
+			s.h264LastTex = nil
+		}
+		cacheDesc := srcDesc
+		cacheDesc.MipLevels = 1
+		cacheDesc.ArraySize = 1
+		cacheDesc.SampleDesc.Count = 1
+		cacheDesc.SampleDesc.Quality = 0
+		cacheDesc.Usage = 0 // D3D11_USAGE_DEFAULT
+		cacheDesc.BindFlags = 0
+		cacheDesc.CPUAccessFlags = 0
+		cacheDesc.MiscFlags = 0
+		var tex *d3d11Texture2D
+		hr := s.device.CreateTexture2D(&cacheDesc, nil, &tex)
+		if hr != S_OK || tex == nil {
+			return fmt.Errorf("CreateTexture2D h264 cache failed 0x%x", hr)
+		}
+		s.h264LastTex = tex
+		s.h264LastDesc = cacheDesc
+	}
+	s.context.CopyResource(s.h264LastTex, src)
+	return nil
 }
 
 func (s *duplicationState) composeFrame(base *image.RGBA, nativeW, nativeH int) *image.RGBA {
