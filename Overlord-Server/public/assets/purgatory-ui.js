@@ -40,12 +40,25 @@ const denyReasonInput = document.getElementById("deny-reason-input");
 const denyReasonModalConfirm = document.getElementById("deny-reason-modal-confirm");
 const denyReasonModalCancel = document.getElementById("deny-reason-modal-cancel");
 const denyReasonModalBackdrop = document.getElementById("deny-reason-modal-backdrop");
+const paginationEl = document.getElementById("enrollment-pagination");
+const pageSummaryEl = document.getElementById("enrollment-page-summary");
+const pageSizeEl = document.getElementById("enrollment-page-size");
+const prevPageBtn = document.getElementById("enrollment-prev-page");
+const nextPageBtn = document.getElementById("enrollment-next-page");
+const pageLabelEl = document.getElementById("enrollment-page-label");
 
 let currentFilter = "pending";
 let searchQuery = "";
 let clients = [];
 const expandedCells = new Set(); // tracks "clientId:field" keys
 let lastEnrollmentDigest = "";
+let currentPage = 1;
+let rowsPerPage = 100;
+try {
+  rowsPerPage = Number(localStorage.getItem("purgatory_rows_per_page") || 100);
+} catch {}
+if (![50, 100, 200].includes(rowsPerPage)) rowsPerPage = 100;
+if (pageSizeEl) pageSizeEl.value = String(rowsPerPage);
 
 const SUSPICIOUS_FLAG_LABELS = {
   hwid_flood: "HWID Flood (40+ same hardware ID)",
@@ -105,6 +118,7 @@ async function loadClients() {
   const hasRows = body.querySelector("tr[data-id]");
   loadingRow.classList.toggle("hidden", !!hasRows);
   emptyEl.classList.add("hidden");
+  if (!hasRows) paginationEl?.classList.add("hidden");
 
   const fetchFilter = currentFilter;
   try {
@@ -117,20 +131,8 @@ async function loadClients() {
   // Sort by newest first (highest lastSeen = most recent)
   clients.sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
 
-  // Apply suspicious tab filter
-  let base = clients;
-  if (currentFilter === "suspicious") {
-    base = clients.filter((c) => (c.suspiciousFlags || []).length > 0);
-  }
-
-  // Apply search filter
+  const filtered = getFilteredClients();
   const q = searchQuery.toLowerCase().trim();
-  const filtered = q
-    ? base.filter((c) => {
-        const fields = [c.host, c.user, c.ip, c.id, c.os, c.country, c.keyFingerprint, c.cpu, c.gpu, c.ram];
-        return fields.some((f) => f && String(f).toLowerCase().includes(q));
-      })
-    : base;
 
   loadingRow.classList.add("hidden");
 
@@ -143,11 +145,20 @@ async function loadClients() {
     lastEnrollmentDigest = `empty:${currentFilter}:${q}`;
     body.querySelectorAll("tr:not(#enrollment-loading)").forEach((r) => r.remove());
     emptyEl.classList.remove("hidden");
+    paginationEl?.classList.add("hidden");
+    paginationEl?.classList.remove("flex");
     updateBulkButtons();
     return;
   }
 
-  const nextDigest = tableDigest(filtered, [
+  const totalPages = Math.max(1, Math.ceil(filtered.length / rowsPerPage));
+  if (currentPage > totalPages) currentPage = totalPages;
+  if (currentPage < 1) currentPage = 1;
+  const startIndex = (currentPage - 1) * rowsPerPage;
+  const visible = filtered.slice(startIndex, startIndex + rowsPerPage);
+  updatePagination(filtered.length, startIndex, visible.length, totalPages);
+
+  const nextDigest = tableDigest(visible, [
     "id",
     "host",
     "user",
@@ -162,7 +173,7 @@ async function loadClients() {
     "enrollmentStatus",
     "denyReason",
     "suspiciousFlags",
-  ]);
+  ], { total: filtered.length, page: currentPage, rowsPerPage, filter: currentFilter, q });
   if (nextDigest === lastEnrollmentDigest) {
     updateBulkButtons();
     return;
@@ -172,7 +183,8 @@ async function loadClients() {
   const selectedBeforeRender = new Set(getSelectedIds());
   body.querySelectorAll("tr:not(#enrollment-loading)").forEach((r) => r.remove());
 
-  for (const c of filtered) {
+  const fragment = document.createDocumentFragment();
+  for (const c of visible) {
     const tr = document.createElement("tr");
     tr.className = "group hover:bg-slate-800/45 transition-colors";
     tr.dataset.id = c.id;
@@ -208,17 +220,45 @@ async function loadClients() {
       <td class="px-4 py-3"><div class="flex items-center justify-end gap-2 flex-nowrap">${actionButtons(c)}</div></td>
     `;
     tr.classList.add("cursor-pointer");
-    body.appendChild(tr);
+    fragment.appendChild(tr);
   }
+  body.appendChild(fragment);
   updateBulkButtons();
 }
 
-function tableDigest(items, fields) {
-  return JSON.stringify(items.map((item) => {
+function getFilteredClients() {
+  let base = clients;
+  if (currentFilter === "suspicious") {
+    base = clients.filter((c) => (c.suspiciousFlags || []).length > 0);
+  }
+
+  const q = searchQuery.toLowerCase().trim();
+  if (!q) return base;
+
+  return base.filter((c) => {
+    const fields = [c.host, c.user, c.ip, c.id, c.os, c.country, c.keyFingerprint, c.cpu, c.gpu, c.ram];
+    return fields.some((f) => f && String(f).toLowerCase().includes(q));
+  });
+}
+
+function tableDigest(items, fields, meta = {}) {
+  return JSON.stringify({ meta, rows: items.map((item) => {
     const row = {};
     for (const field of fields) row[field] = item[field] ?? null;
     return row;
-  }));
+  }) });
+}
+
+function updatePagination(total, startIndex, visibleCount, totalPages) {
+  if (!paginationEl || !pageSummaryEl || !pageLabelEl || !prevPageBtn || !nextPageBtn) return;
+  paginationEl.classList.toggle("hidden", total <= rowsPerPage);
+  paginationEl.classList.toggle("flex", total > rowsPerPage);
+  const from = total === 0 ? 0 : startIndex + 1;
+  const to = startIndex + visibleCount;
+  pageSummaryEl.textContent = `Showing ${from}-${to} of ${total}`;
+  pageLabelEl.textContent = `Page ${currentPage} / ${totalPages}`;
+  prevPageBtn.disabled = currentPage <= 1;
+  nextPageBtn.disabled = currentPage >= totalPages;
 }
 
 function statusBadge(status) {
@@ -369,6 +409,8 @@ function updateBulkButtons() {
 document.querySelectorAll(".enrollment-tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     currentFilter = tab.dataset.filter;
+    currentPage = 1;
+    lastEnrollmentDigest = "";
     document.querySelectorAll(".enrollment-tab").forEach((t) => {
       t.className =
         "enrollment-tab px-4 py-2 rounded-md text-sm font-medium bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700";
@@ -467,8 +509,34 @@ searchInput.addEventListener("input", () => {
   clearTimeout(searchDebounce);
   searchDebounce = setTimeout(() => {
     searchQuery = searchInput.value;
+    currentPage = 1;
+    lastEnrollmentDigest = "";
     loadClients();
   }, 250);
+});
+
+pageSizeEl?.addEventListener("change", () => {
+  rowsPerPage = Number(pageSizeEl.value) || 100;
+  if (![50, 100, 200].includes(rowsPerPage)) rowsPerPage = 100;
+  try {
+    localStorage.setItem("purgatory_rows_per_page", String(rowsPerPage));
+  } catch {}
+  currentPage = 1;
+  lastEnrollmentDigest = "";
+  loadClients();
+});
+
+prevPageBtn?.addEventListener("click", () => {
+  if (currentPage <= 1) return;
+  currentPage -= 1;
+  lastEnrollmentDigest = "";
+  loadClients();
+});
+
+nextPageBtn?.addEventListener("click", () => {
+  currentPage += 1;
+  lastEnrollmentDigest = "";
+  loadClients();
 });
 
 // ── Ban confirmation modal ──────────────────────────────────────────
@@ -661,10 +729,9 @@ unlessSuspiciousToggle.addEventListener("change", async () => {
 
 // ── Approve All / Deny All ────────────────────────────────────────
 function getActionablePendingIds() {
-  const base = currentFilter === "suspicious"
-    ? clients.filter((c) => (c.suspiciousFlags || []).length > 0)
-    : clients;
-  return base.filter((c) => (c.enrollmentStatus || "pending") === "pending").map((c) => c.id);
+  return getFilteredClients()
+    .filter((c) => (c.enrollmentStatus || "pending") === "pending")
+    .map((c) => c.id);
 }
 
 approveAllBtn.addEventListener("click", async () => {

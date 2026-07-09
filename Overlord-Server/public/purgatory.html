@@ -181,6 +181,29 @@
             <i class="fa-solid fa-inbox text-3xl mb-3 block"></i>
             <p>No clients in this category.</p>
           </div>
+          <div id="enrollment-pagination" class="hidden items-center justify-between gap-3 border-t border-slate-800 bg-slate-950/35 px-4 py-3 text-sm text-slate-400">
+            <div id="enrollment-page-summary">Showing 0-0 of 0</div>
+            <div class="flex items-center gap-2">
+              <label class="flex items-center gap-2">
+                <span>Rows</span>
+                <select id="enrollment-page-size"
+                  class="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-500">
+                  <option value="50">50</option>
+                  <option value="100" selected>100</option>
+                  <option value="200">200</option>
+                </select>
+              </label>
+              <button id="enrollment-prev-page" type="button"
+                class="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45">
+                <i class="fa-solid fa-chevron-left"></i>
+              </button>
+              <span id="enrollment-page-label" class="min-w-[76px] text-center text-slate-300">Page 1 / 1</span>
+              <button id="enrollment-next-page" type="button"
+                class="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45">
+                <i class="fa-solid fa-chevron-right"></i>
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- Banned IPs Table (hidden by default, shown on Banned IPs tab) -->
