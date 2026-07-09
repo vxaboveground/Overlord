@@ -5,6 +5,7 @@ import { encodeMessage } from "./protocol";
 import { v4 as uuidv4 } from "uuid";
 import { metrics } from "./metrics";
 import { logAudit, AuditAction } from "./auditLog";
+import { sendPingRequest } from "./wsHandlers";
 
 const DEFAULT_PAGE_SIZE = 12;
 const CORS_HEADERS = {
@@ -61,10 +62,7 @@ export function handleCommand(target: ClientInfo, action: string, req: Request) 
   metrics.recordCommand(action);
 
   if (action === "ping") {
-    const nonce = Date.now() + Math.floor(Math.random() * 1000);
-    target.lastPingSent = Date.now();
-    target.lastPingNonce = nonce;
-    target.ws.send(encodeMessage({ type: "ping", ts: nonce }));
+    sendPingRequest(target, target.ws, "manual", 0);
     return OK();
   }
 

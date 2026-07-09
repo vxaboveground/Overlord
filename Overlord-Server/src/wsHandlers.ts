@@ -171,19 +171,28 @@ export function handlePing(info: ClientInfo, payload: Ping, ws: any) {
       isAdmin: info.isAdmin,
     });
   }
-  ws.send(encodeMessage({ type: "pong", ts: payload.ts || Date.now() }));
+  const ts = typeof payload.ts === "number" && Number.isFinite(payload.ts)
+    ? payload.ts
+    : Date.now();
+  ws.send(encodeMessage({ type: "pong", ts }));
 }
 
-export function sendPingRequest(info: ClientInfo, ws: any, reason: string) {
+export function sendPingRequest(
+  info: ClientInfo,
+  ws: any,
+  reason: string,
+  minIntervalMs = 1_000,
+): boolean {
   const now = Date.now();
-  if (info.lastPingSent && now - info.lastPingSent < 1_000) {
-    return;
+  if (minIntervalMs > 0 && info.lastPingSent && now - info.lastPingSent < minIntervalMs) {
+    return false;
   }
   const nonce = now + Math.floor(Math.random() * 1000);
   info.lastPingSent = now;
   info.lastPingNonce = nonce;
   //console.log(`[ping] send ping to client=${info.id} reason=${reason} nonce=${nonce}`);
   ws.send(encodeMessage({ type: "ping", ts: nonce }));
+  return true;
 }
 
 export function handlePong(info: ClientInfo, payload: WireMessage) {

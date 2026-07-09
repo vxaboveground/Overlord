@@ -35,6 +35,16 @@ export function getHeartbeatBatchSize(totalClients: number, heartbeatIntervalMs:
   return Math.max(1, Math.ceil(totalClients / ticksPerSweep));
 }
 
+export function shouldSendHeartbeatPing(
+  info: Pick<ClientInfo, "lastPingSent">,
+  now: number,
+  heartbeatIntervalMs: number,
+): boolean {
+  if (heartbeatIntervalMs <= 0) return false;
+  if (!info.lastPingSent) return true;
+  return now - info.lastPingSent >= heartbeatIntervalMs;
+}
+
 export function startMaintenanceLoops(params: StartMaintenanceParams): void {
   setInterval(() => {
     const startedAt = Date.now();
@@ -82,8 +92,11 @@ export function startMaintenanceLoops(params: StartMaintenanceParams): void {
         }
         continue;
       }
+      if (!shouldSendHeartbeatPing(info, now, params.heartbeatIntervalMs)) {
+        continue;
+      }
       try {
-        sendPingRequest(info, info.ws, "heartbeat");
+        sendPingRequest(info, info.ws, "heartbeat", params.heartbeatIntervalMs);
       } catch (err) {
         logger.debug(`[ping] heartbeat failed for ${id}`, err);
       }

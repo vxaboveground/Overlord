@@ -129,6 +129,22 @@ func TestExtractTimestamp_Zero(t *testing.T) {
 	}
 }
 
+func TestExtractTimestampIfPresent_ZeroIsValid(t *testing.T) {
+	got, ok := extractTimestampIfPresent(int64(0))
+	if !ok {
+		t.Fatal("expected zero timestamp to be valid")
+	}
+	if got != 0 {
+		t.Fatalf("expected 0, got %d", got)
+	}
+}
+
+func TestExtractTimestampIfPresent_InvalidIsNotValid(t *testing.T) {
+	if got, ok := extractTimestampIfPresent("hello"); ok || got != 0 {
+		t.Fatalf("expected invalid timestamp to return ok=false and 0, got ok=%v value=%d", ok, got)
+	}
+}
+
 func TestExtractTimestamp_Negative(t *testing.T) {
 	var ts int64 = -100
 	if got := extractTimestamp(ts); got != ts {

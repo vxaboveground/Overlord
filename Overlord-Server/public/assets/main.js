@@ -1119,7 +1119,9 @@ function initializeRenderer() {
   rendererSetLayout = rSetLayout;
   registerRenderer((data, options) => {
     renderMerge(data, options);
-    updateDashboardStatsFromClients(data);
+    if (isUnfilteredClientView()) {
+      updateDashboardStatsFromClients(data);
+    }
     if (!options?.fromPluginDashboard) {
       refreshDashboardPluginContributions(data?.items || []);
     }
@@ -1149,6 +1151,15 @@ function initializeRenderer() {
         "-=350",
       );
   }
+}
+
+function isUnfilteredClientView() {
+  return !state.searchTerm &&
+    (state.filterStatus || "all") === "all" &&
+    (state.filterOs || "all") === "all" &&
+    (state.filterCountry || "all") === "all" &&
+    (state.filterGroup || "all") === "all" &&
+    (state.filterWebcam || "all") === "all";
 }
 
 if (logoutBtn && !logoutBtn.dataset.boundLogout) {

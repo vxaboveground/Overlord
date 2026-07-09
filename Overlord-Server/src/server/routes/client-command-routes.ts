@@ -7,6 +7,8 @@ import { metrics } from "../../metrics";
 import { encodeMessage } from "../../protocol";
 import { requireClientAccess, requireFeatureAccess, requirePermission } from "../../rbac";
 import { clearThumbnail } from "../../thumbnails";
+import type { ClientInfo } from "../../types";
+import { sendPingRequest } from "../../wsHandlers";
 
 type RequestIpProvider = {
   requestIP: (req: Request) => { address?: string } | null | undefined;
@@ -31,6 +33,20 @@ type ClientCommandDeps = {
   pendingScripts: Map<string, PendingScript>;
   pendingCommandReplies: Map<string, PendingCommandReply>;
 };
+
+function clampPositiveInt(value: unknown, fallback: number, max: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(max, Math.max(1, Math.floor(parsed)));
+}
+
+export function dispatchPingBulk(target: ClientInfo, countValue: unknown): number {
+  const count = clampPositiveInt(countValue, 1, 1000);
+  for (let i = 0; i < count; i++) {
+    sendPingRequest(target, target.ws, "manual-bulk", 0);
+  }
+  return count;
+}
 
 export async function handleClientCommandRoute(
   req: Request,
@@ -71,12 +87,13 @@ export async function handleClientCommandRoute(
     let success = true;
 
     if (action === "ping") {
-      const nonce = Date.now() + Math.floor(Math.random() * 1000);
-      target.lastPingSent = Date.now();
-      target.lastPingNonce = nonce;
-      target.ws.send(encodeMessage({ type: "ping", ts: nonce }));
+      sendPingRequest(target, target.ws, "manual", 0);
+      metrics.recordCommand("ping");
     } else if (action === "ping_bulk") {
-      Math.max(1, Math.min(1000, Number(body?.count || 1)));
+      const count = dispatchPingBulk(target, body?.count);
+      metrics.recordCommand("ping_bulk");
+      logAudit({ timestamp: Date.now(), username: user.username, ip, action: AuditAction.COMMAND, targetClientId: targetId, details: `ping_bulk:${count}`, success: true });
+      return Response.json({ ok: true, sent: count }, { headers: deps.CORS_HEADERS });
     } else if (action === "disconnect") {
       try {
         requirePermission(user, "clients:disconnect");

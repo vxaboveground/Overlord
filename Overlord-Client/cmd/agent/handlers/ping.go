@@ -10,8 +10,8 @@ import (
 
 func HandlePing(ctx context.Context, env *runtime.Env, envelope map[string]interface{}) error {
 
-	ts := extractTimestamp(envelope["ts"])
-	if ts == 0 {
+	ts, ok := extractTimestampIfPresent(envelope["ts"])
+	if !ok {
 		ts = time.Now().UnixMilli()
 	}
 	env.SetLastPong(time.Now().UnixMilli())

@@ -30,6 +30,25 @@ describe("wsHandlers ping/pong", () => {
     expect(ws.sent.length).toBe(1);
   });
 
+  test("sendPingRequest can bypass the interval for manual pings", () => {
+    const ws: MockWs = {
+      sent: [],
+      send(msg) {
+        this.sent.push(msg);
+      },
+    };
+    const info = {
+      id: "client-manual-ping",
+      role: "client",
+      ws,
+      lastSeen: Date.now(),
+    } as any;
+
+    expect(sendPingRequest(info, ws, "test")).toBe(true);
+    expect(sendPingRequest(info, ws, "manual", 0)).toBe(true);
+    expect(ws.sent.length).toBe(2);
+  });
+
   test("handlePing responds with pong without starting another server ping", () => {
     const ws: MockWs = {
       sent: [],
@@ -51,6 +70,50 @@ describe("wsHandlers ping/pong", () => {
     expect(payload.type).toBe("pong");
     expect(payload.ts).toBe(9876);
     expect(info.lastPingNonce).toBeUndefined();
+  });
+
+  test("handlePing preserves zero timestamps", () => {
+    const ws: MockWs = {
+      sent: [],
+      send(msg) {
+        this.sent.push(msg);
+      },
+    };
+    const info = {
+      id: "client-zero-ping",
+      role: "client",
+      ws,
+      lastSeen: Date.now(),
+    } as any;
+
+    handlePing(info, { type: "ping", ts: 0 } as any, ws);
+
+    const payload = decodeMessage(ws.sent[0]) as any;
+    expect(payload.type).toBe("pong");
+    expect(payload.ts).toBe(0);
+  });
+
+  test("handlePing falls back for invalid timestamps", () => {
+    const ws: MockWs = {
+      sent: [],
+      send(msg) {
+        this.sent.push(msg);
+      },
+    };
+    const info = {
+      id: "client-invalid-ping",
+      role: "client",
+      ws,
+      lastSeen: Date.now(),
+    } as any;
+    const before = Date.now();
+
+    handlePing(info, { type: "ping", ts: "bad" } as any, ws);
+
+    const payload = decodeMessage(ws.sent[0]) as any;
+    expect(payload.type).toBe("pong");
+    expect(payload.ts).toBeGreaterThanOrEqual(before);
+    expect(payload.ts).toBeLessThanOrEqual(Date.now());
   });
 
   test("handlePong clears nonce and records ping", () => {

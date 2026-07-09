@@ -76,6 +76,78 @@ func TestHandlePing(t *testing.T) {
 	}
 }
 
+func TestHandlePingPreservesZeroTimestamp(t *testing.T) {
+	writer := &testWriter{}
+	env := &rt.Env{
+		Conn: writer,
+		Cfg:  config.Config{},
+	}
+
+	ctx := context.Background()
+	envelope := map[string]interface{}{
+		"ts": int64(0),
+	}
+
+	if err := HandlePing(ctx, env, envelope); err != nil {
+		t.Fatalf("HandlePing failed: %v", err)
+	}
+
+	deadline := time.After(2 * time.Second)
+	for len(writer.msgs) < 1 {
+		select {
+		case <-deadline:
+			t.Fatal("Timed out waiting for pong message")
+		default:
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+
+	var pong wire.Pong
+	if err := msgpack.Unmarshal(writer.msgs[0], &pong); err != nil {
+		t.Fatalf("Failed to unmarshal pong: %v", err)
+	}
+	if pong.TS != 0 {
+		t.Fatalf("expected timestamp 0, got %d", pong.TS)
+	}
+}
+
+func TestHandlePingFallsBackForInvalidTimestamp(t *testing.T) {
+	writer := &testWriter{}
+	env := &rt.Env{
+		Conn: writer,
+		Cfg:  config.Config{},
+	}
+
+	ctx := context.Background()
+	before := time.Now().UnixMilli()
+	envelope := map[string]interface{}{
+		"ts": "not-a-timestamp",
+	}
+
+	if err := HandlePing(ctx, env, envelope); err != nil {
+		t.Fatalf("HandlePing failed: %v", err)
+	}
+
+	deadline := time.After(2 * time.Second)
+	for len(writer.msgs) < 1 {
+		select {
+		case <-deadline:
+			t.Fatal("Timed out waiting for pong message")
+		default:
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+
+	var pong wire.Pong
+	if err := msgpack.Unmarshal(writer.msgs[0], &pong); err != nil {
+		t.Fatalf("Failed to unmarshal pong: %v", err)
+	}
+	after := time.Now().UnixMilli()
+	if pong.TS < before || pong.TS > after {
+		t.Fatalf("expected fallback timestamp between %d and %d, got %d", before, after, pong.TS)
+	}
+}
+
 func TestHandleCommand_Ping(t *testing.T) {
 	writer := &testWriter{}
 	env := &rt.Env{
