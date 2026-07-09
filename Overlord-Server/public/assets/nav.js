@@ -22,6 +22,7 @@ import {
 const host = document.getElementById("top-nav");
 if (host) {
   const refs = mountNav(host);
+  applyBranding();
   initCommandPalette();
   import("./cert-banner.js").then(({ showCertBannerIfNeeded }) => {
     runWithoutPageTracking(() => showCertBannerIfNeeded(document.getElementById("sb-mobile-bar") || host));
@@ -245,4 +246,45 @@ if (host) {
   installPageResourceTracker();
   setupSoftNavigation(host, { onPathChange: applyActivePath });
   startPageTracking();
+}
+
+async function applyBranding() {
+  try {
+    const res = await fetch("/api/login/branding");
+    if (!res.ok) return;
+    const brand = await res.json();
+    if (brand.accentColor) {
+      document.documentElement.style.setProperty("--brand-accent", brand.accentColor);
+    }
+
+    const navName = brand.navName || brand.productName || "Overlord";
+    for (const el of document.querySelectorAll("#nav-brand-name, #nav-mobile-brand-name")) {
+      el.textContent = navName;
+    }
+
+    const iconClass = brand.iconClass || "fa-solid fa-crown";
+    for (const icon of document.querySelectorAll("#nav-brand-icon, #nav-mobile-brand-icon")) {
+      const sidebarIcon = Boolean(icon.closest(".sb-logo"));
+      icon.className = `${iconClass} header-crown${sidebarIcon ? " sb-icon" : ""}`;
+    }
+
+    const logoUrl = brand.navLogoUrl || brand.logoUrl || "";
+    if (!logoUrl) return;
+
+    for (const logo of document.querySelectorAll("#nav-brand-logo, #nav-mobile-brand-logo")) {
+      const pairedIcon = logo.id === "nav-mobile-brand-logo"
+        ? document.getElementById("nav-mobile-brand-icon")
+        : document.getElementById("nav-brand-icon");
+      logo.alt = brand.navLogoAlt || brand.logoAlt || `${navName} logo`;
+      logo.onload = () => {
+        logo.style.display = "";
+        if (pairedIcon) pairedIcon.style.display = "none";
+      };
+      logo.onerror = () => {
+        logo.style.display = "none";
+        if (pairedIcon) pairedIcon.style.display = "";
+      };
+      logo.src = logoUrl;
+    }
+  } catch {}
 }

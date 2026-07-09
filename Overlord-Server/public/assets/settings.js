@@ -108,6 +108,24 @@ const appearanceForm = document.getElementById("appearance-form");
 const appearancePermissionNote = document.getElementById("appearance-permission-note");
 const appearanceSaveBtn = document.getElementById("appearance-save-btn");
 const appearanceCustomCssInput = document.getElementById("appearance-custom-css");
+const brandProductNameInput = document.getElementById("brand-product-name");
+const brandNavNameInput = document.getElementById("brand-nav-name");
+const brandAccentColorInput = document.getElementById("brand-accent-color");
+const brandIconClassInput = document.getElementById("brand-icon-class");
+const brandNavLogoUrlInput = document.getElementById("brand-nav-logo-url");
+const brandNavLogoFileInput = document.getElementById("brand-nav-logo-file");
+const brandNavLogoAltInput = document.getElementById("brand-nav-logo-alt");
+const brandLoginLogoUrlInput = document.getElementById("brand-login-logo-url");
+const brandLoginLogoFileInput = document.getElementById("brand-login-logo-file");
+const brandLoginLogoAltInput = document.getElementById("brand-login-logo-alt");
+const brandLoginTitleInput = document.getElementById("brand-login-title");
+const brandLoginSubtitleInput = document.getElementById("brand-login-subtitle");
+const brandHeroImageUrlInput = document.getElementById("brand-hero-image-url");
+const brandHeroImageFileInput = document.getElementById("brand-hero-image-file");
+const brandHeroImageAltInput = document.getElementById("brand-hero-image-alt");
+const brandFooterTextInput = document.getElementById("brand-footer-text");
+const brandSupportTextInput = document.getElementById("brand-support-text");
+const brandSupportUrlInput = document.getElementById("brand-support-url");
 
 const exportImportSection = document.getElementById("export-import-section");
 const exportSettingsBtn = document.getElementById("export-settings-btn");
@@ -1354,13 +1372,146 @@ function initSettingsSidebar() {
   }, { passive: true });
 }
 
+const brandInputs = [
+  brandProductNameInput,
+  brandNavNameInput,
+  brandAccentColorInput,
+  brandIconClassInput,
+  brandNavLogoUrlInput,
+  brandNavLogoFileInput,
+  brandNavLogoAltInput,
+  brandLoginLogoUrlInput,
+  brandLoginLogoFileInput,
+  brandLoginLogoAltInput,
+  brandLoginTitleInput,
+  brandLoginSubtitleInput,
+  brandHeroImageUrlInput,
+  brandHeroImageFileInput,
+  brandHeroImageAltInput,
+  brandFooterTextInput,
+  brandSupportTextInput,
+  brandSupportUrlInput,
+];
+
+function setAppearanceFormDisabled(disabled) {
+  for (const input of [...brandInputs, appearanceCustomCssInput, appearanceSaveBtn]) {
+    if (input) input.disabled = disabled;
+  }
+}
+
+function applyBrandingForm(loginBranding = {}) {
+  if (brandProductNameInput) brandProductNameInput.value = loginBranding.productName || "Overlord";
+  if (brandNavNameInput) brandNavNameInput.value = loginBranding.navName || loginBranding.productName || "Overlord";
+  if (brandAccentColorInput) brandAccentColorInput.value = /^#[0-9a-fA-F]{6}$/.test(loginBranding.accentColor || "") ? loginBranding.accentColor : "#7a5bff";
+  if (brandIconClassInput) brandIconClassInput.value = loginBranding.iconClass || "fa-solid fa-crown";
+  if (brandNavLogoUrlInput) brandNavLogoUrlInput.value = loginBranding.navLogoUrl || "";
+  if (brandNavLogoAltInput) brandNavLogoAltInput.value = loginBranding.navLogoAlt || "";
+  if (brandLoginLogoUrlInput) brandLoginLogoUrlInput.value = loginBranding.logoUrl || "";
+  if (brandLoginLogoAltInput) brandLoginLogoAltInput.value = loginBranding.logoAlt || "";
+  if (brandLoginTitleInput) brandLoginTitleInput.value = loginBranding.title || "Welcome back";
+  if (brandLoginSubtitleInput) brandLoginSubtitleInput.value = loginBranding.subtitle || "Sign in to your control plane";
+  if (brandHeroImageUrlInput) brandHeroImageUrlInput.value = loginBranding.heroImageUrl || "";
+  if (brandHeroImageAltInput) brandHeroImageAltInput.value = loginBranding.heroImageAlt || "";
+  if (brandFooterTextInput) brandFooterTextInput.value = loginBranding.footerText || "";
+  if (brandSupportTextInput) brandSupportTextInput.value = loginBranding.supportText || "";
+  if (brandSupportUrlInput) brandSupportUrlInput.value = loginBranding.supportUrl || "";
+}
+
+function collectBrandingForm() {
+  return {
+    productName: String(brandProductNameInput?.value || "").trim(),
+    navName: String(brandNavNameInput?.value || "").trim(),
+    accentColor: String(brandAccentColorInput?.value || "").trim(),
+    iconClass: String(brandIconClassInput?.value || "").trim(),
+    navLogoUrl: String(brandNavLogoUrlInput?.value || "").trim(),
+    navLogoAlt: String(brandNavLogoAltInput?.value || "").trim(),
+    logoUrl: String(brandLoginLogoUrlInput?.value || "").trim(),
+    logoAlt: String(brandLoginLogoAltInput?.value || "").trim(),
+    title: String(brandLoginTitleInput?.value || "").trim(),
+    subtitle: String(brandLoginSubtitleInput?.value || "").trim(),
+    heroImageUrl: String(brandHeroImageUrlInput?.value || "").trim(),
+    heroImageAlt: String(brandHeroImageAltInput?.value || "").trim(),
+    footerText: String(brandFooterTextInput?.value || "").trim(),
+    supportText: String(brandSupportTextInput?.value || "").trim(),
+    supportUrl: String(brandSupportUrlInput?.value || "").trim(),
+  };
+}
+
+function setBrandingUploadName(fileInput) {
+  const label = document.getElementById(`${fileInput.id}-name`);
+  if (label) label.textContent = fileInput.files?.[0]?.name || "No file chosen";
+}
+
+async function uploadBrandingImage(fileInput, targetInput, kind, label) {
+  const file = fileInput?.files?.[0];
+  if (!file || !targetInput) return;
+
+  if (!requireUiPermission("system:appearance", "Appearance settings permission required.")) {
+    fileInput.value = "";
+    return;
+  }
+
+  if (file.size > 5 * 1024 * 1024) {
+    showMessage("Branding images must be 5 MB or smaller.", "error");
+    fileInput.value = "";
+    return;
+  }
+
+  const form = new FormData();
+  form.append("kind", kind);
+  form.append("file", file);
+
+  fileInput.disabled = true;
+  showMessage(`Uploading ${label}...`);
+  try {
+    const res = await fetch("/api/settings/appearance/image", {
+      method: "POST",
+      credentials: "include",
+      body: form,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showMessage(data.error || `Failed to upload ${label}.`, "error");
+      return;
+    }
+    targetInput.value = data.url || "";
+    showMessage(`${label} uploaded. Save Branding to apply it.`);
+  } catch {
+    showMessage(`Failed to upload ${label}.`, "error");
+  } finally {
+    fileInput.disabled = false;
+    fileInput.value = "";
+    setBrandingUploadName(fileInput);
+  }
+}
+
+function initBrandingUploads() {
+  if (brandNavLogoFileInput) {
+    brandNavLogoFileInput.addEventListener("change", () => {
+      setBrandingUploadName(brandNavLogoFileInput);
+      uploadBrandingImage(brandNavLogoFileInput, brandNavLogoUrlInput, "nav-logo", "Navigation logo");
+    });
+  }
+  if (brandLoginLogoFileInput) {
+    brandLoginLogoFileInput.addEventListener("change", () => {
+      setBrandingUploadName(brandLoginLogoFileInput);
+      uploadBrandingImage(brandLoginLogoFileInput, brandLoginLogoUrlInput, "login-logo", "Sign-in logo");
+    });
+  }
+  if (brandHeroImageFileInput) {
+    brandHeroImageFileInput.addEventListener("change", () => {
+      setBrandingUploadName(brandHeroImageFileInput);
+      uploadBrandingImage(brandHeroImageFileInput, brandHeroImageUrlInput, "hero-image", "Sign-in background image");
+    });
+  }
+}
+
 async function loadAppearanceSettings() {
   if (!currentUser) return;
 
   if (!userHas("system:appearance")) {
     if (appearancePermissionNote) appearancePermissionNote.classList.remove("hidden");
-    if (appearanceCustomCssInput) appearanceCustomCssInput.disabled = true;
-    if (appearanceSaveBtn) appearanceSaveBtn.disabled = true;
+    setAppearanceFormDisabled(true);
     return;
   }
 
@@ -1369,14 +1520,15 @@ async function loadAppearanceSettings() {
   try {
     const res = await fetch("/api/settings/appearance", { credentials: "include" });
     if (!res.ok) {
-      showMessage("Failed to load custom CSS settings.", "error");
+      showMessage("Failed to load branding settings.", "error");
       return;
     }
     const data = await res.json().catch(() => ({}));
     if (appearanceCustomCssInput) appearanceCustomCssInput.value = data.customCSS || "";
-    if (appearanceSaveBtn) appearanceSaveBtn.disabled = false;
+    applyBrandingForm(data.loginBranding || {});
+    setAppearanceFormDisabled(false);
   } catch {
-    showMessage("Failed to load custom CSS settings.", "error");
+    showMessage("Failed to load branding settings.", "error");
   }
 }
 
@@ -1396,16 +1548,17 @@ async function saveAppearanceSettings(event) {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
-    body: JSON.stringify({ customCSS }),
+    body: JSON.stringify({ customCSS, loginBranding: collectBrandingForm() }),
   });
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    showMessage(data.error || "Failed to save custom CSS.", "error");
+    showMessage(data.error || "Failed to save branding.", "error");
     return;
   }
 
-  showMessage("Custom CSS saved. Reload the page to apply the new styles.");
+  applyBrandingForm(data.loginBranding || collectBrandingForm());
+  showMessage("Branding saved. Reload any open page to apply it everywhere.");
 }
 
 const chatSettingsSection = document.getElementById("chat-settings-section");
@@ -2620,6 +2773,7 @@ async function init() {
     tlsCertbotAutoBtn.addEventListener("click", runCertbotAutoSetup);
     if (oidcForm) oidcForm.addEventListener("submit", saveOidcSettings);
     if (appearanceForm) appearanceForm.addEventListener("submit", saveAppearanceSettings);
+    initBrandingUploads();
     if (chatSettingsForm) chatSettingsForm.addEventListener("submit", saveChatSettings);
     if (inputArchiveUserForm) inputArchiveUserForm.addEventListener("submit", saveInputArchivePreference);
     if (inputArchiveAdminForm) inputArchiveAdminForm.addEventListener("submit", saveInputArchiveAdminSettings);

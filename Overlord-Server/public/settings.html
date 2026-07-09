@@ -19,11 +19,18 @@
         display: flex;
         align-items: center;
         gap: 0.625rem;
+        min-width: 0;
         padding: 0.5rem 0.75rem;
         border-radius: 0.5rem;
         color: rgb(203 213 225); /* slate-300 */
         cursor: pointer;
         transition: background-color 120ms, color 120ms;
+      }
+      .settings-nav-link span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
       .settings-nav-link:hover {
         background-color: rgb(30 41 59 / 0.7); /* slate-800/70 */
@@ -56,7 +63,26 @@
       .settings-section { scroll-margin-top: var(--settings-scroll-mt); }
       /* Also pin the sticky sidebar below the topbar so it doesn't slide
          under the nav when the page is scrolled. */
-      #settings-sidebar { top: var(--settings-scroll-mt); }
+      #settings-sidebar {
+        top: var(--settings-scroll-mt);
+        max-height: calc(100vh - var(--settings-scroll-mt) - 1rem);
+        overflow-y: auto;
+        overflow-x: hidden;
+        scrollbar-width: thin;
+        scrollbar-color: rgb(100 116 139 / 0.35) transparent;
+      }
+      #settings-sidebar::-webkit-scrollbar { width: 5px; }
+      #settings-sidebar::-webkit-scrollbar-track { background: transparent; }
+      #settings-sidebar::-webkit-scrollbar-thumb {
+        background: rgb(100 116 139 / 0.35);
+        border-radius: 999px;
+      }
+      @media (max-width: 1023px) {
+        #settings-sidebar {
+          max-height: none;
+          overflow: visible;
+        }
+      }
     </style>
   </head>
   <body class="min-h-screen bg-slate-950 text-slate-100">
@@ -100,7 +126,7 @@
             <a data-target="thumbnails-section"       class="settings-nav-link" data-permission="system:thumbnails" style="--accent: 56 189 248"><i class="fa-solid fa-images w-4 text-sky-400"></i><span>Screenshot Thumbnails</span></a>
             <a data-target="input-archive-admin-section" class="settings-nav-link" data-permission="system:input-archive" style="--accent: 250 204 21"><i class="fa-solid fa-database w-4 text-yellow-400"></i><span>Input Archive Admin</span></a>
             <a data-target="build-rate-limit-section" class="settings-nav-link" data-permission="system:build-limits" style="--accent: 251 146 60"><i class="fa-solid fa-gauge-high w-4 text-orange-400"></i><span>Build Rate Limit</span></a>
-            <a data-target="section-appearance"       class="settings-nav-link" data-permission="system:appearance" style="--accent: 232 121 249"><i class="fa-solid fa-paintbrush w-4 text-fuchsia-400"></i><span>Custom CSS</span></a>
+            <a data-target="section-appearance"       class="settings-nav-link" data-permission="system:appearance" style="--accent: 232 121 249"><i class="fa-solid fa-palette w-4 text-fuchsia-400"></i><span>Branding</span></a>
             <a data-target="export-import-section"    class="settings-nav-link" data-permission="system:export-import" style="--accent: 251 191 36"><i class="fa-solid fa-file-export w-4 text-amber-400"></i><span>Export / Import</span></a>
             <a data-target="section-health"           class="settings-nav-link" data-permission="system:health" style="--accent: 34 211 238"><i class="fa-solid fa-heart-pulse w-4 text-cyan-400"></i><span>Server Health</span></a>
           </nav>
@@ -1220,24 +1246,118 @@
         <p id="brl-settings-msg" class="hidden text-sm rounded-lg px-3 py-2 border"></p>
       </section>
 
-      <!-- Custom CSS -->
+      <!-- Branding & Custom CSS -->
       <section id="section-appearance" data-permission="system:appearance" class="hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 settings-section">
         <div class="flex items-center gap-3">
           <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/30">
-            <i class="fa-solid fa-paintbrush text-fuchsia-400"></i>
+            <i class="fa-solid fa-palette text-fuchsia-400"></i>
           </div>
           <div>
-            <h2 class="text-lg font-semibold">Custom CSS</h2>
-            <p class="text-sm text-slate-400">Admin-only. Paste custom CSS to override the default theme across all pages.</p>
+            <h2 class="text-lg font-semibold">Branding</h2>
+            <p class="text-sm text-slate-400">Admin-only. Customize enterprise identity across navigation and sign-in.</p>
           </div>
         </div>
 
         <form id="appearance-form" class="space-y-4">
           <div id="appearance-permission-note" class="hidden rounded-lg border border-amber-800 bg-amber-900/20 text-amber-200 px-3 py-2 text-sm">
-            Your permissions do not allow custom CSS changes.
+            Your permissions do not allow branding changes.
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <label class="block">
+              <span class="text-sm text-slate-300">Product name</span>
+              <input id="brand-product-name" type="text" placeholder="Overlord" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500" />
+            </label>
+            <label class="block">
+              <span class="text-sm text-slate-300">Navigation name</span>
+              <input id="brand-nav-name" type="text" placeholder="Overlord" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500" />
+            </label>
+            <label class="block">
+              <span class="text-sm text-slate-300">Brand accent</span>
+              <input id="brand-accent-color" type="color" value="#7a5bff" class="mt-1 h-10 w-full px-2 py-1 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500" />
+            </label>
+            <label class="block">
+              <span class="text-sm text-slate-300">Icon class</span>
+              <input id="brand-icon-class" type="text" placeholder="fa-solid fa-crown" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500" />
+            </label>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div class="block">
+              <span class="text-sm text-slate-300">Navigation logo URL</span>
+              <input id="brand-nav-logo-url" type="text" inputmode="url" placeholder="/assets/company-logo.png" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500" />
+              <div class="mt-2 flex items-center gap-2 min-w-0">
+                <input id="brand-nav-logo-file" type="file" accept="image/png,image/jpeg,image/gif,image/webp" class="sr-only" />
+                <label for="brand-nav-logo-file" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-100 transition-colors cursor-pointer">
+                  <i class="fa-solid fa-upload"></i>Upload image
+                </label>
+                <span id="brand-nav-logo-file-name" class="min-w-0 truncate text-xs text-slate-500">No file chosen</span>
+              </div>
+            </div>
+            <label class="block">
+              <span class="text-sm text-slate-300">Navigation logo alt text</span>
+              <input id="brand-nav-logo-alt" type="text" placeholder="Company logo" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500" />
+            </label>
+            <div class="block">
+              <span class="text-sm text-slate-300">Sign-in logo URL</span>
+              <input id="brand-login-logo-url" type="text" inputmode="url" placeholder="/assets/company-mark.png" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500" />
+              <div class="mt-2 flex items-center gap-2 min-w-0">
+                <input id="brand-login-logo-file" type="file" accept="image/png,image/jpeg,image/gif,image/webp" class="sr-only" />
+                <label for="brand-login-logo-file" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-100 transition-colors cursor-pointer">
+                  <i class="fa-solid fa-upload"></i>Upload image
+                </label>
+                <span id="brand-login-logo-file-name" class="min-w-0 truncate text-xs text-slate-500">No file chosen</span>
+              </div>
+            </div>
+            <label class="block">
+              <span class="text-sm text-slate-300">Sign-in logo alt text</span>
+              <input id="brand-login-logo-alt" type="text" placeholder="Company logo" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500" />
+            </label>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <label class="block">
+              <span class="text-sm text-slate-300">Sign-in title</span>
+              <input id="brand-login-title" type="text" placeholder="Welcome back" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500" />
+            </label>
+            <label class="block">
+              <span class="text-sm text-slate-300">Sign-in subtitle</span>
+              <input id="brand-login-subtitle" type="text" placeholder="Sign in to your control plane" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500" />
+            </label>
+            <div class="block">
+              <span class="text-sm text-slate-300">Sign-in background image URL</span>
+              <input id="brand-hero-image-url" type="text" inputmode="url" placeholder="/assets/login-hero.jpg" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500" />
+              <div class="mt-2 flex items-center gap-2 min-w-0">
+                <input id="brand-hero-image-file" type="file" accept="image/png,image/jpeg,image/gif,image/webp" class="sr-only" />
+                <label for="brand-hero-image-file" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-100 transition-colors cursor-pointer">
+                  <i class="fa-solid fa-upload"></i>Upload image
+                </label>
+                <span id="brand-hero-image-file-name" class="min-w-0 truncate text-xs text-slate-500">No file chosen</span>
+              </div>
+            </div>
+            <label class="block">
+              <span class="text-sm text-slate-300">Background image alt text</span>
+              <input id="brand-hero-image-alt" type="text" placeholder="Operations center" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500" />
+            </label>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <label class="block">
+              <span class="text-sm text-slate-300">Footer text</span>
+              <input id="brand-footer-text" type="text" placeholder="Authorized access only" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500" />
+            </label>
+            <label class="block">
+              <span class="text-sm text-slate-300">Support link text</span>
+              <input id="brand-support-text" type="text" placeholder="Need help?" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500" />
+            </label>
+            <label class="block">
+              <span class="text-sm text-slate-300">Support URL</span>
+              <input id="brand-support-url" type="text" inputmode="url" placeholder="https://help.example.com" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500" />
+            </label>
           </div>
 
           <label class="block">
+            <span class="text-sm text-slate-300">Custom CSS</span>
             <textarea
               id="appearance-custom-css"
               rows="12"
@@ -1253,7 +1373,7 @@
             id="appearance-save-btn"
             class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-fuchsia-700 hover:bg-fuchsia-600 transition-colors text-white text-sm font-medium"
           >
-            <i class="fa-solid fa-paintbrush"></i>Save Custom CSS
+            <i class="fa-solid fa-floppy-disk"></i>Save Branding
           </button>
         </form>
       </section>

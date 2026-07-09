@@ -133,8 +133,10 @@ function mountTopbar(host) {
   host.innerHTML = `
     <div class="topbar-grid">
       <div class="topbar-left">
-        <a href="/" class="flex items-center gap-2 font-semibold tracking-wide">
-          <i class="fa-solid fa-crown header-crown"></i> Overlord
+        <a href="/" class="nav-brand-link flex items-center gap-2 font-semibold tracking-wide">
+          <img id="nav-brand-logo" class="nav-brand-logo" alt="Overlord logo" style="display: none" />
+          <i id="nav-brand-icon" class="fa-solid fa-crown header-crown"></i>
+          <span id="nav-brand-name">Overlord</span>
         </a>
         <button id="topbar-nav-toggle" class="topbar-nav-toggle" aria-label="Open navigation menu" aria-expanded="false" type="button">
           <i class="fa-solid fa-layer-group"></i>
@@ -281,9 +283,10 @@ function mountSidebar(host) {
 
   host.innerHTML = `
     <div class="sb-header">
-      <a href="/" class="sb-logo">
-        <i class="fa-solid fa-crown header-crown sb-icon"></i>
-        <span class="sb-text">Overlord</span>
+      <a href="/" class="sb-logo nav-brand-link">
+        <img id="nav-brand-logo" class="nav-brand-logo sb-icon" alt="Overlord logo" style="display: none" />
+        <i id="nav-brand-icon" class="fa-solid fa-crown header-crown sb-icon"></i>
+        <span id="nav-brand-name" class="sb-text">Overlord</span>
       </a>
       <button id="sb-collapse-btn" class="sb-collapse-btn" title="Toggle sidebar" aria-label="Toggle sidebar">
         <i class="fa-solid fa-chevron-left"></i>
@@ -332,8 +335,9 @@ function mountSidebar(host) {
       <i class="fa-solid fa-bars"></i>
     </button>
     <a href="/" class="sb-mobile-brand">
-      <i class="fa-solid fa-crown header-crown" style="font-size:0.85rem"></i>
-      <span>Overlord</span>
+      <img id="nav-mobile-brand-logo" class="nav-brand-logo" alt="Overlord logo" style="display: none" />
+      <i id="nav-mobile-brand-icon" class="fa-solid fa-crown header-crown" style="font-size:0.85rem"></i>
+      <span id="nav-mobile-brand-name">Overlord</span>
     </a>
   `;
   host.insertAdjacentElement("afterend", mobileBar);

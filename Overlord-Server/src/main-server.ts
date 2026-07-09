@@ -551,6 +551,7 @@ async function startServer() {
     misc: {
       CORS_HEADERS,
       SERVER_VERSION,
+      PUBLIC_ROOT,
       getConsoleSessionCount: sessionManager.getConsoleSessionCount,
       getRdSessionCount: sessionManager.getRdSessionCount,
       getFileBrowserSessionCount: sessionManager.getFileBrowserSessionCount,

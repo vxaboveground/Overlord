@@ -11,6 +11,9 @@ const loginTitle = document.getElementById("login-title");
 const loginSubtitle = document.getElementById("login-subtitle");
 const loginIcon = document.getElementById("login-icon");
 const loginLogo = document.getElementById("login-logo");
+const loginHeroImage = document.getElementById("login-hero-image");
+const loginBrandFooter = document.getElementById("login-brand-footer");
+const loginSupportLink = document.getElementById("login-support-link");
 
 (() => {
   const params = new URLSearchParams(window.location.search);
@@ -31,6 +34,7 @@ const loginLogo = document.getElementById("login-logo");
     if (loginTitle && data.title) loginTitle.textContent = data.title;
     if (loginSubtitle && data.subtitle) loginSubtitle.textContent = data.subtitle;
     if (data.productName) document.title = `${data.productName} Login`;
+    if (data.accentColor) document.documentElement.style.setProperty("--brand-accent", data.accentColor);
 
     if (loginIcon && data.iconClass) {
       loginIcon.className = `${data.iconClass} login-crown`;
@@ -47,6 +51,34 @@ const loginLogo = document.getElementById("login-logo");
         loginIcon.style.display = "";
       };
       loginLogo.src = data.logoUrl;
+    }
+
+    if (loginHeroImage && data.heroImageUrl) {
+      loginHeroImage.alt = data.heroImageAlt || "";
+      loginHeroImage.onload = () => {
+        loginHeroImage.style.display = "";
+        document.body.classList.add("login-has-hero-image");
+      };
+      loginHeroImage.onerror = () => {
+        loginHeroImage.style.display = "none";
+        document.body.classList.remove("login-has-hero-image");
+      };
+      loginHeroImage.src = data.heroImageUrl;
+    }
+
+    if (loginBrandFooter && data.footerText) {
+      loginBrandFooter.textContent = data.footerText;
+      loginBrandFooter.style.display = "";
+    }
+
+    if (loginSupportLink && data.supportText && data.supportUrl) {
+      loginSupportLink.textContent = data.supportText;
+      loginSupportLink.href = data.supportUrl;
+      if (!data.supportUrl.startsWith("/")) {
+        loginSupportLink.target = "_blank";
+        loginSupportLink.rel = "noopener noreferrer";
+      }
+      loginSupportLink.style.display = "";
     }
   } catch {}
 })();

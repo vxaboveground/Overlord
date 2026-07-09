@@ -85,11 +85,20 @@ export interface Config {
     customCSS: string;
     loginBranding: {
       productName: string;
+      navName: string;
       title: string;
       subtitle: string;
       iconClass: string;
       logoUrl: string;
       logoAlt: string;
+      navLogoUrl: string;
+      navLogoAlt: string;
+      heroImageUrl: string;
+      heroImageAlt: string;
+      accentColor: string;
+      footerText: string;
+      supportText: string;
+      supportUrl: string;
     };
   };
   plugins: {
@@ -205,11 +214,20 @@ const DEFAULT_CONFIG: Config = {
     customCSS: "",
     loginBranding: {
       productName: "Overlord",
+      navName: "Overlord",
       title: "Welcome back",
       subtitle: "Sign in to your control plane",
       iconClass: "fa-solid fa-crown",
       logoUrl: "",
       logoAlt: "Overlord logo",
+      navLogoUrl: "",
+      navLogoAlt: "Overlord logo",
+      heroImageUrl: "",
+      heroImageAlt: "Overlord sign-in background",
+      accentColor: "#7a5bff",
+      footerText: "",
+      supportText: "",
+      supportUrl: "",
     },
   },
   plugins: {
@@ -304,18 +322,33 @@ function cleanLogoUrl(value: unknown): string {
   return "";
 }
 
+function cleanBrandColor(value: unknown, fallback: string): string {
+  const raw = typeof value === "string" ? value.trim() : "";
+  return /^#[0-9a-fA-F]{6}$/.test(raw) ? raw.toLowerCase() : fallback;
+}
+
 function cleanLoginBranding(
   value: Partial<Config["appearance"]["loginBranding"]> | undefined,
   fallback: Config["appearance"]["loginBranding"],
 ): Config["appearance"]["loginBranding"] {
   const productName = cleanText(value?.productName, fallback.productName, 80);
+  const navName = cleanText(value?.navName, productName, 80);
   return {
     productName,
+    navName,
     title: cleanText(value?.title, fallback.title, 120),
     subtitle: cleanText(value?.subtitle, fallback.subtitle, 180),
     iconClass: cleanIconClass(value?.iconClass, fallback.iconClass),
     logoUrl: cleanLogoUrl(value?.logoUrl),
     logoAlt: cleanText(value?.logoAlt, `${productName} logo`, 120),
+    navLogoUrl: cleanLogoUrl(value?.navLogoUrl),
+    navLogoAlt: cleanText(value?.navLogoAlt, `${navName} logo`, 120),
+    heroImageUrl: cleanLogoUrl(value?.heroImageUrl),
+    heroImageAlt: cleanText(value?.heroImageAlt, `${productName} sign-in image`, 160),
+    accentColor: cleanBrandColor(value?.accentColor, fallback.accentColor),
+    footerText: cleanText(value?.footerText, "", 160),
+    supportText: cleanText(value?.supportText, "", 120),
+    supportUrl: cleanLogoUrl(value?.supportUrl),
   };
 }
 
@@ -760,7 +793,12 @@ export function loadConfig(): Config {
           ...(fileConfig.appearance?.loginBranding || {}),
           productName:
             process.env.OVERLORD_LOGIN_BRAND_NAME ||
+            process.env.OVERLORD_BRAND_NAME ||
             fileConfig.appearance?.loginBranding?.productName,
+          navName:
+            process.env.OVERLORD_NAV_BRAND_NAME ||
+            process.env.OVERLORD_BRAND_NAME ||
+            fileConfig.appearance?.loginBranding?.navName,
           title:
             process.env.OVERLORD_LOGIN_TITLE ||
             fileConfig.appearance?.loginBranding?.title,
@@ -776,6 +814,32 @@ export function loadConfig(): Config {
           logoAlt:
             process.env.OVERLORD_LOGIN_LOGO_ALT ||
             fileConfig.appearance?.loginBranding?.logoAlt,
+          navLogoUrl:
+            process.env.OVERLORD_NAV_LOGO_URL ||
+            process.env.OVERLORD_BRAND_LOGO_URL ||
+            fileConfig.appearance?.loginBranding?.navLogoUrl,
+          navLogoAlt:
+            process.env.OVERLORD_NAV_LOGO_ALT ||
+            process.env.OVERLORD_BRAND_LOGO_ALT ||
+            fileConfig.appearance?.loginBranding?.navLogoAlt,
+          heroImageUrl:
+            process.env.OVERLORD_LOGIN_HERO_IMAGE_URL ||
+            fileConfig.appearance?.loginBranding?.heroImageUrl,
+          heroImageAlt:
+            process.env.OVERLORD_LOGIN_HERO_IMAGE_ALT ||
+            fileConfig.appearance?.loginBranding?.heroImageAlt,
+          accentColor:
+            process.env.OVERLORD_BRAND_ACCENT_COLOR ||
+            fileConfig.appearance?.loginBranding?.accentColor,
+          footerText:
+            process.env.OVERLORD_LOGIN_FOOTER_TEXT ||
+            fileConfig.appearance?.loginBranding?.footerText,
+          supportText:
+            process.env.OVERLORD_LOGIN_SUPPORT_TEXT ||
+            fileConfig.appearance?.loginBranding?.supportText,
+          supportUrl:
+            process.env.OVERLORD_LOGIN_SUPPORT_URL ||
+            fileConfig.appearance?.loginBranding?.supportUrl,
         },
         DEFAULT_CONFIG.appearance.loginBranding,
       ),
@@ -1420,7 +1484,14 @@ export async function importFullConfig(data: Record<string, any>): Promise<{ app
     tls: process.env.OVERLORD_TLS_CERT || process.env.OVERLORD_TLS_CERTBOT_ENABLED,
     auth: process.env.JWT_SECRET || process.env.OVERLORD_AGENT_TOKEN,
     oidc: process.env.OVERLORD_OIDC_ENABLED || process.env.OVERLORD_OIDC_ISSUER || process.env.OVERLORD_OIDC_CLIENT_ID,
-    appearance: process.env.OVERLORD_LOGIN_BRAND_NAME || process.env.OVERLORD_LOGIN_LOGO_URL || process.env.OVERLORD_LOGIN_TITLE,
+    appearance:
+      process.env.OVERLORD_LOGIN_BRAND_NAME ||
+      process.env.OVERLORD_BRAND_NAME ||
+      process.env.OVERLORD_NAV_LOGO_URL ||
+      process.env.OVERLORD_BRAND_LOGO_URL ||
+      process.env.OVERLORD_LOGIN_LOGO_URL ||
+      process.env.OVERLORD_LOGIN_HERO_IMAGE_URL ||
+      process.env.OVERLORD_LOGIN_TITLE,
   };
 
   if (data.notifications && typeof data.notifications === "object") {

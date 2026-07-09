@@ -2,6 +2,8 @@ import { authenticateRequest } from "../../auth";
 import { AuditAction, getAuditLogs, logAudit } from "../../auditLog";
 import { logger } from "../../logger";
 import { getConfig, updateSecurityConfig, updateTlsConfig, updateOidcConfig, updateAppearanceConfig, updateChatConfig, getExportableConfig, importFullConfig, updateRegistrationConfig, updateBuildRateLimitConfig, updateThumbnailsConfig, updateInputArchiveConfig } from "../../config";
+import path from "path";
+import * as fs from "fs/promises";
 import {
   getClientMetricsSummary,
   getClientMetricsSummaryForUser,
@@ -30,6 +32,7 @@ let inspectorRuntimePromise: Promise<any> | null | undefined;
 type MiscRouteDeps = {
   CORS_HEADERS: Record<string, string>;
   SERVER_VERSION: string;
+  PUBLIC_ROOT: string;
   requestIP?: (req: Request) => { address?: string } | null | undefined;
   getConsoleSessionCount: () => number;
   getRdSessionCount: () => number;
@@ -38,6 +41,29 @@ type MiscRouteDeps = {
   tlsCertPath?: string;
   tlsSource?: "certbot" | "configured" | "self-signed";
 };
+
+const BRAND_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const BRAND_IMAGE_KINDS = new Set(["nav-logo", "login-logo", "hero-image"]);
+
+function detectBrandImage(bytes: Uint8Array, contentType: string): { ext: string; type: string } | null {
+  const type = contentType.toLowerCase().split(";")[0].trim();
+  const isPng = bytes.length >= 8 &&
+    bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 &&
+    bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a;
+  const isJpeg = bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  const isGif = bytes.length >= 6 &&
+    bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 &&
+    bytes[3] === 0x38 && (bytes[4] === 0x37 || bytes[4] === 0x39) && bytes[5] === 0x61;
+  const isWebp = bytes.length >= 12 &&
+    bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+    bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50;
+
+  if (isPng && (!type || type === "image/png")) return { ext: "png", type: "image/png" };
+  if (isJpeg && (!type || type === "image/jpeg" || type === "image/jpg")) return { ext: "jpg", type: "image/jpeg" };
+  if (isGif && (!type || type === "image/gif")) return { ext: "gif", type: "image/gif" };
+  if (isWebp && (!type || type === "image/webp")) return { ext: "webp", type: "image/webp" };
+  return null;
+}
 
 function maskOidcSettings() {
   const oidc = getConfig().oidc;
@@ -1244,6 +1270,69 @@ export async function handleMiscRoutes(
         { headers: deps.CORS_HEADERS },
       );
     }
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/settings/appearance/image") {
+    const user = await authenticateRequest(req);
+    if (!user) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    try {
+      requirePermission(user, "system:appearance");
+    } catch (error) {
+      if (error instanceof Response) return error;
+      return new Response("Forbidden", { status: 403 });
+    }
+
+    let form: FormData;
+    try {
+      form = await req.formData();
+    } catch {
+      return Response.json({ error: "Invalid upload form" }, { status: 400 });
+    }
+
+    const kind = String(form.get("kind") || "");
+    if (!BRAND_IMAGE_KINDS.has(kind)) {
+      return Response.json({ error: "Invalid branding image type" }, { status: 400 });
+    }
+
+    const file = form.get("file");
+    if (!(file instanceof File)) {
+      return Response.json({ error: "Missing image file" }, { status: 400 });
+    }
+    if (file.size <= 0) {
+      return Response.json({ error: "Image file is empty" }, { status: 400 });
+    }
+    if (file.size > BRAND_IMAGE_MAX_BYTES) {
+      return Response.json({ error: "Image exceeds 5 MB limit" }, { status: 400 });
+    }
+
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const image = detectBrandImage(bytes, file.type || "");
+    if (!image) {
+      return Response.json({ error: "Only PNG, JPEG, GIF, or WebP images are allowed" }, { status: 400 });
+    }
+
+    const uploadDir = path.join(deps.PUBLIC_ROOT, "assets", "branding");
+    await fs.mkdir(uploadDir, { recursive: true });
+    const filename = `${kind}-${Date.now().toString(36)}-${crypto.randomUUID()}.${image.ext}`;
+    const targetPath = path.join(uploadDir, filename);
+    await fs.writeFile(targetPath, bytes);
+    const assetUrl = `/assets/branding/${filename}`;
+
+    logAudit({
+      timestamp: Date.now(),
+      username: user.username,
+      ip: deps.requestIP?.(req)?.address || "unknown",
+      action: AuditAction.COMMAND,
+      details: `Uploaded branding image (${kind}, ${bytes.length} bytes)`,
+      success: true,
+    });
+
+    return Response.json(
+      { ok: true, url: assetUrl, contentType: image.type, size: bytes.length },
+      { headers: deps.CORS_HEADERS },
+    );
   }
 
   if (req.method === "GET" && url.pathname === "/api/cert/download" && deps.tlsCertPath) {

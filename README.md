@@ -440,14 +440,23 @@ Self-hosted and enterprise deployments can brand the login screen with environme
 
 ```env
 OVERLORD_LOGIN_BRAND_NAME=Acme SOC
+OVERLORD_NAV_BRAND_NAME=Acme Console
+OVERLORD_BRAND_ACCENT_COLOR=#14b8a6
 OVERLORD_LOGIN_TITLE=Welcome to Acme Overlord
 OVERLORD_LOGIN_SUBTITLE=Sign in with your Acme identity
 OVERLORD_LOGIN_LOGO_URL=/assets/acme-logo.png
 OVERLORD_LOGIN_LOGO_ALT=Acme logo
+OVERLORD_NAV_LOGO_URL=/assets/acme-nav-logo.png
+OVERLORD_NAV_LOGO_ALT=Acme logo
+OVERLORD_LOGIN_HERO_IMAGE_URL=/assets/acme-login.jpg
+OVERLORD_LOGIN_HERO_IMAGE_ALT=Acme operations center
+OVERLORD_LOGIN_FOOTER_TEXT=Authorized Acme access only
+OVERLORD_LOGIN_SUPPORT_TEXT=Need access help?
+OVERLORD_LOGIN_SUPPORT_URL=https://help.example.com
 OVERLORD_LOGIN_ICON_CLASS=fa-solid fa-shield-halved
 ```
 
-`OVERLORD_LOGIN_LOGO_URL` accepts absolute `http(s)` URLs or root-relative paths. If no logo URL is set, the login screen uses `OVERLORD_LOGIN_ICON_CLASS`.
+Logo, hero, and support URLs accept absolute `http(s)` URLs or root-relative paths. If no logo URL is set, the UI uses `OVERLORD_LOGIN_ICON_CLASS`. The same options can also be managed from Settings → Branding.
 
 ---
 
