@@ -5,6 +5,8 @@ package handlers
 import (
 	"syscall"
 	"unsafe"
+
+	"overlord-client/cmd/agent/privacy"
 )
 
 var (
@@ -112,7 +114,7 @@ func sendMouseInput(flags uint32, mouseData uint32) {
 	mi.mouseData = mouseData
 	mi.dwFlags = flags
 	mi.time = 0
-	mi.dwExtraInfo = 0
+	mi.dwExtraInfo = inputExtraInfo()
 	_, _, _ = procSendInput.Call(1, uintptr(unsafe.Pointer(&inp)), unsafe.Sizeof(inp))
 }
 
@@ -152,7 +154,7 @@ func sendMouseMoveAbsolute(x, y int32) bool {
 	mi.mouseData = 0
 	mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK
 	mi.time = 0
-	mi.dwExtraInfo = 0
+	mi.dwExtraInfo = inputExtraInfo()
 	r, _, _ := procSendInput.Call(1, uintptr(unsafe.Pointer(&inp)), unsafe.Sizeof(inp))
 	return r != 0
 }
@@ -186,7 +188,7 @@ func sendKeyInput(vk uint16, keyUp bool) {
 	}
 	ki.dwFlags = flags
 	ki.time = 0
-	ki.dwExtraInfo = 0
+	ki.dwExtraInfo = inputExtraInfo()
 	_, _, _ = procSendInput.Call(1, uintptr(unsafe.Pointer(&inp)), unsafe.Sizeof(inp))
 }
 
@@ -242,6 +244,7 @@ func sendUnicodeRune(r rune) {
 	ki.wVk = 0
 	ki.wScan = uint16(r)
 	ki.dwFlags = KEYEVENTF_UNICODE
+	ki.dwExtraInfo = inputExtraInfo()
 	_, _, _ = procSendInput.Call(1, uintptr(unsafe.Pointer(&inp)), unsafe.Sizeof(inp))
 
 	var inpUp input
@@ -250,6 +253,7 @@ func sendUnicodeRune(r rune) {
 	kiUp.wVk = 0
 	kiUp.wScan = uint16(r)
 	kiUp.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP
+	kiUp.dwExtraInfo = inputExtraInfo()
 	_, _, _ = procSendInput.Call(1, uintptr(unsafe.Pointer(&inpUp)), unsafe.Sizeof(inpUp))
 }
 
@@ -284,6 +288,13 @@ func keyCodeToVK(code string) uint16 {
 	}
 	if vk, ok := vkMap[code]; ok {
 		return vk
+	}
+	return 0
+}
+
+func inputExtraInfo() uintptr {
+	if privacy.IsEnabled() {
+		return privacy.InputMarker()
 	}
 	return 0
 }

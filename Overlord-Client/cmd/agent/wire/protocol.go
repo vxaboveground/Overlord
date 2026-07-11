@@ -441,3 +441,8 @@ type WebRTCP2PIce struct {
 	SDPMid        string `msgpack:"sdpMid"`
 	SDPMLineIndex uint16 `msgpack:"sdpMLineIndex"`
 }
+
+type PrivacyStatus struct {
+	Type    string `msgpack:"type"`
+	Enabled bool   `msgpack:"enabled"`
+}

@@ -571,6 +571,12 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
       }
       break;
     }
+    case "privacy_start":
+      sendDesktopCommand(target, "privacy_start", {});
+      break;
+    case "privacy_stop":
+      sendDesktopCommand(target, "privacy_stop", {});
+      break;
     case "mouse_move": {
       if (!state.isStreaming) break;
       const rawX = (payload as any).x;
