@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"time"
+	"unsafe"
 )
 
 type H264SmokeResolution struct {
@@ -39,6 +40,72 @@ type H264SmokeResult struct {
 	AvgBytes       float64 `json:"avg_bytes"`
 	TotalBytes     int     `json:"total_bytes"`
 	Error          string  `json:"error,omitempty"`
+	Asynchronous   bool    `json:"asynchronous"`
+}
+
+type H264MFTFinding struct {
+	Index        int    `json:"index"`
+	Name         string `json:"name"`
+	HardwareURL  string `json:"hardware_url,omitempty"`
+	Asynchronous bool   `json:"asynchronous"`
+	D3D11Aware   bool   `json:"d3d11_aware"`
+	ActivationOK bool   `json:"activation_ok"`
+	Error        string `json:"error,omitempty"`
+}
+
+func FindH264HardwareMFTs() ([]H264MFTFinding, error) {
+	if err := ensureMFStartup(); err != nil {
+		return nil, err
+	}
+	input := mftRegisterTypeInfo{majorType: MFMediaType_Video, subtype: MFVideoFormat_NV12}
+	output := mftRegisterTypeInfo{majorType: MFMediaType_Video, subtype: MFVideoFormat_H264}
+	var activates **mfActivate
+	var count uint32
+	hr, _, _ := procMFTEnumEx.Call(
+		uintptr(unsafe.Pointer(&MFT_CATEGORY_VIDEO_ENCODER)),
+		uintptr(mftEnumFlagSyncMFT|mftEnumFlagAsyncMFT|mftEnumFlagHardware|mftEnumFlagSortAndFilter),
+		uintptr(unsafe.Pointer(&input)), uintptr(unsafe.Pointer(&output)),
+		uintptr(unsafe.Pointer(&activates)), uintptr(unsafe.Pointer(&count)),
+	)
+	if failedHR(hr) {
+		return nil, fmt.Errorf("MFTEnumEx failed 0x%x", hr)
+	}
+	if activates == nil || count == 0 {
+		return []H264MFTFinding{}, nil
+	}
+	defer procMFCoTaskMemFree.Call(uintptr(unsafe.Pointer(activates)))
+	list := unsafe.Slice(activates, int(count))
+	findings := make([]H264MFTFinding, 0, len(list))
+	for index, activate := range list {
+		finding := H264MFTFinding{Index: index}
+		if activate == nil {
+			finding.Error = "nil activation object"
+			findings = append(findings, finding)
+			continue
+		}
+		finding.Name, _ = activate.attrs().GetAllocatedString(&MFT_FRIENDLY_NAME_Attribute)
+		finding.HardwareURL, _ = activate.attrs().GetAllocatedString(&MFT_ENUM_HARDWARE_URL_Attribute)
+		var transform *mfTransform
+		hr := activate.ActivateObject(&IID_IMFTransform, unsafe.Pointer(&transform))
+		if failedHR(hr) || transform == nil {
+			finding.Error = fmt.Sprintf("ActivateObject failed 0x%x", hr)
+		} else {
+			finding.ActivationOK = true
+			var attrs *mfAttributes
+			if !failedHR(transform.GetAttributes(&attrs)) && attrs != nil {
+				var async, d3d11 uint32
+				_ = attrs.GetUINT32(&MF_TRANSFORM_ASYNC, &async)
+				_ = attrs.GetUINT32(&MF_SA_D3D11_AWARE, &d3d11)
+				finding.Asynchronous = async != 0
+				finding.D3D11Aware = d3d11 != 0
+				attrs.Release()
+			}
+			transform.Release()
+		}
+		activate.Release()
+		findings = append(findings, finding)
+	}
+	return findings, nil
 }
 
 func DefaultH264SmokeOptions() H264SmokeOptions {
@@ -125,9 +192,11 @@ func runH264SmokeCase(provider string, width, height, requestedFPS int, candidat
 	enc := newMFH264EncoderFromTransform(transform, width, height, requestedFPS, candidate.fps, hardware, providerName, candidate.inputSubtype, candidate.inputFormat)
 
 	t0 := time.Now()
-	if err := enc.configure(); err != nil {
+	configureErr := enc.configure()
+	result.Asynchronous = enc.asynchronous
+	if configureErr != nil {
 		result.ConfigureMS = float64(time.Since(t0).Microseconds()) / 1000
-		result.Error = err.Error()
+		result.Error = configureErr.Error()
 		enc.Close()
 		return result
 	}
@@ -179,11 +248,11 @@ func runH264SmokeCase(provider string, width, height, requestedFPS int, candidat
 func createH264SmokeTransform(provider string) (*mfTransform, bool, string, error) {
 	switch provider {
 	case "hardware":
-		transform, err := activateHardwareH264MFT()
+		transform, detail, err := activateHardwareH264MFTDetailed()
 		if err != nil {
 			return nil, false, "hardware", err
 		}
-		return transform, true, "hardware", nil
+		return transform, true, detail.provider(), nil
 	case "software":
 		return createSoftwareH264Transform()
 	default:

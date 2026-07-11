@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"image"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -23,16 +25,25 @@ const (
 	eNotImpl                 = 0x80004001
 
 	mftEnumFlagSyncMFT       = 0x00000001
+	mftEnumFlagAsyncMFT      = 0x00000002
 	mftEnumFlagHardware      = 0x00000004
 	mftEnumFlagSortAndFilter = 0x00000040
 
 	mftMessageNotifyBeginStreaming = 0x10000000
 	mftMessageNotifyStartOfStream  = 0x10000003
+	mftMessageCommandFlush         = 0x00000000
+	mftMessageNotifyEndOfStream    = 0x10000002
+	mftMessageNotifyEndStreaming   = 0x10000001
 
 	mftOutputStreamProvidesSamples = 0x00000100
 
 	mfETransformNeedMoreInput = 0xC00D6D72
 	mfETransformStreamChange  = 0xC00D6D61
+	mfENoEventsAvailable      = 0xC00D3E80
+
+	meTransformNeedInput     = 601
+	meTransformHaveOutput    = 602
+	meTransformDrainComplete = 603
 
 	h264ProfileMain = 77
 )
@@ -56,24 +67,30 @@ var (
 )
 
 var (
-	CLSID_CMSH264EncoderMFT    = windows.GUID{Data1: 0x6ca50344, Data2: 0x051a, Data3: 0x4ded, Data4: [8]byte{0x97, 0x79, 0xa4, 0x33, 0x05, 0x16, 0x5e, 0x35}}
-	IID_IMFTransform           = windows.GUID{Data1: 0xbf94c121, Data2: 0x5b05, Data3: 0x4e6f, Data4: [8]byte{0x80, 0x00, 0xba, 0x59, 0x89, 0x61, 0x41, 0x4d}}
-	IID_IMFMediaType           = windows.GUID{Data1: 0x44ae0fa8, Data2: 0xea31, Data3: 0x4109, Data4: [8]byte{0x8d, 0x2e, 0x4c, 0xae, 0x49, 0x97, 0xc5, 0x55}}
-	MFT_CATEGORY_VIDEO_ENCODER = windows.GUID{Data1: 0xf79eac7d, Data2: 0xe545, Data3: 0x4387, Data4: [8]byte{0xbd, 0xee, 0xd6, 0x47, 0xd7, 0xbd, 0xe4, 0x2a}}
-	MFMediaType_Video          = windows.GUID{Data1: 0x73646976, Data2: 0x0000, Data3: 0x0010, Data4: [8]byte{0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}}
-	MFVideoFormat_H264         = windows.GUID{Data1: 0x34363248, Data2: 0x0000, Data3: 0x0010, Data4: [8]byte{0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}}
-	MFVideoFormat_I420         = windows.GUID{Data1: 0x30323449, Data2: 0x0000, Data3: 0x0010, Data4: [8]byte{0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}}
-	MFVideoFormat_NV12         = windows.GUID{Data1: 0x3231564e, Data2: 0x0000, Data3: 0x0010, Data4: [8]byte{0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}}
-	MF_MT_MAJOR_TYPE           = windows.GUID{Data1: 0x48eba18e, Data2: 0xf8c9, Data3: 0x4687, Data4: [8]byte{0xbf, 0x11, 0x0a, 0x74, 0xc9, 0xf9, 0x6a, 0x8f}}
-	MF_MT_SUBTYPE              = windows.GUID{Data1: 0xf7e34c9a, Data2: 0x42e8, Data3: 0x4714, Data4: [8]byte{0xb7, 0x4b, 0xcb, 0x29, 0xd7, 0x2c, 0x35, 0xe5}}
-	MF_MT_FRAME_SIZE           = windows.GUID{Data1: 0x1652c33d, Data2: 0xd6b2, Data3: 0x4012, Data4: [8]byte{0xb8, 0x34, 0x72, 0x03, 0x08, 0x49, 0xa3, 0x7d}}
-	MF_MT_FRAME_RATE           = windows.GUID{Data1: 0xc459a2e8, Data2: 0x3d2c, Data3: 0x4e44, Data4: [8]byte{0xb1, 0x32, 0xfe, 0xe5, 0x15, 0x6c, 0x7b, 0xb0}}
-	MF_MT_PIXEL_ASPECT_RATIO   = windows.GUID{Data1: 0xc6376a1e, Data2: 0x8d0a, Data3: 0x4027, Data4: [8]byte{0xbe, 0x45, 0x6d, 0x9a, 0x0a, 0xd3, 0x9b, 0xb6}}
-	MF_MT_INTERLACE_MODE       = windows.GUID{Data1: 0xe2724bb8, Data2: 0xe676, Data3: 0x4806, Data4: [8]byte{0xb4, 0xb2, 0xa8, 0xd6, 0xef, 0xb4, 0x4c, 0xcd}}
-	MF_MT_AVG_BITRATE          = windows.GUID{Data1: 0x20332624, Data2: 0xfB0d, Data3: 0x4d9e, Data4: [8]byte{0xbd, 0x0d, 0xcb, 0xf6, 0x78, 0x6c, 0x10, 0x2e}}
-	MF_MT_MPEG2_LEVEL          = windows.GUID{Data1: 0x96f66574, Data2: 0x11c5, Data3: 0x4015, Data4: [8]byte{0x86, 0x66, 0xbf, 0xf5, 0x16, 0x43, 0x6d, 0xa7}}
-	MF_MT_MPEG2_PROFILE        = windows.GUID{Data1: 0xad76a80b, Data2: 0x2d5c, Data3: 0x4e0b, Data4: [8]byte{0xb3, 0x75, 0x64, 0xe5, 0x20, 0x13, 0x70, 0x36}}
-	MF_LOW_LATENCY             = windows.GUID{Data1: 0x9c27891a, Data2: 0xed7a, Data3: 0x40e1, Data4: [8]byte{0x88, 0xe8, 0xb2, 0x27, 0x27, 0xa0, 0x24, 0xee}}
+	CLSID_CMSH264EncoderMFT         = windows.GUID{Data1: 0x6ca50344, Data2: 0x051a, Data3: 0x4ded, Data4: [8]byte{0x97, 0x79, 0xa4, 0x33, 0x05, 0x16, 0x5e, 0x35}}
+	IID_IMFTransform                = windows.GUID{Data1: 0xbf94c121, Data2: 0x5b05, Data3: 0x4e6f, Data4: [8]byte{0x80, 0x00, 0xba, 0x59, 0x89, 0x61, 0x41, 0x4d}}
+	IID_IMFMediaType                = windows.GUID{Data1: 0x44ae0fa8, Data2: 0xea31, Data3: 0x4109, Data4: [8]byte{0x8d, 0x2e, 0x4c, 0xae, 0x49, 0x97, 0xc5, 0x55}}
+	MFT_CATEGORY_VIDEO_ENCODER      = windows.GUID{Data1: 0xf79eac7d, Data2: 0xe545, Data3: 0x4387, Data4: [8]byte{0xbd, 0xee, 0xd6, 0x47, 0xd7, 0xbd, 0xe4, 0x2a}}
+	MFMediaType_Video               = windows.GUID{Data1: 0x73646976, Data2: 0x0000, Data3: 0x0010, Data4: [8]byte{0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}}
+	MFVideoFormat_H264              = windows.GUID{Data1: 0x34363248, Data2: 0x0000, Data3: 0x0010, Data4: [8]byte{0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}}
+	MFVideoFormat_I420              = windows.GUID{Data1: 0x30323449, Data2: 0x0000, Data3: 0x0010, Data4: [8]byte{0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}}
+	MFVideoFormat_NV12              = windows.GUID{Data1: 0x3231564e, Data2: 0x0000, Data3: 0x0010, Data4: [8]byte{0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}}
+	MF_MT_MAJOR_TYPE                = windows.GUID{Data1: 0x48eba18e, Data2: 0xf8c9, Data3: 0x4687, Data4: [8]byte{0xbf, 0x11, 0x0a, 0x74, 0xc9, 0xf9, 0x6a, 0x8f}}
+	MF_MT_SUBTYPE                   = windows.GUID{Data1: 0xf7e34c9a, Data2: 0x42e8, Data3: 0x4714, Data4: [8]byte{0xb7, 0x4b, 0xcb, 0x29, 0xd7, 0x2c, 0x35, 0xe5}}
+	MF_MT_FRAME_SIZE                = windows.GUID{Data1: 0x1652c33d, Data2: 0xd6b2, Data3: 0x4012, Data4: [8]byte{0xb8, 0x34, 0x72, 0x03, 0x08, 0x49, 0xa3, 0x7d}}
+	MF_MT_FRAME_RATE                = windows.GUID{Data1: 0xc459a2e8, Data2: 0x3d2c, Data3: 0x4e44, Data4: [8]byte{0xb1, 0x32, 0xfe, 0xe5, 0x15, 0x6c, 0x7b, 0xb0}}
+	MF_MT_PIXEL_ASPECT_RATIO        = windows.GUID{Data1: 0xc6376a1e, Data2: 0x8d0a, Data3: 0x4027, Data4: [8]byte{0xbe, 0x45, 0x6d, 0x9a, 0x0a, 0xd3, 0x9b, 0xb6}}
+	MF_MT_INTERLACE_MODE            = windows.GUID{Data1: 0xe2724bb8, Data2: 0xe676, Data3: 0x4806, Data4: [8]byte{0xb4, 0xb2, 0xa8, 0xd6, 0xef, 0xb4, 0x4c, 0xcd}}
+	MF_MT_AVG_BITRATE               = windows.GUID{Data1: 0x20332624, Data2: 0xfB0d, Data3: 0x4d9e, Data4: [8]byte{0xbd, 0x0d, 0xcb, 0xf6, 0x78, 0x6c, 0x10, 0x2e}}
+	MF_MT_MPEG2_LEVEL               = windows.GUID{Data1: 0x96f66574, Data2: 0x11c5, Data3: 0x4015, Data4: [8]byte{0x86, 0x66, 0xbf, 0xf5, 0x16, 0x43, 0x6d, 0xa7}}
+	MF_MT_MPEG2_PROFILE             = windows.GUID{Data1: 0xad76a80b, Data2: 0x2d5c, Data3: 0x4e0b, Data4: [8]byte{0xb3, 0x75, 0x64, 0xe5, 0x20, 0x13, 0x70, 0x36}}
+	MF_LOW_LATENCY                  = windows.GUID{Data1: 0x9c27891a, Data2: 0xed7a, Data3: 0x40e1, Data4: [8]byte{0x88, 0xe8, 0xb2, 0x27, 0x27, 0xa0, 0x24, 0xee}}
+	MFT_FRIENDLY_NAME_Attribute     = windows.GUID{Data1: 0x314ffbae, Data2: 0x5b41, Data3: 0x4c95, Data4: [8]byte{0x9c, 0x19, 0x4e, 0x7d, 0x58, 0x6f, 0xac, 0xe3}}
+	MFT_ENUM_HARDWARE_URL_Attribute = windows.GUID{Data1: 0x2fb866ac, Data2: 0xb078, Data3: 0x4942, Data4: [8]byte{0xab, 0x6c, 0x00, 0x3d, 0x05, 0xcd, 0xa6, 0x74}}
+	MF_TRANSFORM_ASYNC              = windows.GUID{Data1: 0xf81a699a, Data2: 0x649a, Data3: 0x497d, Data4: [8]byte{0x8c, 0x73, 0x29, 0xf8, 0xfe, 0xd6, 0xad, 0x7a}}
+	MF_TRANSFORM_ASYNC_UNLOCK       = windows.GUID{Data1: 0xe5666d6b, Data2: 0x3422, Data3: 0x4eb6, Data4: [8]byte{0xa4, 0x21, 0xda, 0x7d, 0xb1, 0xf8, 0xe2, 0x07}}
+	MF_SA_D3D11_AWARE               = windows.GUID{Data1: 0x206b4fc8, Data2: 0xfcf9, Data3: 0x4c51, Data4: [8]byte{0xaf, 0xe3, 0x97, 0x64, 0x36, 0x9e, 0x33, 0xa0}}
+	IID_IMFMediaEventGenerator      = windows.GUID{Data1: 0x2cd0bd52, Data2: 0xbcd5, Data3: 0x4b89, Data4: [8]byte{0xb6, 0x2c, 0xea, 0xdc, 0x0c, 0x03, 0x1e, 0x7d}}
 )
 
 type mfAttributesVtbl struct {
@@ -132,6 +149,21 @@ func (a *mfAttributes) SetUINT32(key *windows.GUID, value uint32) uintptr {
 
 func (a *mfAttributes) SetUINT64(key *windows.GUID, value uint64) uintptr {
 	return callSyscallN(a.lpVtbl.SetUINT64, uintptr(unsafe.Pointer(a)), uintptr(unsafe.Pointer(key)), uintptr(value))
+}
+
+func (a *mfAttributes) GetUINT32(key *windows.GUID, value *uint32) uintptr {
+	return callSyscallN(a.lpVtbl.GetUINT32, uintptr(unsafe.Pointer(a)), uintptr(unsafe.Pointer(key)), uintptr(unsafe.Pointer(value)))
+}
+
+func (a *mfAttributes) GetAllocatedString(key *windows.GUID) (string, bool) {
+	var value *uint16
+	var length uint32
+	hr := callSyscallN(a.lpVtbl.GetAllocatedString, uintptr(unsafe.Pointer(a)), uintptr(unsafe.Pointer(key)), uintptr(unsafe.Pointer(&value)), uintptr(unsafe.Pointer(&length)))
+	if failedHR(hr) || value == nil {
+		return "", false
+	}
+	defer procMFCoTaskMemFree.Call(uintptr(unsafe.Pointer(value)))
+	return windows.UTF16PtrToString(value), true
 }
 
 type mfMediaType struct {
@@ -213,6 +245,56 @@ func (t *mfTransform) ProcessInput(id uint32, sample *mfSample, flags uint32) ui
 
 func (t *mfTransform) ProcessOutput(flags uint32, count uint32, samples *mftOutputDataBuffer, status *uint32) uintptr {
 	return callSyscallN(t.lpVtbl.ProcessOutput, uintptr(unsafe.Pointer(t)), uintptr(flags), uintptr(count), uintptr(unsafe.Pointer(samples)), uintptr(unsafe.Pointer(status)))
+}
+
+type mfMediaEventGeneratorVtbl struct {
+	QueryInterface uintptr
+	AddRef         uintptr
+	Release        uintptr
+	GetEvent       uintptr
+	BeginGetEvent  uintptr
+	EndGetEvent    uintptr
+	QueueEvent     uintptr
+}
+
+type mfMediaEventGenerator struct {
+	lpVtbl *mfMediaEventGeneratorVtbl
+}
+
+func (g *mfMediaEventGenerator) Release() {
+	if g != nil && g.lpVtbl != nil {
+		callSyscallN(g.lpVtbl.Release, uintptr(unsafe.Pointer(g)))
+	}
+}
+
+func (g *mfMediaEventGenerator) GetEvent(flags uint32, event **mfMediaEvent) uintptr {
+	return callSyscallN(g.lpVtbl.GetEvent, uintptr(unsafe.Pointer(g)), uintptr(flags), uintptr(unsafe.Pointer(event)))
+}
+
+type mfMediaEventVtbl struct {
+	mfAttributesVtbl
+	GetType         uintptr
+	GetExtendedType uintptr
+	GetStatus       uintptr
+	GetValue        uintptr
+}
+
+type mfMediaEvent struct {
+	lpVtbl *mfMediaEventVtbl
+}
+
+func (e *mfMediaEvent) Release() {
+	if e != nil && e.lpVtbl != nil {
+		callSyscallN(e.lpVtbl.Release, uintptr(unsafe.Pointer(e)))
+	}
+}
+
+func (e *mfMediaEvent) GetType(eventType *uint32) uintptr {
+	return callSyscallN(e.lpVtbl.GetType, uintptr(unsafe.Pointer(e)), uintptr(unsafe.Pointer(eventType)))
+}
+
+func (e *mfMediaEvent) GetStatus(status *uint32) uintptr {
+	return callSyscallN(e.lpVtbl.GetStatus, uintptr(unsafe.Pointer(e)), uintptr(unsafe.Pointer(status)))
 }
 
 type mfMediaBufferVtbl struct {
@@ -371,6 +453,10 @@ type mfActivate struct {
 	lpVtbl *mfActivateVtbl
 }
 
+func (a *mfActivate) attrs() *mfAttributes {
+	return (*mfAttributes)(unsafe.Pointer(a))
+}
+
 func (a *mfActivate) Release() {
 	if a != nil && a.lpVtbl != nil {
 		callSyscallN(a.lpVtbl.Release, uintptr(unsafe.Pointer(a)))
@@ -412,6 +498,10 @@ type mfH264Encoder struct {
 	provider     string
 	inputSubtype windows.GUID
 	inputFormat  string
+	asynchronous bool
+	events       *mfMediaEventGenerator
+	inputReady   int
+	pendingOut   []byte
 }
 
 type h264FrameEncoder interface {
@@ -502,11 +592,11 @@ func h264AvailabilityDetail() string {
 	if err := ensureMFStartup(); err != nil {
 		return fmt.Sprintf("Windows Media Foundation unavailable: %v", err)
 	}
-	ok, reason := hardwareH264MFTStatus()
+	ok, detail := hardwareH264MFTStatus()
 	if ok {
-		return "Windows Media Foundation H.264 MFT (hardware encoder available)"
+		return "Windows Media Foundation H.264 MFT (hardware encoder available: " + detail + ")"
 	}
-	return "Windows Media Foundation H.264 MFT (Microsoft H.264 encoder fallback; hardware unavailable: " + reason + ")"
+	return "Windows Media Foundation H.264 MFT (Microsoft H.264 encoder fallback; hardware unavailable: " + detail + ")"
 }
 
 func SetH264TargetFPS(fps int) {
@@ -530,7 +620,7 @@ func resetH264Encoder() {
 }
 
 func RequestDesktopH264Keyframe() {
-	requestNativeH264D3D11TextureKeyframe()
+	requestH264D3D11TextureKeyframe()
 	resetH264Encoder()
 }
 
@@ -566,11 +656,12 @@ func newMFH264Encoder(width, height, fps int) (*mfH264Encoder, error) {
 		return nil, err
 	}
 
-	if transform, err := activateHardwareH264MFT(); err == nil && transform != nil {
-		log.Printf("capture: media foundation h264 hardware encoder selected")
+	if transform, detail, err := activateHardwareH264MFTDetailed(); err == nil && transform != nil {
+		provider := detail.provider()
+		log.Printf("capture: media foundation h264 hardware encoder selected provider=%q", provider)
 		candidates := hardwareH264Candidates(fps)
 		for idx, candidate := range candidates {
-			enc := newMFH264EncoderFromTransform(transform, width, height, fps, candidate.fps, true, "hardware", candidate.inputSubtype, candidate.inputFormat)
+			enc := newMFH264EncoderFromTransform(transform, width, height, fps, candidate.fps, true, provider, candidate.inputSubtype, candidate.inputFormat)
 			if err := enc.configure(); err == nil {
 				logH264EncoderActive(enc)
 				return enc, nil
@@ -581,11 +672,13 @@ func newMFH264Encoder(width, height, fps int) (*mfH264Encoder, error) {
 
 			if idx != len(candidates)-1 {
 				var nextErr error
-				transform, nextErr = activateHardwareH264MFT()
+				var nextDetail mfHardwareEncoderDetail
+				transform, nextDetail, nextErr = activateHardwareH264MFTDetailed()
 				if nextErr != nil {
 					log.Printf("capture: media foundation h264 hardware encoder reactivation failed after fps retry: %v; using Microsoft software encoder", nextErr)
 					break
 				}
+				provider = nextDetail.provider()
 			}
 		}
 		log.Printf("capture: media foundation h264 hardware encoder rejected all fps candidates for %dx%d requested_fps=%d; using Microsoft software encoder", width, height, fps)
@@ -672,6 +765,13 @@ func logH264EncoderActive(enc *mfH264Encoder) {
 
 func (e *mfH264Encoder) Close() {
 	if e != nil && e.transform != nil {
+		_ = e.transform.ProcessMessage(mftMessageNotifyEndOfStream, 0)
+		_ = e.transform.ProcessMessage(mftMessageCommandFlush, 0)
+		_ = e.transform.ProcessMessage(mftMessageNotifyEndStreaming, 0)
+		if e.events != nil {
+			e.events.Release()
+			e.events = nil
+		}
 		e.transform.Release()
 		e.transform = nil
 	}
@@ -682,6 +782,9 @@ func (e *mfH264Encoder) Matches(width, height, fps int) bool {
 }
 
 func (e *mfH264Encoder) configure() error {
+	if err := e.configureAsyncMode(); err != nil {
+		return err
+	}
 	e.setLowLatency()
 
 	outType, err := createVideoType(MFVideoFormat_H264, e.width, e.height, e.fps)
@@ -714,6 +817,36 @@ func (e *mfH264Encoder) configure() error {
 	if hr := e.transform.ProcessMessage(mftMessageNotifyStartOfStream, 0); failedHR(hr) && hr != eNotImpl {
 		return fmt.Errorf("mf h264: start stream failed 0x%x", hr)
 	}
+	if e.asynchronous {
+		if err := e.waitForAsyncInput(500 * time.Millisecond); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (e *mfH264Encoder) configureAsyncMode() error {
+	var attrs *mfAttributes
+	hr := e.transform.GetAttributes(&attrs)
+	if failedHR(hr) || attrs == nil {
+		return nil
+	}
+	defer attrs.Release()
+	var async uint32
+	_ = attrs.GetUINT32(&MF_TRANSFORM_ASYNC, &async)
+	e.asynchronous = async != 0
+	if !e.asynchronous {
+		return nil
+	}
+	if hr := attrs.SetUINT32(&MF_TRANSFORM_ASYNC_UNLOCK, 1); failedHR(hr) {
+		return fmt.Errorf("mf h264: unlock asynchronous transform failed 0x%x", hr)
+	}
+	if e.events == nil {
+		hr := (*iunknown)(unsafe.Pointer(e.transform)).QueryInterface(&IID_IMFMediaEventGenerator, unsafe.Pointer(&e.events))
+		if failedHR(hr) || e.events == nil {
+			return fmt.Errorf("mf h264: asynchronous transform has no event generator (0x%x)", hr)
+		}
+	}
 	return nil
 }
 
@@ -741,6 +874,9 @@ func (e *mfH264Encoder) Encode(img *image.RGBA) ([]byte, error) {
 		return nil, err
 	}
 	defer sample.Release()
+	if e.asynchronous {
+		return e.encodeAsync(sample)
+	}
 
 	hr := e.transform.ProcessInput(0, sample, 0)
 	if failedHR(hr) {
@@ -753,6 +889,106 @@ func (e *mfH264Encoder) Encode(img *image.RGBA) ([]byte, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+func (e *mfH264Encoder) encodeAsync(sample *mfSample) ([]byte, error) {
+	if err := e.waitForAsyncInput(500 * time.Millisecond); err != nil {
+		return nil, err
+	}
+	e.inputReady--
+	hr := e.transform.ProcessInput(0, sample, 0)
+	if failedHR(hr) {
+		return nil, fmt.Errorf("mf h264: asynchronous ProcessInput failed 0x%x", hr)
+	}
+	e.frame++
+
+	deadline := time.Now().Add(100 * time.Millisecond)
+	for len(e.pendingOut) == 0 && time.Now().Before(deadline) {
+		hadEvent, err := e.pumpAsyncEvent()
+		if err != nil {
+			return nil, err
+		}
+		if !hadEvent {
+			if e.inputReady > 0 {
+				break
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	return e.takePendingOutput(), nil
+}
+
+func (e *mfH264Encoder) waitForAsyncInput(timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		for {
+			hadEvent, err := e.pumpAsyncEvent()
+			if err != nil {
+				return err
+			}
+			if !hadEvent {
+				break
+			}
+		}
+		if e.inputReady > 0 {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return errors.New("mf h264: timed out waiting for asynchronous input request")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func (e *mfH264Encoder) pumpAsyncEvent() (bool, error) {
+	if e.events == nil {
+		return false, errors.New("mf h264: asynchronous event generator is unavailable")
+	}
+	var event *mfMediaEvent
+	hr := e.events.GetEvent(1, &event) // MF_EVENT_FLAG_NO_WAIT
+	if hr == mfENoEventsAvailable {
+		return false, nil
+	}
+	if failedHR(hr) {
+		return false, fmt.Errorf("mf h264: GetEvent failed 0x%x", hr)
+	}
+	if event == nil {
+		return false, errors.New("mf h264: GetEvent returned a nil event")
+	}
+	defer event.Release()
+	var eventType uint32
+	if hr := event.GetType(&eventType); failedHR(hr) {
+		return false, fmt.Errorf("mf h264: event GetType failed 0x%x", hr)
+	}
+	var eventStatus uint32
+	if hr := event.GetStatus(&eventStatus); failedHR(hr) {
+		return false, fmt.Errorf("mf h264: event GetStatus failed 0x%x", hr)
+	}
+	if failedHR(uintptr(eventStatus)) {
+		return false, fmt.Errorf("mf h264: asynchronous event %d failed 0x%x", eventType, eventStatus)
+	}
+	switch eventType {
+	case meTransformNeedInput:
+		e.inputReady++
+	case meTransformHaveOutput:
+		out, err := e.processOutput()
+		if err != nil {
+			return false, err
+		}
+		e.pendingOut = append(e.pendingOut, out...)
+	case meTransformDrainComplete:
+		// No action is required during normal streaming.
+	}
+	return true, nil
+}
+
+func (e *mfH264Encoder) takePendingOutput() []byte {
+	if len(e.pendingOut) == 0 {
+		return nil
+	}
+	out := append([]byte(nil), e.pendingOut...)
+	e.pendingOut = e.pendingOut[:0]
+	return out
 }
 
 func (e *mfH264Encoder) processOutput() ([]byte, error) {
@@ -799,6 +1035,9 @@ func (e *mfH264Encoder) processOutput() ([]byte, error) {
 	}
 	if output.sample == nil {
 		return nil, nil
+	}
+	if outSample == nil {
+		defer output.sample.Release()
 	}
 	return sampleBytes(output.sample)
 }
@@ -925,9 +1164,10 @@ func sampleBytes(sample *mfSample) ([]byte, error) {
 }
 
 func createH264Transform() (*mfTransform, bool, string, error) {
-	if transform, err := activateHardwareH264MFT(); err == nil && transform != nil {
-		log.Printf("capture: media foundation h264 hardware encoder selected")
-		return transform, true, "hardware", nil
+	if transform, detail, err := activateHardwareH264MFTDetailed(); err == nil && transform != nil {
+		provider := detail.provider()
+		log.Printf("capture: media foundation h264 hardware encoder selected provider=%q", provider)
+		return transform, true, provider, nil
 	} else {
 		log.Printf("capture: media foundation h264 hardware encoder unavailable: %v; using Microsoft software encoder", err)
 	}
@@ -949,52 +1189,86 @@ func createSoftwareH264Transform() (*mfTransform, bool, string, error) {
 	return transform, false, "Microsoft software", nil
 }
 
+type mfHardwareEncoderDetail struct {
+	name         string
+	hardwareURL  string
+	asynchronous bool
+	d3d11Aware   bool
+}
+
+func (d mfHardwareEncoderDetail) provider() string {
+	if strings.TrimSpace(d.name) != "" {
+		return d.name
+	}
+	return "Media Foundation hardware"
+}
+
 func activateHardwareH264MFT() (*mfTransform, error) {
+	transform, _, err := activateHardwareH264MFTDetailed()
+	return transform, err
+}
+
+func activateHardwareH264MFTDetailed() (*mfTransform, mfHardwareEncoderDetail, error) {
 	input := mftRegisterTypeInfo{majorType: MFMediaType_Video, subtype: MFVideoFormat_NV12}
 	output := mftRegisterTypeInfo{majorType: MFMediaType_Video, subtype: MFVideoFormat_H264}
 	var activates **mfActivate
 	var count uint32
 	hr, _, _ := procMFTEnumEx.Call(
 		uintptr(unsafe.Pointer(&MFT_CATEGORY_VIDEO_ENCODER)),
-		uintptr(mftEnumFlagSyncMFT|mftEnumFlagHardware|mftEnumFlagSortAndFilter),
+		uintptr(mftEnumFlagSyncMFT|mftEnumFlagAsyncMFT|mftEnumFlagHardware|mftEnumFlagSortAndFilter),
 		uintptr(unsafe.Pointer(&input)),
 		uintptr(unsafe.Pointer(&output)),
 		uintptr(unsafe.Pointer(&activates)),
 		uintptr(unsafe.Pointer(&count)),
 	)
 	if failedHR(hr) || count == 0 || activates == nil {
-		return nil, fmt.Errorf("mf h264: no synchronous hardware encoder (0x%x)", hr)
+		return nil, mfHardwareEncoderDetail{}, fmt.Errorf("mf h264: no hardware encoder (0x%x)", hr)
 	}
 	defer procMFCoTaskMemFree.Call(uintptr(unsafe.Pointer(activates)))
 
 	list := unsafe.Slice(activates, int(count))
 	var found *mfTransform
+	var foundDetail mfHardwareEncoderDetail
 	for _, activate := range list {
 		if activate == nil {
 			continue
 		}
+		detail := mfHardwareEncoderDetail{}
+		detail.name, _ = activate.attrs().GetAllocatedString(&MFT_FRIENDLY_NAME_Attribute)
+		detail.hardwareURL, _ = activate.attrs().GetAllocatedString(&MFT_ENUM_HARDWARE_URL_Attribute)
 		if found == nil {
 			var transform *mfTransform
 			hr := activate.ActivateObject(&IID_IMFTransform, unsafe.Pointer(&transform))
 			if !failedHR(hr) && transform != nil {
+				var attrs *mfAttributes
+				if !failedHR(transform.GetAttributes(&attrs)) && attrs != nil {
+					var async, d3d11 uint32
+					_ = attrs.GetUINT32(&MF_TRANSFORM_ASYNC, &async)
+					_ = attrs.GetUINT32(&MF_SA_D3D11_AWARE, &d3d11)
+					detail.asynchronous = async != 0
+					detail.d3d11Aware = d3d11 != 0
+					attrs.Release()
+				}
 				found = transform
+				foundDetail = detail
 			}
 		}
 		activate.Release()
 	}
 	if found != nil {
-		return found, nil
+		log.Printf("capture: media foundation hardware h264 candidate selected name=%q asynchronous=%t d3d11_aware=%t hardware_url=%q", foundDetail.provider(), foundDetail.asynchronous, foundDetail.d3d11Aware, foundDetail.hardwareURL)
+		return found, foundDetail, nil
 	}
-	return nil, errors.New("mf h264: hardware encoder activation failed")
+	return nil, mfHardwareEncoderDetail{}, errors.New("mf h264: hardware encoder activation failed")
 }
 
 func hardwareH264MFTStatus() (bool, string) {
-	transform, err := activateHardwareH264MFT()
+	transform, detail, err := activateHardwareH264MFTDetailed()
 	if err != nil {
 		return false, err.Error()
 	}
 	transform.Release()
-	return true, ""
+	return true, detail.provider()
 }
 
 func ensureMFStartup() error {

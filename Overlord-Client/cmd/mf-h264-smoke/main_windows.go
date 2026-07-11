@@ -8,11 +8,35 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"overlord-client/cmd/agent/capture"
+	"overlord-client/cmd/agent/sysinfo"
 )
+
+type machineInfo struct {
+	Hostname    string `json:"hostname"`
+	OS          string `json:"os"`
+	Arch        string `json:"arch"`
+	CPU         string `json:"cpu"`
+	GPU         string `json:"gpu"`
+	RAM         string `json:"ram"`
+	GeneratedAt string `json:"generated_at"`
+}
+
+type smokeReport struct {
+	Machine      machineInfo                     `json:"machine"`
+	Findings     []capture.H264MFTFinding        `json:"media_foundation_findings"`
+	FindingError string                          `json:"media_foundation_finding_error,omitempty"`
+	H264         []capture.H264SmokeResult       `json:"h264"`
+	Capture      []capture.CaptureSmokeResult    `json:"capture,omitempty"`
+	NVENC        *capture.NVENCSmokeResult       `json:"nvenc,omitempty"`
+	NVENCD3D11   []capture.NVENCD3D11SmokeResult `json:"nvenc_d3d11,omitempty"`
+	Nvidia       []string                        `json:"nvidia_smi,omitempty"`
+}
 
 func main() {
 	var frames int
@@ -27,6 +51,7 @@ func main() {
 	var resArg string
 	var fpsArg string
 	var providersArg string
+	var reportPath string
 	flag.IntVar(&frames, "frames", 30, "frames to feed each encoder case")
 	flag.IntVar(&captureFrames, "capture-frames", 30, "frames to capture for each capture backend")
 	flag.IntVar(&captureDisplay, "display", 0, "display index for capture smoke")
@@ -39,7 +64,12 @@ func main() {
 	flag.StringVar(&resArg, "res", "1280x720,1920x1080,2560x1440,3840x2160", "comma-separated resolutions")
 	flag.StringVar(&fpsArg, "fps", "30,60,120", "comma-separated requested FPS values")
 	flag.StringVar(&providersArg, "providers", "hardware,software", "comma-separated providers: hardware,software")
+	flag.StringVar(&reportPath, "report", "", "also write the complete JSON report to this file")
 	flag.Parse()
+	hostname, _ := os.Hostname()
+	system := sysinfo.Collect()
+	machine := machineInfo{Hostname: hostname, OS: sysinfo.OSName(), Arch: runtime.GOARCH, CPU: system.CPU, GPU: system.GPU, RAM: system.RAM, GeneratedAt: time.Now().Format(time.RFC3339)}
+	findings, findingErr := capture.FindH264HardwareMFTs()
 
 	opts := capture.DefaultH264SmokeOptions()
 	opts.Frames = frames
@@ -66,22 +96,28 @@ func main() {
 			nvidiaSMI = queryNvidiaSMI()
 		}
 	}
+	report := smokeReport{Machine: machine, Findings: findings, H264: results, Capture: captureResults, NVENC: nvencResult, NVENCD3D11: nvencD3D11Results, Nvidia: nvidiaSMI}
+	if findingErr != nil {
+		report.FindingError = findingErr.Error()
+	}
+	if reportPath != "" {
+		if err := writeJSONReport(reportPath, report); err != nil {
+			fmt.Fprintf(os.Stderr, "write report failed: %v\n", err)
+			os.Exit(1)
+		}
+	}
 	if jsonOut {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		payload := struct {
-			H264       []capture.H264SmokeResult       `json:"h264"`
-			Capture    []capture.CaptureSmokeResult    `json:"capture,omitempty"`
-			NVENC      *capture.NVENCSmokeResult       `json:"nvenc,omitempty"`
-			NVENCD3D11 []capture.NVENCD3D11SmokeResult `json:"nvenc_d3d11,omitempty"`
-			Nvidia     []string                        `json:"nvidia_smi,omitempty"`
-		}{H264: results, Capture: captureResults, NVENC: nvencResult, NVENCD3D11: nvencD3D11Results, Nvidia: nvidiaSMI}
-		if err := enc.Encode(payload); err != nil {
+		if err := enc.Encode(report); err != nil {
 			fmt.Fprintf(os.Stderr, "json encode failed: %v\n", err)
 			os.Exit(1)
 		}
 		return
 	}
+	printMachine(machine)
+	printMFTFindings(findings, findingErr)
+	fmt.Println()
 	printTable(results)
 	if includeCapture {
 		fmt.Println()
@@ -98,6 +134,51 @@ func main() {
 			for _, line := range nvidiaSMI {
 				fmt.Println("nvidia-smi:", line)
 			}
+		}
+	}
+}
+
+func writeJSONReport(path string, report smokeReport) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+	return enc.Encode(report)
+}
+
+func printMachine(info machineInfo) {
+	fmt.Println("Machine:")
+	fmt.Printf("  Host: %s\n  OS:   %s (%s)\n  CPU:  %s\n  GPU:  %s\n  RAM:  %s\n  Time: %s\n", info.Hostname, info.OS, info.Arch, info.CPU, info.GPU, info.RAM, info.GeneratedAt)
+}
+
+func printMFTFindings(findings []capture.H264MFTFinding, err error) {
+	fmt.Println("Media Foundation hardware H.264 findings:")
+	if err != nil {
+		fmt.Printf("  ERROR: %v\n", err)
+		return
+	}
+	if len(findings) == 0 {
+		fmt.Println("  No hardware H.264 MFTs found.")
+		return
+	}
+	for _, finding := range findings {
+		status := "ok"
+		if !finding.ActivationOK {
+			status = "failed"
+		}
+		mode := "sync"
+		if finding.Asynchronous {
+			mode = "async"
+		}
+		fmt.Printf("  [%d] %s | activation=%s | mode=%s | d3d11=%t\n", finding.Index, finding.Name, status, mode, finding.D3D11Aware)
+		if finding.HardwareURL != "" {
+			fmt.Printf("      device: %s\n", finding.HardwareURL)
+		}
+		if finding.Error != "" {
+			fmt.Printf("      error: %s\n", finding.Error)
 		}
 	}
 }
@@ -143,8 +224,8 @@ func parseStrings(raw string) []string {
 }
 
 func printTable(results []capture.H264SmokeResult) {
-	fmt.Printf("%-18s %-5s %9s %7s %7s %8s %9s %8s %7s %9s %9s %s\n",
-		"provider", "input", "size", "reqfps", "cfgfps", "config", "first_ms", "avg_ms", "frames", "avg_bytes", "total", "error")
+	fmt.Printf("%-28s %-5s %-5s %9s %7s %7s %8s %9s %8s %7s %9s %9s %s\n",
+		"provider", "mode", "input", "size", "reqfps", "cfgfps", "config", "first_ms", "avg_ms", "frames", "avg_bytes", "total", "error")
 	for _, r := range results {
 		status := "fail"
 		if r.ConfigureOK && r.EncodeOK {
@@ -152,8 +233,12 @@ func printTable(results []capture.H264SmokeResult) {
 		} else if r.ConfigureOK {
 			status = "no-data"
 		}
-		fmt.Printf("%-18s %-5s %4dx%-4d %7d %7d %8s %9.2f %8.2f %7d %9.0f %9d %s\n",
-			r.Provider, r.Input, r.Width, r.Height, r.RequestedFPS, r.ConfiguredFPS, status,
+		mode := "sync"
+		if r.Asynchronous {
+			mode = "async"
+		}
+		fmt.Printf("%-28s %-5s %-5s %4dx%-4d %7d %7d %8s %9.2f %8.2f %7d %9.0f %9d %s\n",
+			r.Provider, mode, r.Input, r.Width, r.Height, r.RequestedFPS, r.ConfiguredFPS, status,
 			r.FirstOutputMS, r.AvgEncodeMS, r.FramesTried, r.AvgBytes, r.TotalBytes, r.Error)
 	}
 }
