@@ -31,21 +31,21 @@ var (
 	virtualInitialized   bool
 	virtualMu            sync.Mutex
 
-	virtualCursorEnabled bool
-	virtualInputMu       sync.Mutex
-	virtualLastCursor    point
-	virtualHasCursor     bool
-	virtualWorkingWindow uintptr
-	virtualShiftDown     bool
-	virtualCtrlDown      bool
-	virtualAltDown       bool
-	virtualCapsLock      bool
-	virtualMovingWindow  bool
-	virtualMoveOffset    point
-	virtualWindowSize    point
-	virtualWindowToMove  uintptr
-	virtualMouseButtons  uint32
-	virtualLastScale     atomic.Uint64
+	virtualCursorEnabled  bool
+	virtualInputMu        sync.Mutex
+	virtualLastCursor     point
+	virtualHasCursor      bool
+	virtualWorkingWindow  uintptr
+	virtualShiftDown      bool
+	virtualCtrlDown       bool
+	virtualAltDown        bool
+	virtualCapsLock       bool
+	virtualMovingWindow   bool
+	virtualMoveOffset     point
+	virtualWindowSize     point
+	virtualWindowToMove   uintptr
+	virtualMouseButtons   uint32
+	virtualLastScale      atomic.Uint64
 	virtualResizingWindow uintptr
 	virtualResizeHit      int32
 	virtualResizeStart    point
@@ -716,7 +716,9 @@ func StartVirtualProcess(filePath string) (uint32, error) {
 	si.cb = uint32(unsafe.Sizeof(si))
 	si.dwX = uint32(bounds.Min.X)
 	si.dwY = uint32(bounds.Min.Y)
-	si.dwFlags = STARTF_USEPOSITION
+	si.dwXSize = uint32(bounds.Dx())
+	si.dwYSize = uint32(bounds.Dy())
+	si.dwFlags = STARTF_USEPOSITION | STARTF_USESIZE
 	creationFlags := uintptr(0)
 	if virtualCommandNeedsNewConsole(filePath) {
 		// Console hosts only consistently honor STARTF_USEPOSITION when Windows
@@ -782,31 +784,25 @@ func virtualTopLevelWindowSet() map[uintptr]struct{} {
 	result := make(map[uintptr]struct{})
 	deskHwnd, _, _ := procGetDesktopWindow.Call()
 	for hwnd := getTopWindow(deskHwnd); hwnd != 0; hwnd = getWindow(hwnd, GW_HWNDNEXT) {
-		if isWindowVisible(hwnd) {
-			result[hwnd] = struct{}{}
-		}
+		result[hwnd] = struct{}{}
 	}
 	return result
 }
 
 func moveProcessWindowsToVirtualMonitor(pid uint32, bounds image.Rectangle, baseline map[uintptr]struct{}) {
-	hwndMap := make(map[uintptr]uint32)
+	hwndMap := make(map[uintptr]bool)
 
-	for attempt := 0; attempt < 75; attempt++ {
-		time.Sleep(200 * time.Millisecond)
-
+	for attempt := 0; attempt < 300; attempt++ {
 		deskHwnd, _, _ := procGetDesktopWindow.Call()
 		hwnd := getTopWindow(deskHwnd)
 		if hwnd == 0 {
+			time.Sleep(virtualPlacementPollDelay(attempt))
 			continue
 		}
 
 		moved := 0
 		for hwnd != 0 {
-			if !isWindowVisible(hwnd) {
-				hwnd = getWindow(hwnd, GW_HWNDNEXT)
-				continue
-			}
+			visible := isWindowVisible(hwnd)
 
 			var winPID uint32
 			procGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&winPID)))
@@ -816,11 +812,10 @@ func moveProcessWindowsToVirtualMonitor(pid uint32, bounds image.Rectangle, base
 				continue
 			}
 
-			if _, already := hwndMap[hwnd]; already {
+			if alreadyVisibleMove, already := hwndMap[hwnd]; already && (!visible || alreadyVisibleMove) {
 				hwnd = getWindow(hwnd, GW_HWNDNEXT)
 				continue
 			}
-			hwndMap[hwnd] = pid
 
 			var r rect
 			procGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&r)))
@@ -841,7 +836,12 @@ func moveProcessWindowsToVirtualMonitor(pid uint32, bounds image.Rectangle, base
 			if winH > bounds.Dy() {
 				winH = bounds.Dy()
 			}
-			procSetWindowPos.Call(hwnd, 0, uintptr(newX), uintptr(newY), uintptr(winW), uintptr(winH), 0x0040|0x0010)
+			flags := uintptr(SWP_NOZORDER | SWP_NOACTIVATE)
+			if visible {
+				flags |= SWP_SHOWWINDOW
+			}
+			procSetWindowPos.Call(hwnd, 0, uintptr(newX), uintptr(newY), uintptr(winW), uintptr(winH), flags)
+			hwndMap[hwnd] = visible
 
 			log.Printf("virtual: moved window hwnd=0x%x (pid=%d) to virtual monitor (%d,%d)", hwnd, pid, bounds.Min.X, bounds.Min.Y)
 			moved++
@@ -849,6 +849,18 @@ func moveProcessWindowsToVirtualMonitor(pid uint32, bounds image.Rectangle, base
 		}
 
 		_ = moved // keep watching for child/handed-off windows after the first one
+		time.Sleep(virtualPlacementPollDelay(attempt))
+	}
+}
+
+func virtualPlacementPollDelay(attempt int) time.Duration {
+	switch {
+	case attempt < 120:
+		return 10 * time.Millisecond
+	case attempt < 180:
+		return 50 * time.Millisecond
+	default:
+		return 200 * time.Millisecond
 	}
 }
 
@@ -2302,10 +2314,18 @@ func resizeVirtualWindowIfDragging(screenPt point) {
 	}
 	const minW, minH = int32(120), int32(80)
 	if right-left < minW {
-		if hit == 10 || hit == 13 || hit == 16 { left = right-minW } else { right = left+minW }
+		if hit == 10 || hit == 13 || hit == 16 {
+			left = right - minW
+		} else {
+			right = left + minW
+		}
 	}
 	if bottom-top < minH {
-		if hit == 12 || hit == 13 || hit == 14 { top = bottom-minH } else { bottom = top+minH }
+		if hit == 12 || hit == 13 || hit == 14 {
+			top = bottom - minH
+		} else {
+			bottom = top + minH
+		}
 	}
 	procSetWindowPos.Call(hwnd, 0, uintptr(left), uintptr(top), uintptr(right-left), uintptr(bottom-top), 0x0010|0x0040)
 }
