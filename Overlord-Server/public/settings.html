@@ -1270,6 +1270,21 @@
               <input id="brand-product-name" type="text" placeholder="Overlord" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500" />
             </label>
             <label class="block">
+              <span class="text-sm text-slate-300">Browser tab name</span>
+              <input id="brand-tab-name" type="text" placeholder="Overlord" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500" />
+            </label>
+            <div class="block">
+              <span class="text-sm text-slate-300">Browser tab icon URL</span>
+              <input id="brand-favicon-url" type="text" inputmode="url" placeholder="/api/branding/image/tab-icon" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500" />
+              <div class="mt-2 flex items-center gap-2 min-w-0">
+                <input id="brand-favicon-file" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/x-icon,image/vnd.microsoft.icon,.ico" class="sr-only" />
+                <label for="brand-favicon-file" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-100 transition-colors cursor-pointer">
+                  <i class="fa-solid fa-upload"></i>Upload image
+                </label>
+                <span id="brand-favicon-file-name" class="min-w-0 truncate text-xs text-slate-500">No file chosen</span>
+              </div>
+            </div>
+            <label class="block">
               <span class="text-sm text-slate-300">Navigation name</span>
               <input id="brand-nav-name" type="text" placeholder="Overlord" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500" />
             </label>
@@ -1284,6 +1299,17 @@
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div class="block">
+              <span class="text-sm text-slate-300">Dashboard background image URL</span>
+              <input id="brand-dashboard-background-url" type="text" inputmode="url" placeholder="/api/branding/image/dashboard-background" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500" />
+              <div class="mt-2 flex items-center gap-2 min-w-0">
+                <input id="brand-dashboard-background-file" type="file" accept="image/png,image/jpeg,image/gif,image/webp" class="sr-only" />
+                <label for="brand-dashboard-background-file" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-100 transition-colors cursor-pointer">
+                  <i class="fa-solid fa-upload"></i>Upload image
+                </label>
+                <span id="brand-dashboard-background-file-name" class="min-w-0 truncate text-xs text-slate-500">No file chosen</span>
+              </div>
+            </div>
             <div class="block">
               <span class="text-sm text-slate-300">Navigation logo URL</span>
               <input id="brand-nav-logo-url" type="text" inputmode="url" placeholder="/assets/company-logo.png" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500" />

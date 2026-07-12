@@ -244,7 +244,12 @@ if (host) {
   });
 
   installPageResourceTracker();
-  setupSoftNavigation(host, { onPathChange: applyActivePath });
+  setupSoftNavigation(host, {
+    onPathChange: (path) => {
+      applyActivePath(path);
+      applyBranding();
+    },
+  });
   startPageTracking();
 }
 
@@ -253,6 +258,27 @@ async function applyBranding() {
     const res = await fetch("/api/login/branding");
     if (!res.ok) return;
     const brand = await res.json();
+    if (brand.tabName) document.title = brand.tabName;
+    if (brand.faviconUrl) {
+      let favicon = document.querySelector('link[rel~="icon"]');
+      if (!favicon) {
+        favicon = document.createElement("link");
+        favicon.rel = "icon";
+        document.head.appendChild(favicon);
+      }
+      favicon.href = brand.faviconUrl;
+    }
+    const isDashboard = location.pathname === "/" || location.pathname === "/index.html";
+    document.body.style.backgroundImage = "";
+    document.body.style.backgroundSize = "";
+    document.body.style.backgroundPosition = "";
+    document.body.style.backgroundAttachment = "";
+    if (isDashboard && brand.dashboardBackgroundUrl) {
+      document.body.style.backgroundImage = `linear-gradient(rgba(2, 6, 23, 0.72), rgba(2, 6, 23, 0.82)), url("${brand.dashboardBackgroundUrl.replace(/["\\\n\r]/g, "")}")`;
+      document.body.style.backgroundSize = "cover";
+      document.body.style.backgroundPosition = "center";
+      document.body.style.backgroundAttachment = "fixed";
+    }
     if (brand.accentColor) {
       document.documentElement.style.setProperty("--brand-accent", brand.accentColor);
     }

@@ -2,8 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { extractTokenFromCookie, extractTokenFromHeader, generateToken } from "./auth";
 import { getConfig, updateAppearanceConfig, type Config } from "./config";
 import { generateTotpCode } from "./mfa";
-import * as fs from "fs/promises";
-import path from "path";
+import { getBrandingImage } from "./db";
 import {
   createUser,
   deleteUser,
@@ -19,7 +18,7 @@ const mockServer = {
   requestIP: () => ({ address: "127.0.0.1" }),
 };
 let originalAppearance: Config["appearance"];
-const uploadPublicRoot = path.resolve(".test-data", "branding-upload-public");
+const uploadPublicRoot = ".";
 
 beforeAll(() => {
   originalAppearance = JSON.parse(JSON.stringify(getConfig().appearance));
@@ -29,7 +28,6 @@ afterAll(async () => {
   if (originalAppearance) {
     await updateAppearanceConfig(originalAppearance.customCSS, originalAppearance.loginBranding);
   }
-  await fs.rm(uploadPublicRoot, { recursive: true, force: true });
 });
 
 describe("auth token extraction", () => {
@@ -104,7 +102,6 @@ describe("branding uploads", () => {
     expect(created.success).toBe(true);
 
     try {
-      await fs.mkdir(uploadPublicRoot, { recursive: true });
       const user = getUserById(created.userId!);
       expect(user).toBeTruthy();
       const token = await generateToken(user!);
@@ -138,8 +135,10 @@ describe("branding uploads", () => {
 
       expect(res?.status).toBe(200);
       const body = (await res!.json()) as any;
-      expect(body.url).toMatch(/^\/assets\/branding\/nav-logo-[a-z0-9]+-[0-9a-f-]+\.png$/);
-      expect(await Bun.file(path.join(uploadPublicRoot, body.url.replace("/assets/", "assets/"))).exists()).toBe(true);
+      expect(body.url).toBe("/api/branding/image/nav-logo");
+      const stored = getBrandingImage("nav-logo");
+      expect(stored?.contentType).toBe("image/png");
+      expect(Array.from(stored?.bytes || [])).toEqual(Array.from(pngBytes));
     } finally {
       deleteUser(created.userId!);
     }

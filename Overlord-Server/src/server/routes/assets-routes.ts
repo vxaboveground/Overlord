@@ -1,5 +1,6 @@
 import path from "path";
 import { getConfig } from "../../config";
+import { getBrandingImage } from "../../db";
 
 type AssetsRouteDeps = {
   PUBLIC_ROOT: string;
@@ -113,6 +114,20 @@ export async function handleAssetsRoutes(
         "Cache-Control": NO_CACHE,
       },
     });
+  }
+
+  const brandingMatch = req.method === "GET" && url.pathname.match(/^\/api\/branding\/image\/(nav-logo|login-logo|hero-image|tab-icon|dashboard-background)$/);
+  if (brandingMatch) {
+    const image = getBrandingImage(brandingMatch[1]);
+    if (!image) return new Response("Not found", { status: 404 });
+    const etag = `\"${image.updatedAt.toString(36)}-${image.bytes.byteLength.toString(36)}\"`;
+    const headers = {
+      ...deps.secureHeaders(image.contentType),
+      "Cache-Control": NO_CACHE,
+      "ETag": etag,
+    };
+    if (req.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+    return new Response(toExactArrayBuffer(image.bytes), { headers });
   }
 
   if (req.method === "GET" && url.pathname === "/favicon.ico") {

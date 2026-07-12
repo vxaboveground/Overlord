@@ -2,9 +2,8 @@ import { authenticateRequest } from "../../auth";
 import { AuditAction, getAuditLogs, logAudit } from "../../auditLog";
 import { logger } from "../../logger";
 import { getConfig, updateSecurityConfig, updateTlsConfig, updateOidcConfig, updateAppearanceConfig, updateChatConfig, getExportableConfig, importFullConfig, updateRegistrationConfig, updateBuildRateLimitConfig, updateThumbnailsConfig, updateInputArchiveConfig } from "../../config";
-import path from "path";
-import * as fs from "fs/promises";
 import {
+  saveBrandingImage,
   getClientMetricsSummary,
   getClientMetricsSummaryForUser,
   getDatabaseFileSizeBytes,
@@ -43,7 +42,7 @@ type MiscRouteDeps = {
 };
 
 const BRAND_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
-const BRAND_IMAGE_KINDS = new Set(["nav-logo", "login-logo", "hero-image"]);
+const BRAND_IMAGE_KINDS = new Set(["nav-logo", "login-logo", "hero-image", "tab-icon", "dashboard-background"]);
 
 function detectBrandImage(bytes: Uint8Array, contentType: string): { ext: string; type: string } | null {
   const type = contentType.toLowerCase().split(";")[0].trim();
@@ -57,11 +56,16 @@ function detectBrandImage(bytes: Uint8Array, contentType: string): { ext: string
   const isWebp = bytes.length >= 12 &&
     bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
     bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50;
+  const isIco = bytes.length >= 6 &&
+    bytes[0] === 0x00 && bytes[1] === 0x00 && bytes[2] === 0x01 && bytes[3] === 0x00;
 
   if (isPng && (!type || type === "image/png")) return { ext: "png", type: "image/png" };
   if (isJpeg && (!type || type === "image/jpeg" || type === "image/jpg")) return { ext: "jpg", type: "image/jpeg" };
   if (isGif && (!type || type === "image/gif")) return { ext: "gif", type: "image/gif" };
   if (isWebp && (!type || type === "image/webp")) return { ext: "webp", type: "image/webp" };
+  if (isIco && (!type || type === "image/x-icon" || type === "image/vnd.microsoft.icon")) {
+    return { ext: "ico", type: "image/x-icon" };
+  }
   return null;
 }
 
@@ -1310,15 +1314,11 @@ export async function handleMiscRoutes(
     const bytes = new Uint8Array(await file.arrayBuffer());
     const image = detectBrandImage(bytes, file.type || "");
     if (!image) {
-      return Response.json({ error: "Only PNG, JPEG, GIF, or WebP images are allowed" }, { status: 400 });
+      return Response.json({ error: "Only PNG, JPEG, GIF, WebP, or ICO images are allowed" }, { status: 400 });
     }
 
-    const uploadDir = path.join(deps.PUBLIC_ROOT, "assets", "branding");
-    await fs.mkdir(uploadDir, { recursive: true });
-    const filename = `${kind}-${Date.now().toString(36)}-${crypto.randomUUID()}.${image.ext}`;
-    const targetPath = path.join(uploadDir, filename);
-    await fs.writeFile(targetPath, bytes);
-    const assetUrl = `/assets/branding/${filename}`;
+    saveBrandingImage(kind, image.type, bytes);
+    const assetUrl = `/api/branding/image/${kind}`;
 
     logAudit({
       timestamp: Date.now(),

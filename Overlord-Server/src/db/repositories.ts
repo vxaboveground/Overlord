@@ -2216,3 +2216,33 @@ export function getDatabaseFileSizeBytes(): number {
   }
 }
 
+export type BrandingImage = {
+  kind: string;
+  contentType: string;
+  bytes: Uint8Array;
+  updatedAt: number;
+};
+
+export function getBrandingImage(kind: string): BrandingImage | null {
+  const row = db.query<any>(
+    `SELECT kind, content_type, bytes, updated_at FROM branding_images WHERE kind=?`,
+  ).get(kind);
+  if (!row) return null;
+  return {
+    kind: String(row.kind),
+    contentType: String(row.content_type),
+    bytes: new Uint8Array(row.bytes),
+    updatedAt: Number(row.updated_at),
+  };
+}
+
+export function saveBrandingImage(kind: string, contentType: string, bytes: Uint8Array): BrandingImage {
+  const updatedAt = Date.now();
+  db.run(
+    `INSERT INTO branding_images (kind, content_type, bytes, updated_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(kind) DO UPDATE SET content_type=excluded.content_type, bytes=excluded.bytes, updated_at=excluded.updated_at`,
+    kind, contentType, bytes, updatedAt,
+  );
+  return { kind, contentType, bytes, updatedAt };
+}
+

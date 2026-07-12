@@ -109,6 +109,11 @@ const appearancePermissionNote = document.getElementById("appearance-permission-
 const appearanceSaveBtn = document.getElementById("appearance-save-btn");
 const appearanceCustomCssInput = document.getElementById("appearance-custom-css");
 const brandProductNameInput = document.getElementById("brand-product-name");
+const brandTabNameInput = document.getElementById("brand-tab-name");
+const brandFaviconUrlInput = document.getElementById("brand-favicon-url");
+const brandFaviconFileInput = document.getElementById("brand-favicon-file");
+const brandDashboardBackgroundUrlInput = document.getElementById("brand-dashboard-background-url");
+const brandDashboardBackgroundFileInput = document.getElementById("brand-dashboard-background-file");
 const brandNavNameInput = document.getElementById("brand-nav-name");
 const brandAccentColorInput = document.getElementById("brand-accent-color");
 const brandIconClassInput = document.getElementById("brand-icon-class");
@@ -1379,6 +1384,11 @@ function initSettingsSidebar() {
 
 const brandInputs = [
   brandProductNameInput,
+  brandTabNameInput,
+  brandFaviconUrlInput,
+  brandFaviconFileInput,
+  brandDashboardBackgroundUrlInput,
+  brandDashboardBackgroundFileInput,
   brandNavNameInput,
   brandAccentColorInput,
   brandIconClassInput,
@@ -1406,6 +1416,9 @@ function setAppearanceFormDisabled(disabled) {
 
 function applyBrandingForm(loginBranding = {}) {
   if (brandProductNameInput) brandProductNameInput.value = loginBranding.productName || "Overlord";
+  if (brandTabNameInput) brandTabNameInput.value = loginBranding.tabName || loginBranding.productName || "Overlord";
+  if (brandFaviconUrlInput) brandFaviconUrlInput.value = loginBranding.faviconUrl || "";
+  if (brandDashboardBackgroundUrlInput) brandDashboardBackgroundUrlInput.value = loginBranding.dashboardBackgroundUrl || "";
   if (brandNavNameInput) brandNavNameInput.value = loginBranding.navName || loginBranding.productName || "Overlord";
   if (brandAccentColorInput) brandAccentColorInput.value = /^#[0-9a-fA-F]{6}$/.test(loginBranding.accentColor || "") ? loginBranding.accentColor : "#7a5bff";
   if (brandIconClassInput) brandIconClassInput.value = loginBranding.iconClass || "fa-solid fa-crown";
@@ -1425,6 +1438,9 @@ function applyBrandingForm(loginBranding = {}) {
 function collectBrandingForm() {
   return {
     productName: String(brandProductNameInput?.value || "").trim(),
+    tabName: String(brandTabNameInput?.value || "").trim(),
+    faviconUrl: String(brandFaviconUrlInput?.value || "").trim(),
+    dashboardBackgroundUrl: String(brandDashboardBackgroundUrlInput?.value || "").trim(),
     navName: String(brandNavNameInput?.value || "").trim(),
     accentColor: String(brandAccentColorInput?.value || "").trim(),
     iconClass: String(brandIconClassInput?.value || "").trim(),
@@ -1491,6 +1507,18 @@ async function uploadBrandingImage(fileInput, targetInput, kind, label) {
 }
 
 function initBrandingUploads() {
+  if (brandDashboardBackgroundFileInput) {
+    brandDashboardBackgroundFileInput.addEventListener("change", () => {
+      setBrandingUploadName(brandDashboardBackgroundFileInput);
+      uploadBrandingImage(brandDashboardBackgroundFileInput, brandDashboardBackgroundUrlInput, "dashboard-background", "Dashboard background");
+    });
+  }
+  if (brandFaviconFileInput) {
+    brandFaviconFileInput.addEventListener("change", () => {
+      setBrandingUploadName(brandFaviconFileInput);
+      uploadBrandingImage(brandFaviconFileInput, brandFaviconUrlInput, "tab-icon", "Browser tab icon");
+    });
+  }
   if (brandNavLogoFileInput) {
     brandNavLogoFileInput.addEventListener("change", () => {
       setBrandingUploadName(brandNavLogoFileInput);

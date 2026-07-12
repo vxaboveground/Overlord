@@ -85,6 +85,9 @@ export interface Config {
     customCSS: string;
     loginBranding: {
       productName: string;
+      tabName: string;
+      faviconUrl: string;
+      dashboardBackgroundUrl: string;
       navName: string;
       title: string;
       subtitle: string;
@@ -214,6 +217,9 @@ const DEFAULT_CONFIG: Config = {
     customCSS: "",
     loginBranding: {
       productName: "Overlord",
+      tabName: "Overlord",
+      faviconUrl: "",
+      dashboardBackgroundUrl: "",
       navName: "Overlord",
       title: "Welcome back",
       subtitle: "Sign in to your control plane",
@@ -335,6 +341,9 @@ function cleanLoginBranding(
   const navName = cleanText(value?.navName, productName, 80);
   return {
     productName,
+    tabName: cleanText(value?.tabName, productName, 80),
+    faviconUrl: cleanLogoUrl(value?.faviconUrl),
+    dashboardBackgroundUrl: cleanLogoUrl(value?.dashboardBackgroundUrl),
     navName,
     title: cleanText(value?.title, fallback.title, 120),
     subtitle: cleanText(value?.subtitle, fallback.subtitle, 180),
@@ -795,6 +804,15 @@ export function loadConfig(): Config {
             process.env.OVERLORD_LOGIN_BRAND_NAME ||
             process.env.OVERLORD_BRAND_NAME ||
             fileConfig.appearance?.loginBranding?.productName,
+          tabName:
+            process.env.OVERLORD_TAB_NAME ||
+            fileConfig.appearance?.loginBranding?.tabName,
+          faviconUrl:
+            process.env.OVERLORD_FAVICON_URL ||
+            fileConfig.appearance?.loginBranding?.faviconUrl,
+          dashboardBackgroundUrl:
+            process.env.OVERLORD_DASHBOARD_BACKGROUND_URL ||
+            fileConfig.appearance?.loginBranding?.dashboardBackgroundUrl,
           navName:
             process.env.OVERLORD_NAV_BRAND_NAME ||
             process.env.OVERLORD_BRAND_NAME ||

@@ -518,3 +518,6 @@ Albedo/*
 plink/*
 plugins/plink/*
 plugins/plink-static/*
+
+Overlord-Client/third_party/amf
+Overlord-Client/third_party/onevpl

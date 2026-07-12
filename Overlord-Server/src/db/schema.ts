@@ -381,6 +381,15 @@ db.run(`
 `);
 
 db.run(`
+  CREATE TABLE IF NOT EXISTS branding_images (
+    kind TEXT PRIMARY KEY,
+    content_type TEXT NOT NULL,
+    bytes BLOB NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+`);
+
+db.run(`
   CREATE TABLE IF NOT EXISTS saved_scripts (
     id TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL,

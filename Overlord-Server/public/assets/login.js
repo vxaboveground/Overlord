@@ -33,7 +33,16 @@ const loginSupportLink = document.getElementById("login-support-link");
     if (loginBrand && data.productName) loginBrand.textContent = data.productName;
     if (loginTitle && data.title) loginTitle.textContent = data.title;
     if (loginSubtitle && data.subtitle) loginSubtitle.textContent = data.subtitle;
-    if (data.productName) document.title = `${data.productName} Login`;
+    document.title = data.tabName || (data.productName ? `${data.productName} Login` : document.title);
+    if (data.faviconUrl) {
+      let favicon = document.querySelector('link[rel~="icon"]');
+      if (!favicon) {
+        favicon = document.createElement("link");
+        favicon.rel = "icon";
+        document.head.appendChild(favicon);
+      }
+      favicon.href = data.faviconUrl;
+    }
     if (data.accentColor) document.documentElement.style.setProperty("--brand-accent", data.accentColor);
 
     if (loginIcon && data.iconClass) {
