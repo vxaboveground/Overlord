@@ -152,6 +152,25 @@ func (a *idxgiAdapter1) EnumOutputs(index uint32, output **idxgiOutput) uintptr 
 	return callSyscallN(a.lpVtbl.EnumOutputs, uintptr(unsafe.Pointer(a)), uintptr(index), uintptr(unsafe.Pointer(output)))
 }
 
+func (a *idxgiAdapter1) GetDesc1(desc *dxgiAdapterDesc1) uintptr {
+	return callSyscallN(a.lpVtbl.GetDesc1, uintptr(unsafe.Pointer(a)), uintptr(unsafe.Pointer(desc)))
+}
+
+type dxgiAdapterDesc1 struct {
+	Description           [128]uint16
+	VendorId              uint32
+	DeviceId              uint32
+	SubSysId              uint32
+	Revision              uint32
+	DedicatedVideoMemory  uint64
+	DedicatedSystemMemory uint64
+	SharedSystemMemory    uint64
+	AdapterLuid           [8]byte
+	Flags                 uint32
+}
+
+const dxgiAdapterFlagSoftware = 0x2
+
 type dxgiOutputDesc struct {
 	DeviceName         [32]uint16
 	DesktopCoordinates rect

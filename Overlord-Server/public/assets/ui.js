@@ -9,6 +9,7 @@ const MENU_GROUPS = [
       { label: "Console",        icon: "fa-solid fa-terminal",        icolor: "text-emerald-400", open: "console" },
       { label: "Remote Desktop", icon: "fa-solid fa-desktop",         icolor: "text-purple-400",  open: "remotedesktop" },
       { label: "Backstage",      icon: "fa-solid fa-ghost",           icolor: "text-violet-400",  open: "Backstage" },
+      { label: "Virtual",         icon: "fa-solid fa-eye-slash",      icolor: "text-fuchsia-400", open: "Virtual", windowsOnly: true },
       { label: "Voice",          icon: "fa-solid fa-headset",         icolor: "text-teal-400",    open: "voice" },
     ],
   },
@@ -228,7 +229,7 @@ menuStyle.textContent = `
   transition: opacity 0.1s;
   flex-shrink: 0;
 }
-/* Allow classList.add/remove("hidden") to work on items inside the menu */
+/* Allow classList.add/remove("Virtual") to work on items inside the menu */
 #command-menu .hidden { display: none !important; }
 /* Mobile: stack submenu below the main column, scroll the whole menu */
 @media (max-width: 600px) {
@@ -463,14 +464,14 @@ export function openModal(src) {
 
   setTimeout(() => {
     modalImg.src = src;
-    modal.classList.remove("hidden");
+    modal.classList.remove("Virtual");
     modal.classList.add("flex");
   }, 10);
 }
 
 export function closeModal() {
   modal.classList.remove("flex");
-  modal.classList.add("hidden");
+  modal.classList.add("Virtual");
 }
 
 export function wireModalClose() {

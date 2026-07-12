@@ -33,12 +33,6 @@
             <button id="commandsBtn" class="button ghost">
               <i class="fa-solid fa-terminal"></i><span>Commands</span>
             </button>
-            <button id="killAllBtn" class="button ghost" title="Kill all programs running on the hidden desktop">
-              <i class="fa-solid fa-skull"></i><span>Kill All</span>
-            </button>
-            <button id="windowMapBtn" class="button ghost" title="Show window positions and monitor layout">
-              <i class="fa-solid fa-map"></i><span>Window Map</span>
-            </button>
             <button id="fullscreenBtn" class="button ghost">
               <i class="fa-solid fa-expand"></i><span>Fullscreen</span>
             </button>
@@ -156,6 +150,18 @@
                     <option value="relayed">WebRTC Relayed</option>
                   </select>
                 </div>
+                <div class="flex items-center gap-2 mb-2">
+                  <label class="text-sm text-slate-300 w-20" for="targetFpsSelect">Max FPS</label>
+                  <select id="targetFpsSelect" class="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-100" title="Target capture and encoder frame rate">
+                    <option value="30">30 fps</option>
+                    <option value="60">60 fps</option>
+                    <option value="90">90 fps</option>
+                    <option value="120" selected>120 fps</option>
+                    <option value="144">144 fps</option>
+                    <option value="165">165 fps</option>
+                    <option value="240">240 fps</option>
+                  </select>
+                </div>
                 <div class="flex items-center justify-between gap-2">
                   <label class="flex items-center gap-2 text-sm text-slate-200" title="Prefer H.264 when available; disable to force JPEG">
                     <input type="checkbox" id="codecH264" checked /> H.264
@@ -176,11 +182,6 @@
                   <label class="flex items-center gap-2 text-sm text-slate-200 col-span-2" title="Sync clipboard between your browser and the remote machine">
                     <input type="checkbox" id="clipboardSyncCtrl" /> Clipboard Sync
                   </label>
-                  <label class="flex items-center gap-2 text-sm text-slate-200 col-span-2" title="Use DXGI Present hook for faster capture (requires injected process). WARNING: If Chrome or HVNC is running slowly, DXGI capture may be the cause — uncheck this and restart Chrome inside HVNC to fix it.">
-                    <input type="checkbox" id="dxgiCtrl" />
-                    <span>DXGI Capture</span>
-                    <i class="fa-solid fa-triangle-exclamation text-amber-400 text-xs" title="If Chrome or HVNC is running slowly, DXGI capture may be the cause — uncheck this and restart Chrome inside HVNC to fix it."></i>
-                  </label>
                   <label class="flex items-center gap-2 text-sm text-slate-200 col-span-2" title="Use UI Automation for WinUI3 app input (modern Windows apps). Disable if input is unreliable in non-WinUI3 apps.">
                     <input type="checkbox" id="uiaCtrl" /> UIA Support
                   </label>
@@ -198,7 +199,7 @@
         >
           <div class="p-3 text-sm text-slate-400 flex-shrink-0 flex items-center gap-2">
             <i class="fa-solid fa-ghost text-violet-400"></i>
-            <span>Hidden Virtual Desktop - Client: <span id="clientLabel" class="text-slate-100">-</span></span>
+            <span>Virtual Monitor - Client: <span id="clientLabel" class="text-slate-100">-</span></span>
           </div>
           <div
             class="flex-1 flex items-center justify-center p-4"
@@ -428,30 +429,6 @@
         </style>
       </div>
     </main>
-
-    <!-- Window Map Modal -->
-    <div id="windowMapModal" class="fixed inset-0 z-[100] items-center justify-center bg-black/60 backdrop-blur-sm" style="display:none;">
-      <div class="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-[90vw] max-w-[900px] max-h-[85vh] flex flex-col">
-        <div class="flex items-center justify-between px-5 py-3 border-b border-slate-800">
-          <div class="flex items-center gap-2">
-            <i class="fa-solid fa-map text-violet-400"></i>
-            <span class="text-base font-semibold text-slate-100">Window Map</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <button id="windowMapRefreshBtn" class="button ghost text-xs" title="Refresh window list">
-              <i class="fa-solid fa-arrows-rotate"></i> Refresh
-            </button>
-            <button id="windowMapCloseBtn" class="button ghost text-xs">
-              <i class="fa-solid fa-xmark"></i>
-            </button>
-          </div>
-        </div>
-        <div class="flex-1 overflow-auto p-5 flex flex-col gap-4">
-          <div id="windowMapCanvas" class="relative w-full bg-slate-950 rounded-lg border border-slate-800 overflow-hidden" style="min-height: 200px;"></div>
-          <div id="windowMapList" class="flex flex-col gap-1 text-sm"></div>
-        </div>
-      </div>
-    </div>
 
     <script defer src="/vendor/msgpackr/msgpackr.js"></script>
     <script defer src="/assets/remotedesktop-settings-menu.js"></script>
