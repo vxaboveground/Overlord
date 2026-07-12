@@ -49,6 +49,8 @@ var (
 	procGetWindowThreadProcessId = user32.NewProc("GetWindowThreadProcessId")
 	procEnumDesktopWindows       = user32.NewProc("EnumDesktopWindows")
 	procTerminateProcess         = kernel32.NewProc("TerminateProcess")
+	procGetWindowLongPtrW        = user32.NewProc("GetWindowLongPtrW")
+	procSetWindowLongPtrW        = user32.NewProc("SetWindowLongPtrW")
 )
 
 const (
@@ -144,6 +146,9 @@ const (
 	SW_SHOWMAXIMIZED       = 3
 	GA_ROOT                = 2
 	SMTO_ABORTIFHUNG       = 0x0002
+
+	GWL_EXSTYLE     = -20
+	WS_EX_TOOLWINDOW = 0x00000080
 )
 
 var (

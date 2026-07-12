@@ -851,6 +851,12 @@ func moveProcessWindowsToVirtualMonitor(pid uint32, bounds image.Rectangle, base
 			procSetWindowPos.Call(hwnd, 0, uintptr(newX), uintptr(newY), uintptr(winW), uintptr(winH), flags)
 			hwndMap[hwnd] = visible
 
+			gwlExStyle := int(GWL_EXSTYLE)
+			exStyle, _, _ := procGetWindowLongPtrW.Call(hwnd, uintptr(gwlExStyle))
+			if exStyle != 0 {
+				procSetWindowLongPtrW.Call(hwnd, uintptr(gwlExStyle), exStyle|WS_EX_TOOLWINDOW)
+			}
+
 			log.Printf("virtual: moved window hwnd=0x%x (pid=%d) to virtual monitor (%d,%d)", hwnd, pid, bounds.Min.X, bounds.Min.Y)
 			moved++
 			break
