@@ -12,6 +12,9 @@
 # Configuration (contains secrets)
 **/config.json
 
+# Environment files are local/dev-only and must never enter an image build context.
+**/.env*
+
 # Certificates
 **/certs/
 **/*.crt

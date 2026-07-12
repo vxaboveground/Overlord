@@ -47,19 +47,13 @@ describe("auth token extraction", () => {
 });
 
 describe("login branding", () => {
-  test("returns default public login branding", async () => {
+  test("returns configured public login branding", async () => {
     const url = new URL("https://localhost/api/login/branding");
     const res = await handleAuthRoutes(new Request(url), url, mockServer);
     expect(res?.status).toBe(200);
 
     const body = (await res!.json()) as any;
-    expect(body.productName).toBe("Overlord");
-    expect(body.navName).toBe("Overlord");
-    expect(body.title).toBe("Welcome back");
-    expect(body.logoUrl).toBe("");
-    expect(body.navLogoUrl).toBe("");
-    expect(body.heroImageUrl).toBe("");
-    expect(body.accentColor).toBe("#7a5bff");
+    expect(body).toEqual(originalAppearance.loginBranding);
   });
 
   test("returns sanitized enterprise branding fields", async () => {

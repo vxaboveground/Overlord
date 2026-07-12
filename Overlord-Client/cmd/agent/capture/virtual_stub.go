@@ -2,7 +2,15 @@
 
 package capture
 
-import "image"
+import (
+	"errors"
+	"image"
+	"time"
+
+	"overlord-client/cmd/agent/wire"
+)
+
+var errVirtualCaptureUnsupported = errors.New("virtual capture is only supported on Windows")
 
 func InitializevirtualMode() error {
 	return nil
@@ -15,6 +23,28 @@ func SetvirtualCursorCapture(enabled bool) {}
 func VirtualMonitorCount() int {
 	return 0
 }
+
+func VirtualTryDirectH264Frame() (wire.Frame, time.Duration, time.Duration, bool, error) {
+	return wire.Frame{}, 0, 0, false, nil
+}
+
+func VirtualCaptureNormal() (*image.RGBA, error) {
+	return nil, errVirtualCaptureUnsupported
+}
+
+func VirtualCaptureDisplay() (*image.RGBA, error) {
+	return nil, errVirtualCaptureUnsupported
+}
+
+func VirtualCaptureGDI() (*image.RGBA, error) {
+	return nil, errVirtualCaptureUnsupported
+}
+
+func VirtualCaptureDisplayFallback() (*image.RGBA, error) {
+	return nil, errVirtualCaptureUnsupported
+}
+
+func VirtualResetDXGI() {}
 
 func virtualCaptureDisplay() (*image.RGBA, error) {
 	return nil, nil
