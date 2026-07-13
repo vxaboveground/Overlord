@@ -61,6 +61,7 @@ const (
 
 	TOKEN_ADJUST_PRIVILEGES = 0x0020
 	TOKEN_QUERY             = 0x0008
+	TOKEN_DUPLICATE         = 0x0002
 	SE_PRIVILEGE_ENABLED    = 0x00000002
 
 	CREATE_SUSPENDED           = 0x00000004
@@ -1197,22 +1198,38 @@ func createSuspendedProcessOnDesktop(filePath, searchPath, replacePath, shmName 
 }
 
 func buildEnvironmentBlock(searchPath, replacePath, shmName string, dllSize int) ([]uint16, error) {
-	rawPtr, err := windows.GetEnvironmentStrings()
-	if err != nil {
-		return nil, fmt.Errorf("GetEnvironmentStrings: %w", err)
-	}
-	defer windows.FreeEnvironmentStrings(rawPtr)
+	var rawData []uint16
+	var cleanup func()
 
-	rawSlice := (*[1 << 20]uint16)(unsafe.Pointer(rawPtr))[:]
-	blockLen := 0
-	for i := 0; ; i++ {
-		if rawSlice[i] == 0 && i > 0 && rawSlice[i-1] == 0 {
-			blockLen = i + 1
-			break
+	var token windows.Token
+	err := windows.OpenProcessToken(windows.CurrentProcess(), TOKEN_QUERY|TOKEN_DUPLICATE, &token)
+	if err == nil {
+		var envBlock *uint16
+		if err := windows.CreateEnvironmentBlock(&envBlock, token, false); err == nil && envBlock != nil {
+			if data := readRawEnvironmentBlock(envBlock); data != nil {
+				rawData = data
+				cleanup = func() { windows.DestroyEnvironmentBlock(envBlock) }
+			} else {
+				windows.DestroyEnvironmentBlock(envBlock)
+			}
 		}
-		if i >= len(rawSlice)-1 {
-			return nil, fmt.Errorf("environment block appears unterminated")
+		token.Close()
+	}
+
+	if rawData == nil {
+		rawPtr, err := windows.GetEnvironmentStrings()
+		if err != nil {
+			return nil, fmt.Errorf("GetEnvironmentStrings: %w", err)
 		}
+		rawData = readRawEnvironmentBlock(rawPtr)
+		cleanup = func() { windows.FreeEnvironmentStrings(rawPtr) }
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
+
+	if rawData == nil {
+		return nil, fmt.Errorf("failed to read environment block")
 	}
 
 	extra := []string{
@@ -1224,14 +1241,26 @@ func buildEnvironmentBlock(searchPath, replacePath, shmName string, dllSize int)
 		extra = append(extra, fmt.Sprintf("RDI_DLL_SIZE=%d", dllSize))
 	}
 
-	block, err := appendEnvironmentOverrides(rawSlice[:blockLen], extra)
+	block, err := appendEnvironmentOverrides(rawData, extra)
 	if err != nil {
 		return nil, err
 	}
 
 	log.Printf("backstage inject env: nativeChars=%d finalChars=%d searchRunes=%d replaceRunes=%d hasDllSection=%v dllSize=%d",
-		blockLen, len(block), len([]rune(searchPath)), len([]rune(replacePath)), shmName != "", dllSize)
+		len(rawData), len(block), len([]rune(searchPath)), len([]rune(replacePath)), shmName != "", dllSize)
 	return block, nil
+}
+
+func readRawEnvironmentBlock(p *uint16) []uint16 {
+	rawSlice := unsafe.Slice(p, 1<<18)
+	for i := 0; ; i++ {
+		if rawSlice[i] == 0 && i > 0 && rawSlice[i-1] == 0 {
+			return rawSlice[:i+1]
+		}
+		if i >= len(rawSlice)-1 {
+			return nil
+		}
+	}
 }
 
 func appendEnvironmentOverrides(rawBlock []uint16, extra []string) ([]uint16, error) {
@@ -1365,8 +1394,8 @@ func reflectiveInject(hProcess uintptr, dllBytes []byte) error {
 	if waitRet == 0xFFFFFFFF {
 		return fmt.Errorf("remote loader thread wait failed: %v", waitErr)
 	}
-	if exitCode >= 0xC0000000 {
-		return fmt.Errorf("remote loader thread failed: %s", describeExitCode(exitCode))
+	if exitCode == 0 {
+		return fmt.Errorf("remote loader thread failed: VirtualAlloc returned NULL")
 	}
 
 	return nil
