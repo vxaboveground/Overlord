@@ -263,8 +263,8 @@ function makeCharts() {
       datasets: [{
         data: [],
         backgroundColor: osColors,
-        borderColor: "rgba(2, 6, 23, 0.9)",
-        borderWidth: 3,
+        borderWidth: 0,
+        hoverBorderWidth: 0,
         hoverOffset: 5,
       }],
     },
