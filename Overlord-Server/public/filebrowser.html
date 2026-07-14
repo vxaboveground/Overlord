@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="/vendor/inter/400.css" />
     <link rel="stylesheet" href="/vendor/inter/600.css" />
     <link rel="stylesheet" href="/vendor/inter/700.css" />
-<link rel="stylesheet" href="/assets/tailwind.css" />
+    <link rel="stylesheet" href="/assets/tailwind.css" />
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
     <link rel="stylesheet" href="/vendor/highlight.js/atom-one-dark.min.css" />
     <link rel="stylesheet" href="/assets/main.css" />
@@ -18,30 +18,28 @@
     <script defer src="/vendor/msgpackr/msgpackr.js"></script>
     <link rel="icon" type="image/x-icon" href="/assets/favicon.ico" />
     <style>
-      body {
-        font-family: "Inter", sans-serif;
-      }
       .file-item:hover {
-        background-color: rgba(51, 65, 85, 0.5);
+        background-color: rgba(30, 41, 59, 0.62);
       }
       .file-item {
         position: relative;
       }
       .file-item.selected {
-        background-color: rgba(59, 130, 246, 0.2);
-        border-color: rgba(59, 130, 246, 0.4);
+        background-color: rgba(14, 165, 233, 0.12);
+        box-shadow: inset 3px 0 0 rgb(56 189 248);
       }
       .file-checkbox {
         appearance: none;
         -webkit-appearance: none;
         position: absolute;
-        left: 0;
-        top: 0;
-        width: 12px;
-        height: 100%;
-        border: none;
-        border-radius: 0;
+        left: 0.75rem;
+        top: 50%;
+        width: 16px;
+        height: 16px;
+        border: 1px solid rgb(71 85 105);
+        border-radius: 0.25rem;
         background-color: rgba(100, 116, 139, 0.3);
+        transform: translateY(-50%);
         cursor: pointer;
         transition: all 0.2s ease;
         z-index: 1;
@@ -51,6 +49,8 @@
       }
       .file-checkbox:checked {
         background-color: #3b82f6;
+        border-color: #60a5fa;
+        box-shadow: inset 0 0 0 3px #0f172a;
       }
       .file-checkbox:checked:hover {
         background-color: #2563eb;
@@ -90,23 +90,6 @@
 
       /* Mobile responsive styles */
       @media (max-width: 768px) {
-        header {
-          padding: 0.75rem;
-        }
-        header .flex {
-          flex-wrap: nowrap;
-          gap: 0.5rem;
-        }
-        header span,
-        header a {
-          font-size: 0.875rem;
-        }
-        #client-id-header {
-          display: none;
-        }
-        main {
-          padding: 1rem 0.5rem;
-        }
         .file-header {
           display: none !important;
         }
@@ -456,12 +439,22 @@
   <body class="min-h-screen bg-slate-950 text-slate-100">
     <header id="top-nav"></header>
 
-    <main class="px-5 py-4">
-      <div class="max-w-[1600px] mx-auto flex gap-4">
+    <main class="max-w-[1600px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div class="mb-6 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold">File Browser</h1>
+          <p id="client-id-header" class="mt-1 text-sm text-slate-400 font-mono">Loading client...</p>
+        </div>
+        <span id="status-indicator" class="inline-flex self-start sm:self-auto items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 text-xs font-medium">
+          <i class="fa-solid fa-circle-notch fa-spin"></i> Connecting...
+        </span>
+      </div>
+
+      <div class="flex gap-4">
         <!-- Sidebar -->
         <aside id="sidebar" class="w-52 flex-shrink-0 hidden lg:block">
           <div class="sticky flex flex-col gap-3 sidebar-scroll" style="top: 5rem; max-height: calc(100vh - 6rem); overflow-y: auto;">
-            <div class="bg-slate-900/70 border border-slate-800 rounded-lg overflow-hidden">
+            <div class="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
               <div class="px-3 py-2.5 border-b border-slate-700/50 flex items-center justify-between gap-2">
                 <div class="flex items-center gap-2">
                   <i class="fa-solid fa-star text-yellow-400 text-xs"></i>
@@ -480,7 +473,7 @@
                 <div class="text-xs text-slate-500 text-center py-3">No pinned paths.<br><span class="text-slate-600">Right-click any folder.</span></div>
               </div>
             </div>
-            <div class="bg-slate-900/70 border border-slate-800 rounded-lg overflow-hidden">
+            <div class="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
               <div class="px-3 py-2.5 border-b border-slate-700/50 flex items-center gap-2">
                 <i class="fa-solid fa-bookmark text-blue-400 text-xs"></i>
                 <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Quick Access</span>
@@ -489,7 +482,7 @@
                 <div class="text-xs text-slate-500 text-center py-4">Connecting...</div>
               </div>
             </div>
-            <div class="bg-slate-900/70 border border-slate-800 rounded-lg overflow-hidden">
+            <div class="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
               <div class="px-3 py-2.5 border-b border-slate-700/50 flex items-center gap-2">
                 <i class="fa-solid fa-hard-drive text-slate-400 text-xs"></i>
                 <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Drives</span>
@@ -502,51 +495,40 @@
         </aside>
         <!-- Main Content -->
         <div class="flex-1 min-w-0 flex flex-col gap-4">
-        <!-- Status Bar -->
-        <div class="flex items-center justify-between gap-3 flex-wrap">
-          <div class="flex items-center gap-2 flex-wrap">
-            <span
-              id="status-indicator"
-              class="inline-flex items-center gap-2 px-3 py-2 rounded-full bg-slate-800 text-slate-300"
-            >
-              <i class="fa-solid fa-circle-notch fa-spin"></i> Connecting...
-            </span>
-            <span
-              id="client-id-header"
-              class="inline-flex items-center gap-2 px-3 py-2 rounded-full bg-slate-900/60 text-slate-200 border border-slate-800"
-            >
-              <i class="fa-solid fa-computer"></i>
-              <span>Loading client...</span>
-            </span>
+        <!-- Workspace actions -->
+        <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div class="flex items-center gap-3">
+            <span class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-sky-500/10 border border-sky-500/20"><i class="fa-solid fa-folder-tree text-sky-400"></i></span>
+            <div><h2 class="text-sm font-semibold">Remote files</h2><p class="text-xs text-slate-500">Browse, transfer, and manage this client’s filesystem.</p></div>
           </div>
           <div class="flex items-center gap-2 flex-wrap">
             <button
               id="search-btn"
-              class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white"
+              class="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-sm disabled:opacity-40"
               disabled
             >
               <i class="fa-solid fa-search"></i> Search
             </button>
             <button
               id="refresh-btn"
-              class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white"
+              class="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-sm disabled:opacity-40"
               disabled
             >
               <i class="fa-solid fa-refresh"></i> Refresh
             </button>
             <button
               id="upload-btn"
-              class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white"
+              class="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 border border-emerald-500 text-white text-sm font-medium disabled:opacity-40"
               disabled
             >
-              <i class="fa-solid fa-upload"></i> Upload File
+              <i class="fa-solid fa-upload"></i> Upload
             </button>
             <button
               id="mkdir-btn"
-              class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white"
+              class="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 border border-violet-500 text-white text-sm font-medium disabled:opacity-40"
               disabled
             >
-              <i class="fa-solid fa-folder-plus"></i> New Folder
+              <i class="fa-solid fa-folder-plus"></i> New folder
             </button>
           </div>
         </div>
@@ -554,15 +536,15 @@
         <!-- Search Bar (hidden by default) -->
         <div
           id="search-bar"
-          class="hidden px-4 py-3 bg-slate-900/70 border border-slate-800 rounded-lg"
+          class="hidden px-4 py-3 bg-slate-900/60 border border-slate-800 rounded-xl"
         >
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 flex-wrap sm:flex-nowrap">
             <i class="fa-solid fa-search text-slate-400"></i>
             <input
               type="text"
               id="search-input"
               placeholder="Search files or content..."
-              class="flex-1 bg-transparent outline-none text-sm text-slate-100 placeholder:text-slate-500"
+              class="flex-1 min-w-48 bg-transparent outline-none text-sm text-slate-100 placeholder:text-slate-500"
             />
             <label
               class="inline-flex items-center gap-2 text-sm text-slate-300"
@@ -592,13 +574,13 @@
         <!-- Bulk Actions Bar (hidden by default) -->
         <div
           id="bulk-actions-bar"
-          class="hidden bulk-actions-bar px-4 py-3 rounded-lg"
+          class="hidden bulk-actions-bar px-4 py-3 rounded-xl"
         >
-          <div class="flex items-center justify-between">
+          <div class="flex items-center justify-between gap-3 flex-wrap">
             <span class="text-sm font-medium"
               ><span id="selected-count">0</span> items selected</span
             >
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
               <button
                 id="bulk-download-btn"
                 class="inline-flex items-center gap-2 px-3 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm"
@@ -635,7 +617,7 @@
 
         <!-- Path Navigation Bar -->
         <div
-          class="flex items-center gap-2 px-4 py-3 bg-slate-900/70 border border-slate-800 rounded-lg"
+          class="flex items-center gap-2 px-3 py-3 bg-slate-900/60 border border-slate-800 rounded-xl"
         >
           <button
             id="back-btn"
@@ -652,7 +634,7 @@
             <i class="fa-solid fa-home"></i>
           </button>
           <div
-            class="flex-1 flex items-center gap-2 px-3 py-2 bg-slate-950/50 border border-slate-700 rounded"
+            class="flex-1 flex items-center gap-2 px-3 py-2 bg-slate-950/60 border border-slate-700 rounded-lg focus-within:border-sky-500 focus-within:ring-2 focus-within:ring-sky-500/20"
           >
             <i class="fa-solid fa-folder-open text-yellow-400 text-sm"></i>
             <input
@@ -673,7 +655,7 @@
 
         <!-- Breadcrumb Navigation -->
         <div
-          class="flex items-center gap-2 px-4 py-3 bg-slate-900/70 border border-slate-800 rounded-lg overflow-x-auto"
+          class="flex items-center gap-2 px-3 py-2 bg-slate-950/30 border border-slate-800 rounded-xl overflow-x-auto"
         >
           <i class="fa-solid fa-folder-open text-yellow-400"></i>
           <div id="breadcrumb" class="flex items-center gap-1 text-sm"></div>
@@ -681,7 +663,7 @@
 
         <!-- List Controls -->
         <div
-          class="px-4 py-3 bg-slate-900/70 border border-slate-800 rounded-lg flex items-center justify-between gap-3 flex-wrap"
+          class="px-4 py-3 bg-slate-900/60 border border-slate-800 rounded-xl flex items-center justify-between gap-3 flex-wrap"
         >
           <div class="flex items-center gap-2 flex-wrap">
             <label for="sort-field" class="text-xs uppercase tracking-wide text-slate-400"
@@ -689,7 +671,7 @@
             >
             <select
               id="sort-field"
-              class="px-2 py-1 rounded bg-slate-800 border border-slate-700 text-sm text-slate-100"
+              class="px-3 py-1.5 rounded-lg bg-slate-950/60 border border-slate-700 text-sm text-slate-100"
             >
               <option value="name">Name</option>
               <option value="size">Size</option>
@@ -698,7 +680,7 @@
             </select>
             <button
               id="sort-order-btn"
-              class="px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 text-sm text-slate-100"
+              class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm text-slate-100"
               type="button"
             >
               Asc
@@ -709,7 +691,7 @@
             >
             <select
               id="filter-type"
-              class="px-2 py-1 rounded bg-slate-800 border border-slate-700 text-sm text-slate-100"
+              class="px-3 py-1.5 rounded-lg bg-slate-950/60 border border-slate-700 text-sm text-slate-100"
             >
               <option value="all">All</option>
               <option value="dirs">Folders</option>
@@ -729,10 +711,10 @@
         <!-- File List -->
         <div
           id="file-list-panel"
-          class="bg-slate-900/70 border border-slate-800 rounded-lg overflow-hidden"
+          class="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden min-h-72"
         >
           <div
-            class="file-header grid grid-cols-12 gap-3 px-4 py-3 bg-slate-800 border-b border-slate-700 text-xs font-semibold uppercase text-slate-400"
+            class="file-header grid grid-cols-12 gap-3 px-4 py-3 bg-slate-950/60 border-b border-slate-800 text-[11px] font-semibold uppercase tracking-wider text-slate-500"
           >
             <div class="col-span-6">Name</div>
             <div class="col-span-2">Size</div>
@@ -747,7 +729,7 @@
 
         <!-- Preview pane -->
         <aside id="preview-pane-host" class="hidden lg:block">
-          <div id="preview-pane" class="bg-slate-900/70 border border-slate-800 rounded-lg empty">
+          <div id="preview-pane" class="bg-slate-900/60 border border-slate-800 rounded-xl empty">
             <div class="px-3 py-2.5 border-b border-slate-700/50 flex items-center justify-between gap-2">
               <div class="flex items-center gap-2 min-w-0">
                 <i class="fa-solid fa-eye text-blue-400 text-xs flex-shrink-0"></i>
@@ -983,7 +965,7 @@
     <!-- Transfer Progress Panel -->
     <div
       id="transfer-panel"
-      class="hidden fixed bottom-4 right-4 w-96 max-w-full bg-slate-900 border border-slate-700 rounded-lg shadow-2xl overflow-hidden z-50"
+      class="hidden fixed bottom-4 right-4 w-96 max-w-[calc(100vw-2rem)] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-50"
     >
       <div
         class="px-4 py-3 bg-slate-800 border-b border-slate-700 flex items-center justify-between"

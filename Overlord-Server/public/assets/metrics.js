@@ -760,7 +760,7 @@ function updateMetrics(data, debug) {
         .map((route) => {
           const errorClass = route.errorsLastMinute > 0 ? "text-red-300" : "text-slate-400";
           return `
-            <div class="bg-slate-800/50 rounded p-3 min-w-0">
+            <div class="bg-slate-950/40 border border-slate-800 rounded-lg p-3 min-w-0">
               <div class="text-xs text-slate-400 mb-2 truncate" title="${escapeHtml(route.route)}">
                 ${escapeHtml(route.route)}
               </div>
@@ -790,7 +790,7 @@ function updateMetrics(data, debug) {
     if (tasks.length > 0) {
       internalTasksList.innerHTML = tasks
         .map((task) => `
-          <div class="bg-slate-800/50 rounded p-3 min-w-0">
+          <div class="bg-slate-950/40 border border-slate-800 rounded-lg p-3 min-w-0">
             <div class="text-xs text-slate-400 mb-2 truncate" title="${escapeHtml(task.task)}">
               ${escapeHtml(task.task)}
             </div>
@@ -828,7 +828,7 @@ function updateMetrics(data, debug) {
               ? value ? "yes" : "no"
               : Number(value || 0).toLocaleString();
           return `
-            <div class="bg-slate-800/50 rounded p-3 min-w-0">
+            <div class="bg-slate-950/40 border border-slate-800 rounded-lg p-3 min-w-0">
               <div class="text-xs text-slate-500 mb-1 truncate" title="${escapeHtml(key)}">
                 ${escapeHtml(key)}
               </div>
@@ -854,7 +854,7 @@ function updateMetrics(data, debug) {
     commandTypesList.innerHTML = topCommands
       .map(
         ([type, count]) => `
-      <div class="bg-slate-800/50 rounded p-3">
+      <div class="bg-slate-950/40 border border-slate-800 rounded-lg p-3">
         <div class="text-xs text-slate-400 mb-1">${escapeHtml(type)}</div>
         <div class="text-xl font-bold">${count.toLocaleString()}</div>
       </div>
@@ -1831,10 +1831,16 @@ async function fetchMetrics() {
     updateCharts(data.history, data.snapshot);
 
     document.getElementById("status-text").textContent = "Live";
+    const status = document.getElementById("metrics-status");
+    status?.classList.remove("bg-red-500/10", "text-red-300", "border-red-500/30");
+    status?.classList.add("bg-emerald-500/10", "text-emerald-300", "border-emerald-500/30");
   } catch (err) {
     if (!metricsPageActive) return;
     console.error("Error fetching metrics:", err);
-    document.getElementById("status-text").textContent = "Error";
+    document.getElementById("status-text").textContent = "Unavailable";
+    const status = document.getElementById("metrics-status");
+    status?.classList.remove("bg-emerald-500/10", "text-emerald-300", "border-emerald-500/30");
+    status?.classList.add("bg-red-500/10", "text-red-300", "border-red-500/30");
   }
 }
 

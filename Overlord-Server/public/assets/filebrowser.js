@@ -85,7 +85,7 @@ const editorCancelBtn = document.getElementById("editor-cancel-btn");
 const editorCloseBtn = document.getElementById("editor-close-btn");
 
 if (clientIdHeader) {
-  clientIdHeader.textContent = `${clientId} - File Browser`;
+  clientIdHeader.innerHTML = `<i class="fa-solid fa-computer mr-1.5 text-sky-400"></i>${escapeHtml(clientId)}`;
 }
 
 let sortField = localStorage.getItem("filebrowser.sortField") || "name";
@@ -141,10 +141,13 @@ function updateStatus(state, text) {
   };
 
   statusEl.innerHTML = `${icons[state] || icons.disconnected} ${text}`;
-  statusEl.className =
-    state === "connected"
-      ? "inline-flex items-center gap-2 px-3 py-2 rounded-full bg-green-900/40 text-green-100 border border-green-700/60"
-      : "inline-flex items-center gap-2 px-3 py-2 rounded-full bg-slate-800 text-slate-300";
+  const stateClasses = {
+    connected: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
+    error: "bg-red-500/10 text-red-300 border-red-500/30",
+    disconnected: "bg-slate-800 text-slate-300 border-slate-700",
+    connecting: "bg-sky-500/10 text-sky-300 border-sky-500/30",
+  };
+  statusEl.className = `inline-flex self-start sm:self-auto items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium ${stateClasses[state] || stateClasses.disconnected}`;
 }
 
 function enableControls(enabled) {
@@ -1401,7 +1404,7 @@ function createFileRow(entry) {
 
   row.innerHTML = `
     <input type="checkbox" class="file-checkbox" data-path="${escapeHtml(entry.path)}">
-    <div class="col-span-6 flex items-center gap-2 truncate pl-3">
+    <div class="col-span-6 flex items-center gap-2 truncate pl-8">
       ${icon}
       <span class="truncate">${escapeHtml(entry.name)}</span>
       ${pinBtn}
