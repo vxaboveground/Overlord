@@ -8,6 +8,40 @@ export const PREVIEW_IMAGE_EXTS = new Set(["jpg", "jpeg", "png", "gif", "webp", 
 export const PREVIEW_PDF_EXTS = new Set(["pdf"]);
 export const PREVIEW_MAX_BYTES = 50 * 1024 * 1024;
 
+const HIGHLIGHT_FILENAME_MAP = {
+  dockerfile: "dockerfile",
+  makefile: "makefile",
+  gnumakefile: "makefile",
+  "nginx.conf": "nginx",
+  ".env": "bash",
+};
+
+const HIGHLIGHT_EXTENSION_MAP = {
+  js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "javascript",
+  ts: "typescript", mts: "typescript", cts: "typescript", tsx: "typescript",
+  py: "python", pyw: "python", rb: "ruby", java: "java",
+  cpp: "cpp", cxx: "cpp", cc: "cpp", hpp: "cpp", hxx: "cpp",
+  c: "c", h: "c", cs: "csharp", php: "php", phtml: "php",
+  go: "go", rs: "rust",
+  sh: "bash", bash: "bash", zsh: "bash", ksh: "bash",
+  bat: "powershell", cmd: "powershell", ps1: "powershell", psm1: "powershell", psd1: "powershell",
+  json: "json", jsonc: "json", json5: "json",
+  xml: "xml", svg: "xml", xsl: "xml", xslt: "xml", plist: "xml",
+  html: "xml", htm: "xml", xhtml: "xml", vue: "xml", svelte: "xml",
+  css: "css", scss: "scss", sass: "scss", sql: "sql",
+  yaml: "yaml", yml: "yaml", md: "markdown", markdown: "markdown",
+  ini: "ini", cfg: "ini", properties: "ini", toml: "ini",
+  diff: "diff", patch: "diff", dockerfile: "dockerfile", makefile: "makefile", nginx: "nginx",
+};
+
+export function getHighlightLanguage(name = "") {
+  const fileName = name.split(/[\\/]/).pop()?.toLowerCase() || "";
+  if (HIGHLIGHT_FILENAME_MAP[fileName]) return HIGHLIGHT_FILENAME_MAP[fileName];
+  if (fileName.startsWith("dockerfile.")) return "dockerfile";
+  if (fileName.startsWith(".env.")) return "bash";
+  return HIGHLIGHT_EXTENSION_MAP[getFileExt(fileName)] || "plaintext";
+}
+
 export const KNOWN_BINARY_EXTS = new Set([
   "mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v",
   "mp3", "wav", "flac", "ogg", "aac", "wma", "m4a",

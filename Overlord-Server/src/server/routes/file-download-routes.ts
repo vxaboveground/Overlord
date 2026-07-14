@@ -87,6 +87,13 @@ async function serveDownloadById(
 
   const clientId = intent.clientId;
   const downloadPath = intent.path;
+  const maxBytes = intent.maxBytes;
+
+  const activeForUser = [...deps.pendingHttpDownloads.values()]
+    .filter((pending) => pending.userId === user.userId).length;
+  if (activeForUser >= 8) {
+    return new Response("Too many concurrent downloads", { status: 429, headers: { "Retry-After": "10" } });
+  }
 
   const target = clientManager.getClient(clientId);
   if (!target) {
@@ -172,6 +179,9 @@ async function serveDownloadById(
       reorderBuffer: new Map(),
       nextExpectedOffset: 0,
       onFirstChunk: () => firstChunkResolve(),
+      onFirstChunkError: (error) => firstChunkReject(error),
+      userId: user.userId,
+      maxBytes,
     });
   });
 
@@ -202,7 +212,7 @@ async function serveDownloadById(
       type: "command",
       commandType: "file_download",
       id: commandId,
-      payload: { path: downloadPath },
+      payload: { path: downloadPath, ...(maxBytes ? { maxBytes } : {}) },
     }),
   );
 
@@ -704,7 +714,15 @@ export async function handleFileDownloadRoutes(
       return new Response("Client offline", { status: 404 });
     }
 
+    const activeIntentsForUser = [...deps.downloadIntents.values()]
+      .filter((intent) => intent.userId === user.userId && intent.expiresAt > Date.now()).length;
+    if (activeIntentsForUser >= 16) {
+      return new Response("Too many pending downloads", { status: 429, headers: { "Retry-After": "10" } });
+    }
+
     const downloadId = uuidv4();
+    const requestedPreview = body?.preview === true;
+    const maxBytes = requestedPreview ? 50 * 1024 * 1024 : undefined;
     const expiresAt = Date.now() + 2 * 60_000;
     const timeout = setTimeout(() => {
       deps.downloadIntents.delete(downloadId);
@@ -717,6 +735,7 @@ export async function handleFileDownloadRoutes(
       path: downloadPath,
       expiresAt,
       timeout,
+      maxBytes,
     });
 
     return Response.json({

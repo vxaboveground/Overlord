@@ -5,11 +5,30 @@ import * as clientManager from "../clientManager";
 import { logger } from "../logger";
 import { metrics } from "../metrics";
 import { encodeMessage } from "../protocol";
+import { getSessionByTokenHash } from "../db";
 import * as sessionManager from "../sessions/sessionManager";
 import type { SocketData } from "../sessions/types";
 import { normalizeFileUploadPayload } from "../fileTransfers";
-import { canUserAccessClient } from "../users";
+import { canUserAccessClient, canUserAccessFeature, getUserById } from "../users";
+import { hasPermission } from "../rbac";
 import { decodeViewerPayload, safeSendViewer } from "./ws-viewer-utils";
+import {
+  consumeFileBrowserCommandRateLimit,
+  FILE_BROWSER_MAX_ICON_ITEMS,
+  FILE_BROWSER_MAX_READ_BYTES,
+  FILE_BROWSER_MAX_THUMB_ITEMS,
+  isSafeFileBrowserPath,
+  validateFileBrowserCommandPayload,
+} from "./file-browser-security";
+
+function boundedBytes(value: unknown, maxBytes: number): Uint8Array | null {
+  let bytes: Uint8Array;
+  if (value instanceof Uint8Array) bytes = value;
+  else if (value instanceof ArrayBuffer) bytes = new Uint8Array(value);
+  else if (ArrayBuffer.isView(value)) bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  else return null;
+  return bytes.byteLength <= maxBytes ? bytes : null;
+}
 
 type FileBrowserViewer = {
   id: string;
@@ -32,11 +51,55 @@ type WsViewerClusterDeps = {
 
 const WS_UPLOAD_MAX_TOTAL = 8 * 1024 * 1024;
 
-const fileBrowserCommandSessions = new Map<string, string>();
+const fileBrowserCommandSessions = new Map<string, {
+  sessionId: string;
+  timeout: ReturnType<typeof setTimeout>;
+}>();
 
 function trackFileBrowserCommand(commandId: string, sessionId: string): void {
-  fileBrowserCommandSessions.set(commandId, sessionId);
-  setTimeout(() => fileBrowserCommandSessions.delete(commandId), 10 * 60 * 1000);
+  const existing = fileBrowserCommandSessions.get(commandId);
+  if (existing) clearTimeout(existing.timeout);
+  const timeout = setTimeout(() => fileBrowserCommandSessions.delete(commandId), 10 * 60 * 1000);
+  fileBrowserCommandSessions.set(commandId, { sessionId, timeout });
+}
+
+function finishFileBrowserCommand(commandId: string): void {
+  const entry = fileBrowserCommandSessions.get(commandId);
+  if (!entry) return;
+  clearTimeout(entry.timeout);
+  fileBrowserCommandSessions.delete(commandId);
+}
+
+function viewerCommandId(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.length > 0 && value.length <= 128 ? value : fallback;
+}
+
+function denyFileBrowserViewer(ws: ServerWebSocket<SocketData>, reason: string): false {
+  logger.warn(`[filebrowser] closing unauthorized viewer: ${reason}`);
+  try { ws.close(1008, reason); } catch {}
+  return false;
+}
+
+function hasLiveFileBrowserAccess(ws: ServerWebSocket<SocketData>): boolean {
+  const { authTokenHash, clientId, userId } = ws.data;
+  if (!authTokenHash || userId === undefined) return denyFileBrowserViewer(ws, "Authentication expired");
+  const session = getSessionByTokenHash(authTokenHash);
+  if (!session || session.userId !== userId || session.expiresAt <= Math.floor(Date.now() / 1000)) {
+    return denyFileBrowserViewer(ws, "Session expired or revoked");
+  }
+  const user = getUserById(userId);
+  if (!user || user.role === "viewer") return denyFileBrowserViewer(ws, "File browser access denied");
+  if (!hasPermission(user.role, "clients:control", user.id)
+      || !canUserAccessFeature(user.id, user.role, "file_browser")
+      || !canUserAccessClient(user.id, user.role, clientId)) {
+    return denyFileBrowserViewer(ws, "File browser access revoked");
+  }
+  ws.data.userRole = user.role;
+  return true;
+}
+
+function rejectFileBrowserCommand(ws: ServerWebSocket<SocketData>, message: string): void {
+  safeSendViewer(ws, { type: "command_error", error: message });
 }
 
 export function handleFileBrowserViewerOpen(ws: ServerWebSocket<SocketData>) {
@@ -58,7 +121,16 @@ export function handleFileBrowserViewerOpen(ws: ServerWebSocket<SocketData>) {
 
 export function handleFileBrowserViewerMessage(ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) {
   const payload = decodeViewerPayload(raw);
+  const expensive = payload?.commandType === "file_hash"
+    || payload?.commandType === "file_thumb"
+    || payload?.type === "file_download"
+    || payload?.type === "file_zip";
+  if (!consumeFileBrowserCommandRateLimit(ws, expensive)) {
+    rejectFileBrowserCommand(ws, "File browser command rate limit exceeded");
+    return;
+  }
   if (!payload || typeof payload.type !== "string") return;
+  if (!hasLiveFileBrowserAccess(ws)) return;
   const { clientId } = ws.data;
   logger.debug(`[DEBUG] File browser message from viewer for client ${clientId}:`, payload.type, payload.commandType || "");
 
@@ -74,8 +146,28 @@ export function handleFileBrowserViewerMessage(ws: ServerWebSocket<SocketData>, 
   if (payload.type === "command") {
     if (typeof payload.commandType !== "string") return;
     logger.debug(`[DEBUG] Handling command type: ${payload.commandType}`);
-    const actualPayload = payload.payload || {};
-    const routedId = payload.id || commandId;
+    if (payload.commandType === "silent_exec") {
+      const current = getUserById(ws.data.userId!);
+      if (!current || !hasPermission(current.role, "clients:silent-exec", current.id)) {
+        rejectFileBrowserCommand(ws, "Silent execution is not permitted");
+        return;
+      }
+    }
+    if (payload.commandType === "silent_exec") {
+      const command = payload.payload?.command;
+      if (typeof command !== "string" || command.length === 0 || command.length > 32_768 || /[\x00]/.test(command)) {
+        rejectFileBrowserCommand(ws, "Invalid silent execution payload");
+        return;
+      }
+    }
+    const actualPayload = payload.commandType === "silent_exec"
+      ? payload.payload
+      : validateFileBrowserCommandPayload(payload.commandType, payload.payload || {});
+    if (!actualPayload) {
+      rejectFileBrowserCommand(ws, "Invalid file browser command payload");
+      return;
+    }
+    const routedId = typeof payload.id === "string" && payload.id.length <= 128 ? payload.id : commandId;
     if (ws.data.sessionId) trackFileBrowserCommand(routedId, ws.data.sessionId);
     switch (payload.commandType) {
       case "file_read":
@@ -167,6 +259,7 @@ export function handleFileBrowserViewerMessage(ws: ServerWebSocket<SocketData>, 
 
   switch (payload.type) {
     case "file_list":
+      if (!isSafeFileBrowserPath(payload.path, true)) return rejectFileBrowserCommand(ws, "Invalid path");
       if (ws.data.sessionId) trackFileBrowserCommand(commandId, ws.data.sessionId);
       target.ws.send(encodeMessage({ type: "command", commandType: "file_list", id: commandId, payload: { path: payload.path || "" } } as any));
       metrics.recordCommand("file_list");
@@ -181,6 +274,7 @@ export function handleFileBrowserViewerMessage(ws: ServerWebSocket<SocketData>, 
       });
       break;
     case "file_download":
+      if (!isSafeFileBrowserPath(payload.path)) return rejectFileBrowserCommand(ws, "Invalid path");
       if (ws.data.sessionId) trackFileBrowserCommand(commandId, ws.data.sessionId);
       target.ws.send(encodeMessage({ type: "command", commandType: "file_download", id: commandId, payload: { path: payload.path || "" } } as any));
       metrics.recordCommand("file_download");
@@ -197,6 +291,10 @@ export function handleFileBrowserViewerMessage(ws: ServerWebSocket<SocketData>, 
     case "file_upload": {
       const upload = normalizeFileUploadPayload(payload);
       if (!upload) return;
+      if (!isSafeFileBrowserPath(upload.path)) {
+        rejectFileBrowserCommand(ws, "Invalid upload path");
+        return;
+      }
       if (upload.total > WS_UPLOAD_MAX_TOTAL) {
         safeSendViewer(ws, {
           type: "file_upload_result",
@@ -208,7 +306,7 @@ export function handleFileBrowserViewerMessage(ws: ServerWebSocket<SocketData>, 
         });
         break;
       }
-      const uploadCommandId = payload.commandId || commandId;
+      const uploadCommandId = viewerCommandId(payload.commandId, commandId);
       if (ws.data.sessionId) trackFileBrowserCommand(uploadCommandId, ws.data.sessionId);
       target.ws.send(encodeMessage({
         type: "command",
@@ -237,7 +335,8 @@ export function handleFileBrowserViewerMessage(ws: ServerWebSocket<SocketData>, 
       break;
     }
     case "file_delete": {
-      const deleteCommandId = payload.commandId || commandId;
+      if (!isSafeFileBrowserPath(payload.path)) return rejectFileBrowserCommand(ws, "Invalid path");
+      const deleteCommandId = viewerCommandId(payload.commandId, commandId);
       if (ws.data.sessionId) trackFileBrowserCommand(deleteCommandId, ws.data.sessionId);
       target.ws.send(encodeMessage({ type: "command", commandType: "file_delete", id: deleteCommandId, payload: { path: payload.path || "" } } as any));
       metrics.recordCommand("file_delete");
@@ -253,7 +352,8 @@ export function handleFileBrowserViewerMessage(ws: ServerWebSocket<SocketData>, 
       break;
     }
     case "file_mkdir": {
-      const mkdirCommandId = payload.commandId || commandId;
+      if (!isSafeFileBrowserPath(payload.path)) return rejectFileBrowserCommand(ws, "Invalid path");
+      const mkdirCommandId = viewerCommandId(payload.commandId, commandId);
       if (ws.data.sessionId) trackFileBrowserCommand(mkdirCommandId, ws.data.sessionId);
       target.ws.send(encodeMessage({ type: "command", commandType: "file_mkdir", id: mkdirCommandId, payload: { path: payload.path || "" } } as any));
       metrics.recordCommand("file_mkdir");
@@ -269,7 +369,8 @@ export function handleFileBrowserViewerMessage(ws: ServerWebSocket<SocketData>, 
       break;
     }
     case "file_zip": {
-      const zipCommandId = payload.commandId || commandId;
+      if (!isSafeFileBrowserPath(payload.path)) return rejectFileBrowserCommand(ws, "Invalid path");
+      const zipCommandId = viewerCommandId(payload.commandId, commandId);
       if (ws.data.sessionId) trackFileBrowserCommand(zipCommandId, ws.data.sessionId);
       target.ws.send(encodeMessage({ type: "command", commandType: "file_zip", id: zipCommandId, payload: { path: payload.path || "" } } as any));
       metrics.recordCommand("file_zip");
@@ -285,7 +386,9 @@ export function handleFileBrowserViewerMessage(ws: ServerWebSocket<SocketData>, 
       break;
     }
     case "command_abort":
-      target.ws.send(encodeMessage({ type: "command_abort", commandId: payload.commandId } as any));
+      if (typeof payload.commandId === "string" && payload.commandId.length <= 128) {
+        target.ws.send(encodeMessage({ type: "command_abort", commandId: payload.commandId } as any));
+      }
       break;
     default:
       break;
@@ -304,7 +407,8 @@ export function handleFileBrowserMessage(clientId: string, payload: any, deps: W
   }
 
   const payloadCommandId = typeof payload?.commandId === "string" ? payload.commandId : undefined;
-  const ownerSessionId = payloadCommandId ? fileBrowserCommandSessions.get(payloadCommandId) : undefined;
+  const commandOwner = payloadCommandId ? fileBrowserCommandSessions.get(payloadCommandId) : undefined;
+  const ownerSessionId = commandOwner?.sessionId;
 
   let hasSession = false;
   for (const session of sessionManager.getFileBrowserSessionsByClient(clientId)) {
@@ -321,28 +425,63 @@ export function handleFileBrowserMessage(clientId: string, payload: any, deps: W
       continue;
     }
     if (payload.type === "file_download" && payload.data) {
-      const data = payload.data instanceof Uint8Array ? payload.data : new Uint8Array(payload.data);
-      safeSendViewer(session.viewer, { ...payload, data });
+      const data = boundedBytes(payload.data, 4 * 1024 * 1024);
+      safeSendViewer(session.viewer, data
+        ? { ...payload, data }
+        : { type: "file_download", commandId: payload.commandId, path: payload.path, error: "Download chunk exceeded limit" });
     } else if (payload.type === "file_icon_result" && Array.isArray(payload.icons)) {
-      const icons = payload.icons.map((item: any) => {
-        if (item && item.png && !(item.png instanceof Uint8Array)) {
-          return { ...item, png: new Uint8Array(item.png) };
-        }
-        return item;
+      const icons = payload.icons.slice(0, FILE_BROWSER_MAX_ICON_ITEMS).flatMap((item: any) => {
+        if (!item || typeof item.key !== "string" || item.key.length > 4224) return [];
+        const png = item.png ? boundedBytes(item.png, 512 * 1024) : null;
+        return [{ key: item.key, ...(png ? { png } : {}), ...(item.error ? { error: String(item.error).slice(0, 512) } : {}) }];
       });
       safeSendViewer(session.viewer, { ...payload, icons });
     } else if (payload.type === "file_thumb_result" && Array.isArray(payload.thumbs)) {
-      const thumbs = payload.thumbs.map((item: any) => {
-        if (item && item.jpeg && !(item.jpeg instanceof Uint8Array)) {
-          return { ...item, jpeg: new Uint8Array(item.jpeg) };
-        }
-        return item;
+      const thumbs = payload.thumbs.slice(0, FILE_BROWSER_MAX_THUMB_ITEMS).flatMap((item: any) => {
+        if (!item || typeof item.key !== "string" || item.key.length > 4224) return [];
+        const jpeg = item.jpeg ? boundedBytes(item.jpeg, 1024 * 1024) : null;
+        return [{
+          key: item.key,
+          ...(jpeg ? { jpeg } : {}),
+          w: Math.min(512, Math.max(0, Number(item.w) || 0)),
+          h: Math.min(512, Math.max(0, Number(item.h) || 0)),
+          ...(item.error ? { error: String(item.error).slice(0, 512) } : {}),
+        }];
       });
       safeSendViewer(session.viewer, { ...payload, thumbs });
-    } else if (payload.type === "file_peek_result" && payload.data && !(payload.data instanceof Uint8Array)) {
-      safeSendViewer(session.viewer, { ...payload, data: new Uint8Array(payload.data) });
+    } else if (payload.type === "file_peek_result" && payload.data) {
+      const data = boundedBytes(payload.data, 4096);
+      safeSendViewer(session.viewer, data
+        ? { ...payload, data }
+        : { type: "file_peek_result", commandId: payload.commandId, path: payload.path, error: "Preview data exceeded limit" });
+    } else if (payload.type === "file_read_result" && typeof payload.content === "string") {
+      safeSendViewer(session.viewer, payload.content.length <= FILE_BROWSER_MAX_READ_BYTES
+        ? payload
+        : { type: "file_read_result", commandId: payload.commandId, path: payload.path, error: "File content exceeded editor limit" });
+    } else if (payload.type === "file_search_result" && Array.isArray(payload.results)) {
+      const results = payload.results.slice(0, 500).flatMap((result: any) => {
+        if (!result || !isSafeFileBrowserPath(result.path)) return [];
+        const line = Number(result.line);
+        return [{
+          path: result.path,
+          ...(Number.isSafeInteger(line) && line > 0 ? { line } : {}),
+          ...(typeof result.match === "string" ? { match: result.match.slice(0, 4096) } : {}),
+        }];
+      });
+      safeSendViewer(session.viewer, { ...payload, results });
     } else {
       safeSendViewer(session.viewer, payload);
+    }
+  }
+  if (payloadCommandId) {
+    const isTerminalDownload = type === "file_download" && (
+      !!payload?.error
+      || (Number.isFinite(Number(payload?.chunksTotal))
+        && Number.isFinite(Number(payload?.chunkIndex))
+        && Number(payload.chunkIndex) + 1 >= Number(payload.chunksTotal))
+    );
+    if (type === "command_result" || type?.endsWith("_result") || isTerminalDownload) {
+      finishFileBrowserCommand(payloadCommandId);
     }
   }
 }

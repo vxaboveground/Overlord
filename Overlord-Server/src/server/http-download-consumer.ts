@@ -3,6 +3,8 @@ import type { FileHandle } from "fs/promises";
 import { logger } from "../logger";
 
 export const STREAM_REORDER_BUFFER_LIMIT = 16;
+export const STREAM_REORDER_BUFFER_MAX_BYTES = 32 * 1024 * 1024;
+export const STREAM_MAX_CHUNK_BYTES = 4 * 1024 * 1024;
 
 export type PendingHttpDownload = {
   commandId: string;
@@ -27,7 +29,10 @@ export type PendingHttpDownload = {
   nextExpectedOffset?: number;
   streamErrored?: boolean;
   onFirstChunk?: () => void;
+  onFirstChunkError?: (error: Error) => void;
   firstChunkSignaled?: boolean;
+  userId?: number;
+  maxBytes?: number;
 };
 
 function isStreamMode(pending: PendingHttpDownload): boolean {
@@ -41,6 +46,10 @@ async function failStream(pending: PendingHttpDownload, err: Error): Promise<voi
     pending.streamController?.error(err);
   } catch {}
   pending.reorderBuffer?.clear();
+  if (!pending.firstChunkSignaled && pending.onFirstChunkError) {
+    pending.firstChunkSignaled = true;
+    try { pending.onFirstChunkError(err); } catch {}
+  }
 }
 
 function enqueueOrdered(pending: PendingHttpDownload, offset: number, data: Uint8Array): boolean {
@@ -75,6 +84,12 @@ function enqueueOrdered(pending: PendingHttpDownload, offset: number, data: Uint
   }
   if (pending.reorderBuffer.size > STREAM_REORDER_BUFFER_LIMIT) {
     void failStream(pending, new Error("download chunks arrived too far out of order"));
+    return false;
+  }
+  let bufferedBytes = 0;
+  for (const chunk of pending.reorderBuffer.values()) bufferedBytes += chunk.byteLength;
+  if (bufferedBytes > STREAM_REORDER_BUFFER_MAX_BYTES) {
+    void failStream(pending, new Error("download reorder buffer byte limit exceeded"));
     return false;
   }
   return true;
@@ -134,6 +149,13 @@ export async function consumeHttpDownloadPayload(
       pending.total = total;
     }
   }
+  if (pending.maxBytes && pending.total > pending.maxBytes) {
+    await failStream(pending, new Error("download exceeded requested byte limit"));
+    clearTimeout(pending.timeout);
+    pendingHttpDownloads.delete(commandId);
+    pending.resolve(pending);
+    return;
+  }
   if (pending.total > 0 && !pending.loggedTotal) {
     pending.loggedTotal = true;
     logger.debug("[filebrowser] http download total", {
@@ -158,6 +180,21 @@ export async function consumeHttpDownloadPayload(
       const offset = toNumber(payload?.offset);
       const chunkIndex = toNumber(payload?.chunkIndex);
       const chunksTotal = toNumber(payload?.chunksTotal);
+
+      if (data.byteLength > STREAM_MAX_CHUNK_BYTES) {
+        await failStream(pending, new Error("download chunk exceeded size limit"));
+        clearTimeout(pending.timeout);
+        pendingHttpDownloads.delete(commandId);
+        pending.resolve(pending);
+        return;
+      }
+      if (pending.maxBytes && pending.receivedBytes + data.byteLength > pending.maxBytes) {
+        await failStream(pending, new Error("download exceeded requested byte limit"));
+        clearTimeout(pending.timeout);
+        pendingHttpDownloads.delete(commandId);
+        pending.resolve(pending);
+        return;
+      }
 
       if (offset === null) {
         logger.debug("[filebrowser] http download missing offset", {
@@ -191,6 +228,15 @@ export async function consumeHttpDownloadPayload(
       }
 
       const effectiveOffset = offset ?? 0;
+      if (effectiveOffset < 0
+          || !Number.isSafeInteger(effectiveOffset)
+          || (pending.total > 0 && effectiveOffset + data.byteLength > pending.total)) {
+        await failStream(pending, new Error("invalid download chunk offset"));
+        clearTimeout(pending.timeout);
+        pendingHttpDownloads.delete(commandId);
+        pending.resolve(pending);
+        return;
+      }
       const shouldWrite = chunkIndex !== null
         ? !pending.receivedChunks.has(chunkIndex)
         : !pending.receivedOffsets.has(effectiveOffset);

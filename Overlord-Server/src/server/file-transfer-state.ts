@@ -26,7 +26,10 @@ export type PendingHttpDownload = {
   nextExpectedOffset?: number;
   streamErrored?: boolean;
   onFirstChunk?: () => void;
+  onFirstChunkError?: (error: Error) => void;
   firstChunkSignaled?: boolean;
+  userId?: number;
+  maxBytes?: number;
 };
 
 export type DownloadIntent = {
@@ -36,6 +39,7 @@ export type DownloadIntent = {
   path: string;
   expiresAt: number;
   timeout: ReturnType<typeof setTimeout>;
+  maxBytes?: number;
 };
 
 export type UploadIntent = {

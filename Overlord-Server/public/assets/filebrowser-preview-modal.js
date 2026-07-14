@@ -22,8 +22,11 @@ export function createFilePreviewModal({
 
   let currentPreviewBlobUrl = null;
   let currentPreviewPath = null;
+  let currentPreviewAbortController = null;
 
   function closePreview() {
+    currentPreviewAbortController?.abort();
+    currentPreviewAbortController = null;
     if (filePreviewModal) filePreviewModal.classList.remove("show");
     if (currentPreviewBlobUrl) {
       URL.revokeObjectURL(currentPreviewBlobUrl);
@@ -48,6 +51,9 @@ export function createFilePreviewModal({
       return;
     }
 
+    currentPreviewAbortController?.abort();
+    const abortController = new AbortController();
+    currentPreviewAbortController = abortController;
     currentPreviewPath = path;
     if (previewFileNameEl) previewFileNameEl.textContent = fileName;
     if (previewContent) previewContent.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-slate-400 text-2xl"></i>';
@@ -59,7 +65,8 @@ export function createFilePreviewModal({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ clientId, path }),
+        signal: abortController.signal,
+        body: JSON.stringify({ clientId, path, preview: true }),
       });
 
       if (!requestRes.ok) {
@@ -87,6 +94,7 @@ export function createFilePreviewModal({
       const res = await fetch(downloadUrl, {
         method: "GET",
         credentials: "include",
+        signal: abortController.signal,
       });
 
       if (!res.ok) {
@@ -99,21 +107,36 @@ export function createFilePreviewModal({
 
       const contentLength = Number(res.headers.get("Content-Length") || 0);
       if (contentLength > PREVIEW_MAX_BYTES) {
+        await res.body?.cancel("preview size limit exceeded");
         if (currentPreviewPath !== path) return;
         if (previewContent) previewContent.innerHTML = `<div class="text-slate-400 text-sm text-center p-6"><i class="fa-solid fa-file mr-2"></i>File too large to preview (${escapeHtml(formatBytes(contentLength))})</div>`;
         if (previewStatusEl) previewStatusEl.textContent = "";
         return;
       }
 
-      const arrayBuffer = await res.arrayBuffer();
+      if (!res.body) throw new Error("Preview response did not include a body");
+      const reader = res.body.getReader();
+      const chunks = [];
+      let received = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        received += value.byteLength;
+        if (received > PREVIEW_MAX_BYTES) {
+          await reader.cancel("preview size limit exceeded");
+          throw new Error(`File too large to preview (${formatBytes(received)})`);
+        }
+        chunks.push(value);
+      }
+      const arrayBuffer = new Uint8Array(received);
+      let chunkOffset = 0;
+      for (const chunk of chunks) {
+        arrayBuffer.set(chunk, chunkOffset);
+        chunkOffset += chunk.byteLength;
+      }
 
       if (currentPreviewPath !== path) return;
-
-      if (arrayBuffer.byteLength > PREVIEW_MAX_BYTES) {
-        if (previewContent) previewContent.innerHTML = `<div class="text-slate-400 text-sm text-center p-6"><i class="fa-solid fa-file mr-2"></i>File too large to preview (${escapeHtml(formatBytes(arrayBuffer.byteLength))})</div>`;
-        if (previewStatusEl) previewStatusEl.textContent = "";
-        return;
-      }
 
       if (currentPreviewBlobUrl) {
         URL.revokeObjectURL(currentPreviewBlobUrl);
@@ -140,9 +163,12 @@ export function createFilePreviewModal({
 
       if (previewStatusEl) previewStatusEl.textContent = "";
     } catch (err) {
+      if (err?.name === "AbortError" || abortController.signal.aborted) return;
       if (currentPreviewPath !== path) return;
       if (previewContent) previewContent.innerHTML = `<div class="text-red-400 text-sm text-center p-6"><i class="fa-solid fa-exclamation-triangle mr-2"></i>${escapeHtml(err.message || "Failed to load preview")}</div>`;
       if (previewStatusEl) previewStatusEl.textContent = "";
+    } finally {
+      if (currentPreviewAbortController === abortController) currentPreviewAbortController = null;
     }
   }
 

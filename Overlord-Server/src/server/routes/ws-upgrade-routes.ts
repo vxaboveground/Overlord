@@ -1,4 +1,5 @@
-import { authenticateRequest } from "../../auth";
+import { authenticateRequest, extractTokenFromRequest } from "../../auth";
+import { hashTokenForSession } from "../../db";
 import { logger } from "../../logger";
 import { isIpBanned } from "../../db";
 import type { FeatureName, UserRole } from "../../users";
@@ -198,6 +199,8 @@ async function tryClientViewerUpgrade(
       userId: user.userId,
       username: user.username,
     };
+    const token = extractTokenFromRequest(req);
+    if (token) data.authTokenHash = hashTokenForSession(token);
     if (route.sessionId) {
       data.sessionId = route.sessionId();
     }

@@ -760,7 +760,7 @@
 
                 <div class="flex flex-col gap-1.5">
                   <button id="preview-hex-btn" class="inline-flex items-center justify-center gap-2 px-2 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-100" type="button">
-                    <i class="fa-solid fa-magnifying-glass-chart"></i> Hex peek
+                    <i class="fa-solid fa-table-cells"></i> Hex preview (4 KB)
                   </button>
                   <button id="preview-hash-btn" class="inline-flex items-center justify-center gap-2 px-2 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-100" type="button">
                     <i class="fa-solid fa-fingerprint"></i> SHA-256
@@ -821,7 +821,7 @@
         <i class="fa-solid fa-star-half-stroke mr-2"></i> Unpin
       </div>
       <div class="context-menu-item" data-action="hex_peek">
-        <i class="fa-solid fa-magnifying-glass-chart mr-2"></i> Hex peek (4 KB)
+        <i class="fa-solid fa-table-cells mr-2"></i> Hex preview (4 KB)
       </div>
       <div class="context-menu-item" data-action="hash">
         <i class="fa-solid fa-fingerprint mr-2"></i> SHA-256
@@ -837,8 +837,8 @@
       <div class="hex-viewer-content">
         <div class="px-4 py-3 bg-slate-800 border-b border-slate-700 flex items-center justify-between flex-shrink-0">
           <div class="flex items-center gap-3 min-w-0">
-            <i class="fa-solid fa-magnifying-glass-chart text-blue-400 flex-shrink-0"></i>
-            <span class="font-semibold truncate" id="hex-viewer-file">--</span>
+            <i class="fa-solid fa-table-cells text-blue-400 flex-shrink-0"></i>
+            <div class="min-w-0"><div class="text-[10px] uppercase tracking-wider text-slate-500">Hex preview</div><div class="font-semibold truncate" id="hex-viewer-file">--</div></div>
           </div>
           <div class="flex items-center gap-2 flex-shrink-0 ml-2">
             <span id="hex-viewer-info" class="text-xs text-slate-400"></span>

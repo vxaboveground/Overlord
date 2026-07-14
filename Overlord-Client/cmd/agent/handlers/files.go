@@ -359,16 +359,30 @@ func HandleFileHash(ctx context.Context, env *agentRuntime.Env, cmdID string, pa
 	}
 	defer f.Close()
 
-	if _, err := io.Copy(h, f); err != nil {
-		return wire.WriteMsg(ctx, env.Conn, wire.FileHashResult{
-			Type:      "file_hash_result",
-			CommandID: cmdID,
-			Path:      path,
-			Algorithm: algorithm,
-			Error:     err.Error(),
-		})
+	buf := make([]byte, 256*1024)
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		n, readErr := f.Read(buf)
+		if n > 0 {
+			if _, err := h.Write(buf[:n]); err != nil {
+				return err
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return wire.WriteMsg(ctx, env.Conn, wire.FileHashResult{
+				Type: "file_hash_result", CommandID: cmdID, Path: path,
+				Algorithm: algorithm, Error: readErr.Error(),
+			})
+		}
 	}
-
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return wire.WriteMsg(ctx, env.Conn, wire.FileHashResult{
 		Type:      "file_hash_result",
 		CommandID: cmdID,

@@ -1,4 +1,4 @@
-import { escapeHtml, formatBytes } from "./filebrowser-utils.js";
+import { escapeHtml, formatBytes, getHighlightLanguage } from "./filebrowser-utils.js";
 
 const KNOWN_HASHES_SHA256 = {
   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855": "Empty file (0 bytes)",
@@ -39,7 +39,23 @@ export function createFileHexHashManager({
 
   function resetPreviewTextHead() {
     previewTextHeadHost?.classList.add("hidden");
-    if (previewTextHead) previewTextHead.textContent = "";
+    if (previewTextHead) {
+      previewTextHead.textContent = "";
+      previewTextHead.className = "";
+      delete previewTextHead.dataset.highlighted;
+    }
+  }
+
+  function renderPreviewTextHead(text, fileName) {
+    if (!previewTextHead) return;
+    const requestedLanguage = getHighlightLanguage(fileName);
+    const language = window.hljs?.getLanguage(requestedLanguage) ? requestedLanguage : "plaintext";
+    previewTextHead.className = language === "plaintext" ? "hljs" : `language-${language}`;
+    previewTextHead.textContent = text;
+    delete previewTextHead.dataset.highlighted;
+    if (window.hljs && language !== "plaintext") {
+      window.hljs.highlightElement(previewTextHead);
+    }
   }
 
   function resetPreviewHash() {
@@ -157,7 +173,7 @@ export function createFileHexHashManager({
       return;
     }
     const text = decodeTextHead(data);
-    if (previewTextHead) previewTextHead.textContent = text;
+    renderPreviewTextHead(text, req.fileName);
     previewTextHeadHost?.classList.remove("hidden");
   }
 

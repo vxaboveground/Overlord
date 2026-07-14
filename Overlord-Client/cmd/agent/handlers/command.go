@@ -33,15 +33,16 @@ import (
 var ErrReconnect = errors.New("reconnect requested")
 
 var (
-	activeCommands      = make(map[string]context.CancelFunc)
-	activeCommandsMu    sync.Mutex
-	voiceSessionMu      sync.Mutex
-	voiceSession        *voiceRuntime
-	desktopAudioMu      sync.Mutex
-	desktopAudioSession *voiceRuntime
-	backstageInputOnce       sync.Once
-	backstageInputQueue      chan backstageInputEvent
-	backstageInputDropped    atomic.Uint64
+	activeCommands        = make(map[string]context.CancelFunc)
+	activeCommandsMu      sync.Mutex
+	voiceSessionMu        sync.Mutex
+	voiceSession          *voiceRuntime
+	desktopAudioMu        sync.Mutex
+	desktopAudioSession   *voiceRuntime
+	backstageInputOnce    sync.Once
+	backstageInputQueue   chan backstageInputEvent
+	backstageInputDropped atomic.Uint64
+	fileHashSlots         = make(chan struct{}, 2)
 )
 
 type backstageInputKind int
@@ -2697,8 +2698,17 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		payload, _ := envelope["payload"].(map[string]interface{})
 		path, _ := payload["path"].(string)
 		algorithm, _ := payload["algorithm"].(string)
+		hashCtx, cancel := context.WithCancel(ctx)
+		registerCancellableCommand(cmdID, cancel)
 		goSafe("file_hash", env.Cancel, func() {
-			if err := HandleFileHash(ctx, env, cmdID, path, algorithm); err != nil && err != context.Canceled {
+			defer unregisterCommand(cmdID)
+			select {
+			case fileHashSlots <- struct{}{}:
+				defer func() { <-fileHashSlots }()
+			case <-hashCtx.Done():
+				return
+			}
+			if err := HandleFileHash(hashCtx, env, cmdID, path, algorithm); err != nil && err != context.Canceled {
 				log.Printf("file_hash error: %v", err)
 			}
 		})

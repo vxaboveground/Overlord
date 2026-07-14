@@ -9,6 +9,7 @@ import {
   escapeHtml,
   formatBytes,
   getFileExt,
+  getHighlightLanguage,
   getParentPath,
   isPreviewable,
   shouldShowParentDirectory,
@@ -140,7 +141,8 @@ function updateStatus(state, text) {
     disconnected: '<i class="fa-solid fa-circle text-slate-500"></i>',
   };
 
-  statusEl.innerHTML = `${icons[state] || icons.disconnected} ${text}`;
+  statusEl.innerHTML = icons[state] || icons.disconnected;
+  statusEl.appendChild(document.createTextNode(` ${String(text ?? "")}`));
   const stateClasses = {
     connected: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
     error: "bg-red-500/10 text-red-300 border-red-500/30",
@@ -662,6 +664,28 @@ const THUMBNAIL_EXTS = new Set([
 // key → { blobUrl?: string, failed?: boolean, pending?: boolean }
 const iconCache = new Map();
 const thumbCache = new Map();
+const MAX_ICON_CACHE_ENTRIES = 256;
+const MAX_THUMB_CACHE_ENTRIES = 128;
+
+function trimBlobCache(cache, maxEntries) {
+  while (cache.size > maxEntries) {
+    const oldestKey = cache.keys().next().value;
+    const entry = cache.get(oldestKey);
+    if (entry?.blobUrl) URL.revokeObjectURL(entry.blobUrl);
+    cache.delete(oldestKey);
+  }
+}
+
+function clearBlobCaches() {
+  for (const cache of [iconCache, thumbCache]) {
+    for (const entry of cache.values()) {
+      if (entry?.blobUrl) URL.revokeObjectURL(entry.blobUrl);
+    }
+    cache.clear();
+  }
+}
+
+window.addEventListener("pagehide", clearBlobCaches, { once: true });
 
 // Queues + batching
 const iconQueue = []; // {key, path?, ext?}
@@ -743,8 +767,14 @@ function flushThumbQueue() {
 function requestIconFor(entry) {
   const key = iconCacheKey(entry);
   if (!key) return null;
-  if (iconCache.has(key)) return key;
+  if (iconCache.has(key)) {
+    const cached = iconCache.get(key);
+    iconCache.delete(key);
+    iconCache.set(key, cached);
+    return key;
+  }
   iconCache.set(key, { pending: true });
+  trimBlobCache(iconCache, MAX_ICON_CACHE_ENTRIES);
   const item = { key };
   if (key.startsWith("path:")) {
     item.path = entry.path;
@@ -761,8 +791,14 @@ function requestIconFor(entry) {
 function requestThumbFor(entry) {
   const key = thumbCacheKey(entry);
   if (!key) return null;
-  if (thumbCache.has(key)) return key;
+  if (thumbCache.has(key)) {
+    const cached = thumbCache.get(key);
+    thumbCache.delete(key);
+    thumbCache.set(key, cached);
+    return key;
+  }
   thumbCache.set(key, { pending: true });
+  trimBlobCache(thumbCache, MAX_THUMB_CACHE_ENTRIES);
   thumbQueue.push({ key, path: entry.path, size: THUMB_EDGE });
   scheduleThumbFlush();
   return key;
@@ -776,12 +812,15 @@ function handleFileIconResult(msg) {
     const entry = iconCache.get(item.key) || {};
     entry.pending = false;
     if (item.png && item.png.length > 0) {
+      if (entry.blobUrl) URL.revokeObjectURL(entry.blobUrl);
       const blob = new Blob([item.png], { type: "image/png" });
       entry.blobUrl = URL.createObjectURL(blob);
     } else {
       entry.failed = true;
     }
+    iconCache.delete(item.key);
     iconCache.set(item.key, entry);
+    trimBlobCache(iconCache, MAX_ICON_CACHE_ENTRIES);
     applyIconToDom(item.key, entry);
   }
 }
@@ -796,6 +835,7 @@ function handleFileThumbResult(msg) {
     const entry = thumbCache.get(item.key) || {};
     entry.pending = false;
     if (item.jpeg && item.jpeg.length > 0) {
+      if (entry.blobUrl) URL.revokeObjectURL(entry.blobUrl);
       const blob = new Blob([item.jpeg], { type: "image/jpeg" });
       entry.blobUrl = URL.createObjectURL(blob);
       entry.w = item.w || 0;
@@ -803,7 +843,9 @@ function handleFileThumbResult(msg) {
     } else {
       entry.failed = true;
     }
+    thumbCache.delete(item.key);
     thumbCache.set(item.key, entry);
+    trimBlobCache(thumbCache, MAX_THUMB_CACHE_ENTRIES);
     applyThumbToDom(item.key, entry);
   }
 }
@@ -2120,13 +2162,18 @@ function showProgressNotification(commandId, message, path) {
         <i class="fa-solid fa-file-zipper text-blue-400"></i>
         <span class="font-semibold text-slate-200">Zipping Directory</span>
       </div>
-      <button class="text-slate-400 hover:text-red-400 transition-colors" data-command-id="${escapeHtml(commandId)}" onclick="cancelZipOperation(this.dataset.commandId)">
+      <button class="cancel-zip-operation text-slate-400 hover:text-red-400 transition-colors" data-command-id="${escapeHtml(commandId)}">
         <i class="fa-solid fa-xmark"></i>
       </button>
     </div>
     <div class="text-sm text-slate-400 mb-2" id="progress-message-${escapeHtml(commandId)}">${escapeHtml(message)}</div>
     <div class="text-xs text-slate-500 truncate" title="${escapeHtml(path)}">${escapeHtml(path)}</div>
   `;
+
+  notification.querySelector(".cancel-zip-operation")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    cancelZipOperation(commandId);
+  });
 
   document.body.appendChild(notification);
   activeProgressNotifications.set(commandId, notification);
@@ -3375,7 +3422,8 @@ function handleFileSearchResult(msg) {
       "file-item px-4 py-3 border border-slate-700 rounded cursor-pointer hover:bg-slate-800/50 mb-2";
 
     const fileName = result.path.split(/[\/\\]/).pop();
-    const lineInfo = result.line ? ` (line ${result.line})` : "";
+    const lineNumber = Number(result.line);
+    const lineInfo = Number.isSafeInteger(lineNumber) && lineNumber > 0 ? ` (line ${lineNumber})` : "";
     const matchPreview = result.match
       ? `<div class="text-xs text-slate-500 mt-1 font-mono">${escapeHtml(result.match.substring(0, 100))}</div>`
       : "";
@@ -3390,11 +3438,16 @@ function handleFileSearchResult(msg) {
           <div class="text-xs text-slate-400">${escapeHtml(result.path)}</div>
           ${matchPreview}
         </div>
-        <button class="px-2 py-1 rounded hover:bg-slate-700" onclick="event.stopPropagation(); downloadFile('${escapeHtml(result.path)}')">
+        <button class="search-result-download px-2 py-1 rounded hover:bg-slate-700">
           <i class="fa-solid fa-download"></i>
         </button>
       </div>
     `;
+
+    row.querySelector(".search-result-download")?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      downloadFile(String(result.path || ""));
+    });
 
     row.onclick = async () => {
       const resultName = result.path.split(/[\/\\]/).pop() || "";
@@ -3507,48 +3560,23 @@ function closeEditor() {
 
 function applySyntaxHighlighting() {
   const code = editorTextarea.value;
+  const MAX_HIGHLIGHT_CHARS = 512 * 1024;
+  const displayedCode = code.length > MAX_HIGHLIGHT_CHARS
+    ? `${code.slice(0, MAX_HIGHLIGHT_CHARS)}\n\n[Syntax preview truncated for performance]`
+    : code;
   const codeElement = document.getElementById("editor-code");
   const fileName = currentEditingFile?.split(/[/\\\\]/).pop() || "";
-
-  const ext = fileName.split(".").pop()?.toLowerCase();
-  const languageMap = {
-    js: "javascript",
-    jsx: "javascript",
-    ts: "typescript",
-    tsx: "typescript",
-    py: "python",
-    rb: "ruby",
-    java: "java",
-    cpp: "cpp",
-    c: "c",
-    cs: "csharp",
-    php: "php",
-    go: "go",
-    rs: "rust",
-    sh: "bash",
-    bash: "bash",
-    bat: "powershell",
-    cmd: "powershell",
-    ps1: "powershell",
-    json: "json",
-    xml: "xml",
-    html: "html",
-    css: "css",
-    scss: "scss",
-    sql: "sql",
-    yaml: "yaml",
-    yml: "yaml",
-    md: "markdown",
-    txt: "plaintext",
-  };
-
-  const language = languageMap[ext] || "plaintext";
-  codeElement.className = `language-${language}`;
-  codeElement.textContent = code;
+  const requestedLanguage = getHighlightLanguage(fileName);
+  const language = window.hljs?.getLanguage(requestedLanguage) ? requestedLanguage : "plaintext";
+  codeElement.className = language === "plaintext" ? "hljs" : `language-${language}`;
+  codeElement.textContent = displayedCode;
+  if (code.length > MAX_HIGHLIGHT_CHARS) {
+    editorStatus.textContent = `Ready — syntax preview limited to ${Math.round(MAX_HIGHLIGHT_CHARS / 1024)} KB`;
+  }
 
   delete codeElement.dataset.highlighted;
 
-  if (window.hljs) {
+  if (window.hljs && language !== "plaintext") {
     hljs.highlightElement(codeElement);
   }
 }
