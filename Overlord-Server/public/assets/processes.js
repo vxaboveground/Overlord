@@ -28,7 +28,7 @@ const searchInput = document.getElementById("search-input");
 const clientIdHeader = document.getElementById("client-id-header");
 
 if (clientIdHeader) {
-  clientIdHeader.textContent = `${clientId} - Process Manager`;
+  clientIdHeader.innerHTML = `<i class="fa-solid fa-microchip mr-1.5 text-sky-400"></i>${escapeHtml(clientId)}`;
 }
 
 function connect() {
@@ -76,10 +76,13 @@ function updateStatus(state, text) {
   };
 
   statusEl.innerHTML = `${icons[state] || icons.disconnected} ${text}`;
-  statusEl.className =
-    state === "connected"
-      ? "inline-flex items-center gap-2 px-3 py-2 rounded-full bg-green-900/40 text-green-100 border border-green-700/60"
-      : "inline-flex items-center gap-2 px-3 py-2 rounded-full bg-slate-800 text-slate-300";
+  const stateClasses = {
+    connected: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
+    error: "bg-red-500/10 text-red-300 border-red-500/30",
+    disconnected: "bg-slate-800 text-slate-300 border-slate-700",
+    connecting: "bg-sky-500/10 text-sky-300 border-sky-500/30",
+  };
+  statusEl.className = `inline-flex self-start sm:self-auto items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium ${stateClasses[state] || stateClasses.disconnected}`;
 }
 
 function enableControls(enabled) {
@@ -280,7 +283,7 @@ function renderProcesses() {
 
 function rowClassName(proc) {
   let cls =
-    "process-row grid grid-cols-12 gap-3 px-4 py-3 border border-transparent cursor-pointer transition-colors";
+    "process-row grid grid-cols-12 gap-3 px-4 py-3 border-l-2 border-transparent cursor-pointer transition-colors";
   if (selectedPid === proc.pid) cls += " selected";
   if (proc.self) cls += " self-process";
   return cls;
@@ -356,14 +359,14 @@ function rowInnerHtml(proc, depth) {
     : "";
 
   return `
-    <div class="col-span-1 text-sm font-mono text-slate-400">${proc.pid}</div>
-    <div class="col-span-4 flex items-center gap-1 truncate">
+    <div class="process-cell process-pid col-span-1 text-sm font-mono text-slate-400" data-label="PID">${proc.pid}</div>
+    <div class="process-cell process-name col-span-4 flex items-center gap-1 truncate">
       ${indent}${treeIcon}${procIcon}
       <span class="truncate ${nameColor}">${escapeHtml(proc.name)}</span>${selfBadge}
     </div>
-    <div class="col-span-2 text-sm ${cpuColor} font-semibold">${displayCpu.toFixed(1)}%</div>
-    <div class="col-span-2 text-sm ${memColor}">${memoryStr}</div>
-    <div class="col-span-3 text-sm text-slate-500 truncate">${escapeHtml(proc.username || "-")}</div>
+    <div class="process-cell process-cpu col-span-2 text-sm ${cpuColor} font-semibold" data-label="CPU">${displayCpu.toFixed(1)}%</div>
+    <div class="process-cell process-memory col-span-2 text-sm ${memColor}" data-label="Memory">${memoryStr}</div>
+    <div class="process-cell process-user col-span-3 text-sm text-slate-500 truncate" data-label="User">${escapeHtml(proc.username || "-")}</div>
   `;
 }
 

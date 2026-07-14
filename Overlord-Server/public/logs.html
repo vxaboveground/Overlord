@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="/vendor/inter/400.css" />
     <link rel="stylesheet" href="/vendor/inter/600.css" />
     <link rel="stylesheet" href="/vendor/inter/700.css" />
-<link rel="stylesheet" href="/assets/tailwind.css" />
+    <link rel="stylesheet" href="/assets/tailwind.css" />
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
     <link rel="icon" type="image/x-icon" href="/assets/favicon.ico" />
     <link rel="stylesheet" href="/assets/main.css" />
@@ -20,109 +20,112 @@
   <body class="min-h-screen bg-slate-950 text-slate-100">
     <header id="top-nav"></header>
 
-    <main class="px-5 py-6">
-      <div class="max-w-7xl mx-auto flex flex-col gap-6">
-        <div class="flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <h1 class="text-2xl font-semibold">Client Connection Logs</h1>
-            <p class="text-slate-400">
-              Track first connects, reconnects, uninstalls, and disconnects.
-            </p>
+    <main class="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div class="mb-6 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold text-slate-100">Client Connection Logs</h1>
+          <p class="text-slate-400 text-sm mt-1">Review connection lifecycle activity across enrolled clients.</p>
+        </div>
+        <div class="inline-flex self-start sm:self-auto items-center gap-2 px-3 py-1.5 rounded-full border border-slate-700 bg-slate-900/60 text-xs text-slate-400">
+          <i class="fa-solid fa-clock-rotate-left text-indigo-400"></i>
+          Updated <span id="last-update" class="text-slate-200">Never</span>
+        </div>
+      </div>
+
+      <section class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 sm:p-5 mb-6 space-y-4">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-500/10 border border-indigo-500/30">
+            <i class="fa-solid fa-filter text-indigo-400"></i>
           </div>
-          <div class="text-sm text-slate-400">
-            Updated: <span id="last-update">Never</span>
+          <div>
+            <h2 class="text-base font-semibold">Filter activity</h2>
+            <p class="text-xs text-slate-400">Narrow results by client, time range, or event type.</p>
           </div>
         </div>
 
-        <section class="bg-slate-900/70 border border-slate-800 rounded-lg p-4">
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div class="flex flex-col gap-2">
-              <label class="text-xs text-slate-400" for="client-filter">
-                Client ID
-              </label>
-              <input
-                id="client-filter"
-                type="text"
-                placeholder="Search client id"
-                class="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-100"
-              />
-            </div>
-            <div class="flex flex-col gap-2">
-              <label class="text-xs text-slate-400" for="start-date">
-                Start
-              </label>
-              <input
-                id="start-date"
-                type="datetime-local"
-                class="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-100"
-              />
-            </div>
-            <div class="flex flex-col gap-2">
-              <label class="text-xs text-slate-400" for="end-date">
-                End
-              </label>
-              <input
-                id="end-date"
-                type="datetime-local"
-                class="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-100"
-              />
-            </div>
-            <div class="flex items-end gap-2">
-              <button
-                id="refresh-btn"
-                class="px-4 py-2 rounded-lg bg-indigo-600/70 hover:bg-indigo-600 border border-indigo-500 text-indigo-100"
-              >
-                <i class="fa-solid fa-rotate"></i> Refresh
-              </button>
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+          <div class="xl:col-span-2">
+            <label class="block text-xs font-medium text-slate-400 mb-1.5" for="client-filter">Client ID</label>
+            <div class="relative">
+              <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"></i>
+              <input id="client-filter" type="search" placeholder="Search by client ID"
+                class="w-full pl-10 pr-3 py-2.5 rounded-lg bg-slate-950/70 border border-slate-700 text-slate-100 placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/60 focus:border-indigo-500" />
             </div>
           </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1.5" for="start-date">From</label>
+            <input id="start-date" type="datetime-local"
+              class="w-full px-3 py-2.5 rounded-lg bg-slate-950/70 border border-slate-700 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/60 focus:border-indigo-500" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1.5" for="end-date">To</label>
+            <input id="end-date" type="datetime-local"
+              class="w-full px-3 py-2.5 rounded-lg bg-slate-950/70 border border-slate-700 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/60 focus:border-indigo-500" />
+          </div>
+        </div>
 
-          <div class="mt-4 flex flex-wrap gap-2" id="action-filters">
-            <label class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-950/70 border border-slate-800 text-sm">
-              <input type="checkbox" class="action-checkbox" value="client_first_connect" checked />
-              <span class="text-emerald-300">First Connect</span>
+        <div class="pt-4 border-t border-slate-800 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          <div id="action-filters" class="flex flex-wrap gap-2">
+            <label class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/5 border border-emerald-500/20 text-sm cursor-pointer hover:bg-emerald-500/10">
+              <input type="checkbox" class="action-checkbox accent-emerald-500" value="client_first_connect" checked />
+              <i class="fa-solid fa-plug-circle-bolt text-emerald-400"></i><span class="text-emerald-200">First connect</span>
             </label>
-            <label class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-950/70 border border-slate-800 text-sm">
-              <input type="checkbox" class="action-checkbox" value="client_reconnect" checked />
-              <span class="text-blue-300">Reconnect</span>
+            <label class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/5 border border-blue-500/20 text-sm cursor-pointer hover:bg-blue-500/10">
+              <input type="checkbox" class="action-checkbox accent-blue-500" value="client_reconnect" checked />
+              <i class="fa-solid fa-rotate text-blue-400"></i><span class="text-blue-200">Reconnect</span>
             </label>
-            <label class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-950/70 border border-slate-800 text-sm">
-              <input type="checkbox" class="action-checkbox" value="client_disconnect" checked />
-              <span class="text-orange-300">Disconnect</span>
+            <label class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-orange-500/5 border border-orange-500/20 text-sm cursor-pointer hover:bg-orange-500/10">
+              <input type="checkbox" class="action-checkbox accent-orange-500" value="client_disconnect" checked />
+              <i class="fa-solid fa-plug-circle-xmark text-orange-400"></i><span class="text-orange-200">Disconnect</span>
             </label>
-            <label class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-950/70 border border-slate-800 text-sm">
-              <input type="checkbox" class="action-checkbox" value="uninstall" checked />
-              <span class="text-rose-300">Uninstall</span>
+            <label class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-rose-500/5 border border-rose-500/20 text-sm cursor-pointer hover:bg-rose-500/10">
+              <input type="checkbox" class="action-checkbox accent-rose-500" value="uninstall" checked />
+              <i class="fa-solid fa-trash text-rose-400"></i><span class="text-rose-200">Uninstall</span>
             </label>
           </div>
-        </section>
-
-        <section class="bg-slate-900/70 border border-slate-800 rounded-lg p-4">
-          <div id="logs-container" class="space-y-3"></div>
-          <div
-            id="logs-empty"
-            class="hidden text-center text-slate-500 py-10"
-          >
-            <i class="fa-solid fa-inbox text-4xl mb-3"></i>
-            <p>No log entries found.</p>
-          </div>
-          <div class="mt-4 flex items-center justify-between text-sm">
-            <button
-              id="prev-page"
-              class="px-3 py-2 rounded-lg bg-slate-800/70 border border-slate-700 text-slate-200 disabled:opacity-40"
-            >
-              <i class="fa-solid fa-arrow-left"></i> Previous
+          <div class="flex gap-2">
+            <button id="clear-filters-btn" class="flex-1 lg:flex-none inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm">
+              <i class="fa-solid fa-filter-circle-xmark"></i> Reset
             </button>
-            <div id="page-info" class="text-slate-400">Page 1</div>
-            <button
-              id="next-page"
-              class="px-3 py-2 rounded-lg bg-slate-800/70 border border-slate-700 text-slate-200 disabled:opacity-40"
-            >
-              Next <i class="fa-solid fa-arrow-right"></i>
+            <button id="refresh-btn" class="flex-1 lg:flex-none inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 border border-indigo-500 text-white font-medium text-sm">
+              <i class="fa-solid fa-rotate"></i> Refresh
             </button>
           </div>
-        </section>
-      </div>
+        </div>
+      </section>
+
+      <section class="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
+        <div class="px-4 sm:px-5 py-4 border-b border-slate-800 flex items-center justify-between gap-3">
+          <div class="flex items-center gap-3">
+            <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-sky-500/10 border border-sky-500/30">
+              <i class="fa-solid fa-timeline text-sky-400"></i>
+            </div>
+            <div>
+              <h2 class="text-base font-semibold">Activity timeline</h2>
+              <p id="logs-count" class="text-xs text-slate-400">Loading events…</p>
+            </div>
+          </div>
+        </div>
+
+        <div id="logs-container" class="divide-y divide-slate-800/80"></div>
+        <div id="logs-empty" class="hidden text-center px-4 py-16">
+          <div class="mx-auto mb-3 flex items-center justify-center w-11 h-11 rounded-full bg-slate-800/70 text-slate-500">
+            <i class="fa-solid fa-inbox text-xl"></i>
+          </div>
+          <p class="text-sm font-medium text-slate-300">No matching activity</p>
+          <p class="text-xs text-slate-500 mt-1">Try widening the date range or resetting filters.</p>
+        </div>
+
+        <div class="px-4 sm:px-5 py-3 border-t border-slate-800 bg-slate-950/30 flex items-center justify-between gap-3 text-sm">
+          <button id="prev-page" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed">
+            <i class="fa-solid fa-arrow-left"></i><span class="hidden sm:inline">Previous</span>
+          </button>
+          <div id="page-info" class="text-xs text-slate-400">Page 1</div>
+          <button id="next-page" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed">
+            <span class="hidden sm:inline">Next</span><i class="fa-solid fa-arrow-right"></i>
+          </button>
+        </div>
+      </section>
     </main>
 
     <script type="module" src="/assets/nav.js"></script>
