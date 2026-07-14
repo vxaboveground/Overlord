@@ -4,7 +4,7 @@ package amfbridge
 
 /*
 #cgo CXXFLAGS: -std=c++17
-#cgo LDFLAGS: -lole32
+#cgo LDFLAGS: -static -static-libgcc -static-libstdc++ -lole32
 #include <stdlib.h>
 #include "bridge_windows.h"
 */
