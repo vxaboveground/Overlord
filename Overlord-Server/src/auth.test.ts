@@ -46,6 +46,40 @@ describe("auth token extraction", () => {
   });
 });
 
+describe("account onboarding", () => {
+  test("is pending for a new account and remains completed at the account level", async () => {
+    const username = `onboarding_${Date.now().toString(36)}`;
+    const created = await createUser(username, PASSWORD, "viewer", "test");
+    expect(created.success).toBe(true);
+
+    try {
+      const user = getUserById(created.userId!);
+      expect(user).toBeTruthy();
+      const token = await generateToken(user!);
+      const headers = { Cookie: `overlord_token=${token}` };
+
+      const meUrl = new URL("https://localhost/api/auth/me");
+      const before = await handleAuthRoutes(new Request(meUrl, { headers }), meUrl, mockServer);
+      expect(before?.status).toBe(200);
+      expect((await before!.json()).needsOnboarding).toBe(true);
+
+      const completeUrl = new URL("https://localhost/api/auth/onboarding/complete");
+      const completed = await handleAuthRoutes(
+        new Request(completeUrl, { method: "POST", headers }),
+        completeUrl,
+        mockServer,
+      );
+      expect(completed?.status).toBe(200);
+
+      const after = await handleAuthRoutes(new Request(meUrl, { headers }), meUrl, mockServer);
+      expect(after?.status).toBe(200);
+      expect((await after!.json()).needsOnboarding).toBe(false);
+    } finally {
+      deleteUser(created.userId!);
+    }
+  });
+});
+
 describe("login branding", () => {
   test("returns configured public login branding", async () => {
     const url = new URL("https://localhost/api/login/branding");

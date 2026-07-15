@@ -47,6 +47,7 @@ export function initializeUserSchema(): void {
       role TEXT NOT NULL CHECK(role IN ('admin', 'operator', 'viewer')),
       created_at INTEGER NOT NULL,
       last_login INTEGER,
+      onboarding_completed_at INTEGER,
       created_by TEXT,
       must_change_password INTEGER DEFAULT 0,
       client_scope TEXT NOT NULL DEFAULT 'none' CHECK(client_scope IN ('none', 'allowlist', 'denylist', 'all'))
@@ -227,6 +228,19 @@ export function initializeUserSchema(): void {
     {
       id: "014_users_keylog_archive_enabled",
       run: () => addColumnIfMissing("users", `keylog_archive_enabled INTEGER NOT NULL DEFAULT 0`),
+    },
+    {
+      id: "015_users_onboarding_completed_at",
+      run: () => {
+        addColumnIfMissing("users", `onboarding_completed_at INTEGER DEFAULT NULL`);
+        // Accounts that have already signed in predate onboarding and should not
+        // be prompted. Accounts with no login history remain eligible.
+        db.exec(`
+          UPDATE users
+          SET onboarding_completed_at = COALESCE(last_login, created_at)
+          WHERE onboarding_completed_at IS NULL AND last_login IS NOT NULL
+        `);
+      },
     },
   ];
 

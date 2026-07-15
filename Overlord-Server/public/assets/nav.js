@@ -18,6 +18,7 @@ import {
   setupTurboNavigation,
   turboVisit,
 } from "./turbo-navigation.js";
+import { showOnboardingIfNeeded } from "./onboarding.js";
 
 const host = document.getElementById("top-nav");
 if (host) {
@@ -165,6 +166,7 @@ if (host) {
       const user = await res.json();
       applyUserRoleUI(user, refs);
       applyThumbnailWallVisibility(user);
+      showOnboardingIfNeeded(user);
 
       if (user.role === "admin" || user.role === "operator") {
         try {

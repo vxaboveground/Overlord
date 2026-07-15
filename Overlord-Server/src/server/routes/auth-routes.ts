@@ -38,6 +38,7 @@ import {
   getUserMfaStatus,
   isMfaRequiredForUser,
   setUserMfaSecret,
+  completeUserOnboarding,
 } from "../../users";
 import { getUserPermissions, requirePermission } from "../../rbac";
 import { makeAuthCookie, makeAuthCookieClear } from "./auth-cookie";
@@ -505,6 +506,7 @@ export async function handleAuthRoutes(
         role: user.role,
         userId: user.userId,
         mustChangePassword: dbUser ? Boolean(dbUser.must_change_password) : false,
+        needsOnboarding: dbUser ? dbUser.onboarding_completed_at === null : false,
         canBuild: dbUser ? Boolean(dbUser.can_build) : false,
         telegramChatId: dbUser?.telegram_chat_id || "",
         inputArchiveEnabled: dbUser ? Boolean((dbUser as any).keylog_archive_enabled) : false,
@@ -515,6 +517,16 @@ export async function handleAuthRoutes(
         headers: { "Content-Type": "application/json" },
       },
     );
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/auth/onboarding/complete") {
+    const user = await authenticateRequest(req);
+    if (!user) {
+      return Response.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
+    completeUserOnboarding(user.userId);
+    return Response.json({ ok: true, needsOnboarding: false });
   }
 
   return null;
