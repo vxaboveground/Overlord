@@ -190,16 +190,20 @@ if (host) {
       }
 
       applyAdaptiveNavLayout();
+      return user;
     } catch (err) {
       console.error("Failed to load user:", err);
+      return null;
     }
   }
 
+  let currentUserPromise = Promise.resolve(null);
   if (refs.usernameDisplay && refs.roleBadge) {
-    loadCurrentUser();
+    currentUserPromise = loadCurrentUser();
   }
 
-  import("./chat-widget.js").then((chatWidget) => {
+  Promise.all([currentUserPromise, import("./chat-widget.js")]).then(([user, chatWidget]) => {
+    if (!user?.permissions?.includes("chat:write")) return;
     runWithoutPageTracking(() => {
       chatWidget.init();
 

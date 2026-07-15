@@ -75,6 +75,8 @@ plugins/extension/*
 
 # Runtime data
 Overlord-Server/data/
+Overlord-Server/test-results/
+Overlord-Server/playwright-report/
 
 # Release packaging output
 release/

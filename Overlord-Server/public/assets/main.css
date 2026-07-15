@@ -268,10 +268,6 @@ html {
   scrollbar-gutter: stable;
 }
 
-@view-transition {
-  navigation: auto;
-}
-
 body {
   margin: 0;
   min-height: 100vh;
@@ -4342,6 +4338,9 @@ body.sb-collapsed .sb-collapse-btn i {
   position: relative;
   transition: background 0.14s, color 0.14s;
 }
+.sb-link.hidden {
+  display: none;
+}
 .sb-link:hover {
   background: rgba(255, 255, 255, 0.06);
   color: #e2e8f0;
@@ -4825,6 +4824,9 @@ body.topbar-compact #role-badge {
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.nav-dd-group-btn.hidden {
+  display: none;
 }
 .nav-dd-group-btn:hover {
   background: rgba(51, 65, 85, 0.7);
