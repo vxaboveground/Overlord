@@ -514,7 +514,10 @@ export async function handleAuthRoutes(
         permissions,
       }),
       {
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store, private",
+        },
       },
     );
   }
@@ -526,7 +529,21 @@ export async function handleAuthRoutes(
     }
 
     completeUserOnboarding(user.userId);
-    return Response.json({ ok: true, needsOnboarding: false });
+    const dbUser = getUserById(user.userId);
+    if (!dbUser || dbUser.onboarding_completed_at === null) {
+      return Response.json(
+        { error: "Could not save onboarding status" },
+        {
+          status: 500,
+          headers: { "Cache-Control": "no-store, private" },
+        },
+      );
+    }
+
+    return Response.json(
+      { ok: true, needsOnboarding: false },
+      { headers: { "Cache-Control": "no-store, private" } },
+    );
   }
 
   return null;

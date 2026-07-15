@@ -159,7 +159,10 @@ if (host) {
 
   async function loadCurrentUser() {
     try {
-      const res = await fetch("/api/auth/me", { credentials: "include" });
+      const res = await fetch("/api/auth/me", {
+        credentials: "include",
+        cache: "no-store",
+      });
       if (!res.ok) {
         return;
       }

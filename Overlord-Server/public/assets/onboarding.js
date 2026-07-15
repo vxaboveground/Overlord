@@ -119,6 +119,7 @@ export function showOnboardingIfNeeded(user) {
       const response = await fetch("/api/auth/onboarding/complete", {
         method: "POST",
         credentials: "include",
+        cache: "no-store",
       });
       if (!response.ok) throw new Error("Could not save your onboarding status.");
       overlay.remove();

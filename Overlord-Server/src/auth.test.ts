@@ -61,6 +61,7 @@ describe("account onboarding", () => {
       const meUrl = new URL("https://localhost/api/auth/me");
       const before = await handleAuthRoutes(new Request(meUrl, { headers }), meUrl, mockServer);
       expect(before?.status).toBe(200);
+      expect(before?.headers.get("cache-control")).toContain("no-store");
       expect((await before!.json()).needsOnboarding).toBe(true);
 
       const completeUrl = new URL("https://localhost/api/auth/onboarding/complete");
@@ -70,10 +71,19 @@ describe("account onboarding", () => {
         mockServer,
       );
       expect(completed?.status).toBe(200);
+      expect(completed?.headers.get("cache-control")).toContain("no-store");
 
       const after = await handleAuthRoutes(new Request(meUrl, { headers }), meUrl, mockServer);
       expect(after?.status).toBe(200);
       expect((await after!.json()).needsOnboarding).toBe(false);
+
+      const repeated = await handleAuthRoutes(
+        new Request(completeUrl, { method: "POST", headers }),
+        completeUrl,
+        mockServer,
+      );
+      expect(repeated?.status).toBe(200);
+      expect((await repeated!.json()).needsOnboarding).toBe(false);
     } finally {
       deleteUser(created.userId!);
     }
