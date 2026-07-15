@@ -79,11 +79,7 @@ test.describe("authentication and authorization", () => {
 });
 
 test("admin page sweep loads without browser errors", async ({ page }) => {
-  // This test validates each page's static/HTTP initialization. Opening two
-  // long-lived sockets for every rapid hard navigation would only exercise the
-  // server's WebSocket rate limiter; socket lifecycle is covered separately.
-  await page.routeWebSocket(/.*/, (socket) => socket.close());
-  const issues = collectBrowserIssues(page);
+  test.setTimeout(60_000);
   await login(page);
 
   const routes = [
@@ -104,13 +100,22 @@ test("admin page sweep loads without browser errors", async ({ page }) => {
     ["/purgatory", "#enrollment-table"],
   ] as const;
 
-  for (const [path, selector] of routes) {
-    const response = await page.goto(path);
-    expect(response?.status(), `${path} should return 200`).toBe(200);
-    await expect(page.locator("#top-nav"), `${path} should mount navigation`).toBeVisible();
-    await expect(page.locator(selector).first(), `${path} should render ${selector}`).toBeVisible();
-    await page.waitForTimeout(250);
-  }
+  const context = page.context();
+  await page.close();
 
-  expect(issues).toEqual([]);
+  for (const [path, selector] of routes) {
+    const routePage = await context.newPage();
+    // This sweep validates static/HTTP initialization. Opening two long-lived
+    // sockets per page would only exercise the server's WebSocket rate limiter;
+    // socket lifecycle is covered by the Turbo navigation test.
+    await routePage.routeWebSocket(/.*/, (socket) => socket.close());
+    const issues = collectBrowserIssues(routePage);
+    const response = await routePage.goto(path);
+    expect(response?.status(), `${path} should return 200`).toBe(200);
+    await expect(routePage.locator("#top-nav"), `${path} should mount navigation`).toBeVisible();
+    await expect(routePage.locator(selector).first(), `${path} should render ${selector}`).toBeVisible();
+    await routePage.waitForTimeout(250);
+    expect(issues, `${path} should not log browser errors`).toEqual([]);
+    await routePage.close();
+  }
 });

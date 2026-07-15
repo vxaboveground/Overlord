@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "test": "bun run scripts/run-tests-isolated.ts",
-    "test:e2e": "playwright test",
+    "test:e2e": "bun run test:e2e:prepare && playwright test",
+    "test:e2e:prepare": "bun run build:css && bun run vendor",
     "test:e2e:install": "playwright install chromium",
     "dev": "bun --watch src/index.ts",
     "start": "bun run build && bun dist/index.js",
