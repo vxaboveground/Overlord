@@ -85,6 +85,7 @@ let defaultWebhookTemplate = "";
 let defaultTelegramTemplate = "";
 let webhookTemplateEditor = null;
 let notificationTable = null;
+let notificationTableReady = false;
 let pageActive = true;
 const subscriptionCleanups = [];
 
@@ -102,6 +103,7 @@ async function initWebhookTemplateEditor() {
   if (!webhookTemplateInput) return;
   try {
     const monaco = await loadMonaco();
+    if (!pageActive || !webhookTemplateInput.isConnected) return;
     const host = document.createElement("div");
     host.className = "w-full rounded-lg border border-slate-800 overflow-hidden";
     host.style.height = "180px";
@@ -344,7 +346,7 @@ function applyTableView() {
   const filtered = q ? all.filter((entry) => entryMatchesSearch(entry, q)) : all;
   filtered.sort(compareEntries);
   const rows = filtered.map(entryToRow);
-  if (notificationTable && tableEl?.isConnected) {
+  if (notificationTable && notificationTableReady && tableEl?.isConnected) {
     void notificationTable.replaceData(rows).catch((err) => {
       if (pageActive) console.error("Failed to update notification table:", err);
     });
@@ -481,7 +483,7 @@ function previewFormatter(cell) {
       const url = `/api/notifications/${encodeURIComponent(notificationId)}/screenshot?ts=${Date.now()}`;
       const res = await fetch(url, { cache: "no-store" });
       if (!res.ok) {
-        if (res.status === 404 && attempts < maxAttempts) {
+        if ((res.status === 202 || res.status === 404) && attempts < maxAttempts) {
           setTimeout(fetchPreview, 1000 * attempts);
           return;
         }
@@ -568,7 +570,7 @@ function createNotificationRowElement(item, isLive) {
           const url = `/api/notifications/${encodeURIComponent(notificationId)}/screenshot?ts=${Date.now()}`;
           const res = await fetch(url, { cache: "no-store" });
           if (!res.ok) {
-            if (res.status === 404 && attempts < maxAttempts) {
+            if ((res.status === 202 || res.status === 404) && attempts < maxAttempts) {
               setTimeout(fetchPreview, 1000 * attempts);
               return;
             }
@@ -909,7 +911,7 @@ function connect() {
 
   subscriptionCleanups.push(subscribeReady((history) => {
     if (!pageActive) return;
-    clearTable();
+    tableState.entries.clear();
     for (const item of history) {
       upsertEntry(item, "notification", false);
     }
@@ -1085,6 +1087,7 @@ function wireTableControls() {
 
 function initNotificationTable() {
   if (!tableEl) return;
+  notificationTableReady = false;
   notificationTable = new Tabulator(tableEl, {
     data: [],
     height: "24rem",
@@ -1156,6 +1159,11 @@ function initNotificationTable() {
       },
     ],
   });
+  notificationTable.on("tableBuilt", () => {
+    if (!pageActive || !tableEl.isConnected) return;
+    notificationTableReady = true;
+    applyTableView();
+  });
 }
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
@@ -1177,6 +1185,7 @@ connect();
 
 window.addEventListener("pagehide", () => {
   pageActive = false;
+  notificationTableReady = false;
   for (const unsubscribe of subscriptionCleanups.splice(0)) unsubscribe();
   webhookTemplateEditor?.dispose?.();
   webhookTemplateEditor = null;

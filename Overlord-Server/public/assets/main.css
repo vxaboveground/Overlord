@@ -5134,6 +5134,122 @@ body.sb-ready.nav-hidden #nav-reveal-btn {
   opacity: 1;
 }
 
+.plugins-layout,
+.plugin-panel,
+#plugin-list,
+.plugin-card,
+.plugin-card-meta,
+.plugin-card-title,
+.plugin-card-subtitle,
+.plugin-card-actions,
+.trusted-key-row {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.plugin-panel {
+  overflow: hidden;
+}
+
+.plugin-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px 16px;
+}
+
+.plugin-card-title,
+.plugin-card-actions {
+  flex-wrap: wrap;
+}
+
+.plugin-card-subtitle,
+.plugin-card-meta .font-mono,
+.plugin-modal-panel .font-mono {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.plugin-card-actions {
+  justify-content: flex-end;
+}
+
+.plugin-card-error {
+  grid-column: 1 / -1;
+  overflow-wrap: anywhere;
+}
+
+#trusted-key-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.trusted-key-row > .font-mono {
+  min-width: 0;
+}
+
+.plugin-modal {
+  overflow-y: auto;
+  padding: 16px 0;
+}
+
+.plugin-modal-panel {
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 32px);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+@media (max-width: 720px) {
+  .plugins-page {
+    padding-inline: 12px !important;
+  }
+
+  .plugin-panel {
+    padding: 16px !important;
+  }
+
+  .plugin-section-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .plugin-card {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .plugin-card-actions {
+    justify-content: flex-start;
+  }
+
+  .plugin-card-actions > button {
+    flex: 1 1 9rem;
+    justify-content: center;
+  }
+
+  #trusted-key-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #add-trusted-key-btn {
+    justify-content: center;
+    width: 100%;
+  }
+
+  .plugin-modal-panel {
+    padding: 18px !important;
+  }
+
+  .plugin-modal-actions {
+    flex-wrap: wrap;
+  }
+
+  .plugin-modal-actions > button {
+    flex: 1 1 9rem;
+  }
+}
+
 /* Keep dashboard controls below the app navigation while scrolling. */
 #top-nav,
 html.nav-pre-sidebar #top-nav,
@@ -5155,6 +5271,27 @@ body.sb-ready #top-nav {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* Hide the overview when its actual content column is too narrow for the
+   five-card GridStack layout (for example beside the desktop sidebar). */
+#clients-shell {
+  container-type: inline-size;
+}
+
+@container (max-width: 960px) {
+  #clients-shell > .dashboard-stats-shell {
+    display: none !important;
+  }
+}
+
+/* Viewport fallback for browsers without container-query support. */
+@supports not (container-type: inline-size) {
+  @media (max-width: 1100px) {
+    .dashboard-stats-shell {
+      display: none !important;
+    }
+  }
 }
 
 .dashboard-stats-bar {

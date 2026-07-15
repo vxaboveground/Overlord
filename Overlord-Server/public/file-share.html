@@ -42,7 +42,7 @@
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div data-controller="toggle">
                 <div class="flex items-center gap-1.5 mb-1">
-                  <label class="block text-sm font-medium text-slate-300">Password (optional)</label>
+                  <label for="upload-password" class="block text-sm font-medium text-slate-300">Password (optional)</label>
                   <button type="button" id="password-info-btn" data-action="toggle#toggle" aria-expanded="false" aria-controls="password-info-panel"
                     class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-700 hover:bg-slate-600 text-slate-400 hover:text-slate-200 text-xs transition-colors"
                     title="How to download with a password">
@@ -50,7 +50,7 @@
                   </button>
                 </div>
                 <div class="relative" data-controller="reveal">
-                  <input type="password" id="upload-password" placeholder="Leave empty for no password" data-reveal-target="input"
+                  <input type="password" id="upload-password" name="password" autocomplete="new-password" placeholder="Leave empty for no password" data-reveal-target="input"
                     class="w-full pr-10 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/50" />
                   <button type="button" data-action="reveal#toggle" aria-label="Show value" aria-pressed="false" class="absolute inset-y-0 right-0 px-3 text-slate-400 hover:text-slate-200">
                     <i class="fa-solid fa-eye" data-reveal-target="icon"></i>
@@ -124,16 +124,16 @@
 
     <!-- Edit Modal -->
     <div id="edit-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div class="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6">
+      <form id="edit-form" class="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6">
         <h3 class="text-lg font-semibold text-slate-100 mb-4">
           <i class="fa-solid fa-pen-to-square text-rose-400 mr-2"></i>Edit File Settings
         </h3>
         <input type="hidden" id="edit-file-id" />
         <div class="space-y-4">
           <div>
-            <label class="block text-sm font-medium text-slate-300 mb-1">Password</label>
+            <label for="edit-password" class="block text-sm font-medium text-slate-300 mb-1">Password</label>
             <div class="relative" data-controller="reveal">
-              <input type="password" id="edit-password" placeholder="Leave empty to remove password" data-reveal-target="input"
+              <input type="password" id="edit-password" name="password" autocomplete="new-password" placeholder="Leave empty to remove password" data-reveal-target="input"
                 class="w-full pr-10 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/50" />
               <button type="button" data-action="reveal#toggle" aria-label="Show value" aria-pressed="false" class="absolute inset-y-0 right-0 px-3 text-slate-400 hover:text-slate-200">
                 <i class="fa-solid fa-eye" data-reveal-target="icon"></i>
@@ -166,16 +166,16 @@
           </div>
         </div>
         <div class="flex justify-end gap-3 mt-6">
-          <button id="edit-cancel"
+          <button id="edit-cancel" type="button"
             class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm transition-colors">
             Cancel
           </button>
-          <button id="edit-save"
+          <button id="edit-save" type="submit"
             class="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-sm font-medium transition-colors">
             Save Changes
           </button>
         </div>
-      </div>
+      </form>
     </div>
 
     <script src="/assets/nav.js" type="module"></script>

@@ -218,7 +218,8 @@ editModal?.addEventListener("click", (e) => {
   if (e.target === editModal) editModal.classList.add("hidden");
 });
 
-document.getElementById("edit-save")?.addEventListener("click", async () => {
+document.getElementById("edit-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
   const fileId = editFileId.value;
   const body = {};
 

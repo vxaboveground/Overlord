@@ -45,7 +45,13 @@ export async function handleNotificationsConfigRoutes(
     const notificationId = decodeURIComponent(screenshotMatch[1]);
     const screenshot = deps.getNotificationScreenshot(notificationId);
     if (!screenshot) {
-      return new Response("Not found", { status: 404 });
+      return new Response(null, {
+        status: 202,
+        headers: {
+          "Cache-Control": "no-store, private",
+          "Retry-After": "1",
+        },
+      });
     }
 
     if (

@@ -138,7 +138,7 @@ async function prefetchClientPage(page) {
   const key = params.toString();
   if (pageCache.has(key)) return;
   try {
-    const res = await fetch(`/api/clients?${key}`);
+    const res = await fetch(`/api/clients?${key}`, { credentials: "include" });
     if (!res.ok) return;
     rememberPage(key, await res.json());
   } catch {}
@@ -169,7 +169,7 @@ export async function loadWithOptions(options = {}) {
       render(cached, { reorder, fromCache: true });
     }
 
-    const res = await fetch(`/api/clients?${cacheKey}`);
+    const res = await fetch(`/api/clients?${cacheKey}`, { credentials: "include" });
     if (!res.ok) throw new Error(`status ${res.status}`);
     const data = await res.json();
     lastClientData = data;

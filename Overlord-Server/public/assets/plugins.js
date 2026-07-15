@@ -126,11 +126,12 @@ function renderPlugins(plugins) {
     const card = document.createElement("div");
     card.className =
       isServerOnly
-        ? "rounded-xl border border-fuchsia-800/60 bg-fuchsia-950/20 px-4 py-3 flex items-center justify-between"
-        : "rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3 flex items-center justify-between";
+        ? "plugin-card rounded-xl border border-fuchsia-800/60 bg-fuchsia-950/20 px-4 py-3"
+        : "plugin-card rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3";
     const meta = document.createElement("div");
+    meta.className = "plugin-card-meta";
     const titleRow = document.createElement("div");
-    titleRow.className = "flex items-center gap-2";
+    titleRow.className = "plugin-card-title flex items-center gap-2";
     const title = document.createElement("span");
     title.className = "font-semibold";
     title.textContent = plugin.name || plugin.id;
@@ -166,7 +167,7 @@ function renderPlugins(plugins) {
     titleRow.appendChild(runtimeBadge);
 
     const subtitle = document.createElement("div");
-    subtitle.className = "text-sm text-slate-400";
+    subtitle.className = "plugin-card-subtitle text-sm text-slate-400";
     subtitle.textContent = `${plugin.id}${plugin.version ? ` • v${plugin.version}` : ""}`;
 
     if (plugin.signature?.fingerprint) {
@@ -218,7 +219,7 @@ function renderPlugins(plugins) {
       meta.appendChild(serverBox);
     }
     const actions = document.createElement("div");
-    actions.className = "flex items-center gap-2";
+    actions.className = "plugin-card-actions flex items-center gap-2";
 
     const toggle = document.createElement("button");
     toggle.className =
@@ -353,7 +354,7 @@ function renderPlugins(plugins) {
 
     if (plugin.lastError) {
       const errorRow = document.createElement("div");
-      errorRow.className = "mt-2 text-xs text-red-300";
+      errorRow.className = "plugin-card-error mt-2 text-xs text-red-300";
       errorRow.textContent = `Last error: ${plugin.lastError}`;
       card.appendChild(errorRow);
     }
@@ -382,9 +383,9 @@ function showNeedsApprovalModal(plugin, needs, needsHash, afterApprove) {
   const needLines = describeNeeds(needs);
   const overlay = document.createElement("div");
   overlay.id = "plugin-needs-approval-modal";
-  overlay.className = "fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm";
+  overlay.className = "plugin-modal fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm";
   overlay.innerHTML = `
-    <div class="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-lg w-full mx-4 shadow-2xl">
+    <div class="plugin-modal-panel bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-lg w-full mx-4 shadow-2xl">
       <div class="flex items-center gap-3 mb-4">
         <i class="fa-solid fa-key text-2xl text-amber-300"></i>
         <h3 class="text-lg font-semibold text-slate-100">Approve Plugin Needs</h3>
@@ -394,7 +395,7 @@ function showNeedsApprovalModal(plugin, needs, needsHash, afterApprove) {
         ${needLines.length ? needLines.map((line) => `<div class="text-xs font-mono text-slate-300">${escapeHtml(line)}</div>`).join("") : '<div class="text-sm text-slate-400">No filesystem needs declared.</div>'}
       </div>
       ${needsHash ? `<p class="text-xs text-slate-500 font-mono mb-4">Needs hash: ${escapeHtml(needsHash.slice(0, 16))}...</p>` : ""}
-      <div class="flex justify-end gap-2">
+      <div class="plugin-modal-actions flex justify-end gap-2">
         <button id="plugin-needs-cancel" class="px-4 py-2 rounded-lg bg-slate-800 border border-slate-600 text-slate-300 hover:bg-slate-700">Cancel</button>
         <button id="plugin-needs-ok" class="px-4 py-2 rounded-lg bg-amber-900/40 border border-amber-700/60 text-amber-100 hover:bg-amber-800/60">Approve</button>
       </div>
@@ -437,9 +438,9 @@ function showPluginEnableConfirmModal(plugin, sigInfo) {
 
   const overlay = document.createElement("div");
   overlay.id = "plugin-enable-confirm-modal";
-  overlay.className = "fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm";
+  overlay.className = "plugin-modal fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm";
   overlay.innerHTML = `
-    <div class="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl">
+    <div class="plugin-modal-panel bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl">
       <div class="flex items-center gap-3 mb-4">
         <i class="fa-solid fa-triangle-exclamation text-2xl ${statusColor}"></i>
         <h3 class="text-lg font-semibold text-slate-100">Enable Unverified Plugin</h3>
@@ -449,7 +450,7 @@ function showPluginEnableConfirmModal(plugin, sigInfo) {
       ${sig.fingerprint ? `<p class="text-xs text-slate-500 font-mono mb-3">Signer: ${sig.fingerprint}</p>` : '<p class="text-xs text-slate-500 mb-3">No signature present.</p>'}
       <p class="text-sm text-slate-400" style="margin-bottom: 16px;">Type <strong class="text-emerald-300">confirm</strong> below to enable this plugin:</p>
       <input type="text" id="plugin-enable-confirm-input" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-slate-100 text-sm focus:outline-none focus:border-emerald-500" style="margin-bottom: 16px;" placeholder="Type confirm" autocomplete="off" spellcheck="false" />
-      <div class="flex justify-end gap-2">
+      <div class="plugin-modal-actions flex justify-end gap-2">
         <button id="plugin-enable-confirm-cancel" class="px-4 py-2 rounded-lg bg-slate-800 border border-slate-600 text-slate-300 hover:bg-slate-700">Cancel</button>
         <button id="plugin-enable-confirm-ok" disabled class="px-4 py-2 rounded-lg bg-emerald-900/40 border border-emerald-700/60 text-emerald-100 opacity-50 cursor-not-allowed">Enable Anyway</button>
       </div>
@@ -587,7 +588,7 @@ function renderTrustedKeys(keys) {
   for (const key of keys) {
     const isBuiltin = _builtinKeys.includes(key);
     const row = document.createElement("div");
-    row.className = "flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-800 bg-slate-950/50";
+    row.className = "trusted-key-row flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-800 bg-slate-950/50";
     const fp = document.createElement("span");
     fp.className = "font-mono text-sm text-slate-300 flex-1 truncate";
     fp.textContent = key;

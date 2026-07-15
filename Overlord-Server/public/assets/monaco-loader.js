@@ -52,5 +52,8 @@ export function createMonacoEditorAdapter(editor, monaco) {
     focus() {
       editor.focus();
     },
+    dispose() {
+      editor.dispose();
+    },
   };
 }

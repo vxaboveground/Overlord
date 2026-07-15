@@ -17,14 +17,14 @@
   </head>
   <body class="min-h-screen bg-slate-950 text-slate-100">
     <header id="top-nav"></header>
-    <main class="px-5 py-6">
-      <div class="max-w-5xl mx-auto flex flex-col gap-5">
+    <main class="plugins-page px-5 py-6">
+      <div class="plugins-layout max-w-5xl mx-auto flex flex-col gap-5">
         <div>
           <h1 class="text-2xl font-semibold">Plugins</h1>
           <p class="text-slate-400">Upload zip bundles and manage client plugins or server extensions</p>
         </div>
 
-        <section class="rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
+        <section class="plugin-panel rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
           <div class="flex items-center justify-between gap-3 flex-wrap">
             <div>
               <h2 class="text-lg font-semibold">Upload</h2>
@@ -47,8 +47,8 @@
           <div id="upload-status" class="mt-3 text-sm text-slate-400"></div>
         </section>
 
-        <section class="rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
-          <div class="flex items-center justify-between">
+        <section class="plugin-panel rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
+          <div class="plugin-section-heading flex items-center justify-between gap-3">
             <h2 class="text-lg font-semibold">Installed plugins</h2>
             <button
               id="refresh-btn"
@@ -60,16 +60,16 @@
           <div id="plugin-list" class="mt-4 grid gap-3"></div>
         </section>
 
-        <section id="trusted-keys-section" class="hidden rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
+        <section id="trusted-keys-section" class="plugin-panel hidden rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
           <h2 class="text-lg font-semibold"><i class="fa-solid fa-key mr-2"></i>Trusted Signing Keys</h2>
           <p class="text-slate-400 text-sm mt-1">Plugins signed by a trusted key can be loaded without confirmation. Add key fingerprints (SHA-256 hex) here.</p>
           <div id="trusted-keys-list" class="mt-4 grid gap-2"></div>
-          <div class="mt-4 flex gap-2">
+          <div id="trusted-key-form" class="mt-4 flex gap-2">
             <input
               id="new-trusted-key-input"
               type="text"
               placeholder="Paste 64-char hex fingerprint…"
-              class="flex-1 px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-slate-100 font-mono text-sm placeholder-slate-500 focus:outline-none focus:border-emerald-600"
+              class="min-w-0 flex-1 px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-slate-100 font-mono text-sm placeholder-slate-500 focus:outline-none focus:border-emerald-600"
               maxlength="64"
             />
             <button
