@@ -593,6 +593,23 @@
                       </span>
                     </label>
 
+                    <div id="disable-cgo-warning" class="hidden p-4 bg-amber-950/40 border border-amber-600/60 rounded-lg text-amber-200">
+                      <div class="flex items-start gap-3">
+                        <i class="fa-solid fa-triangle-exclamation text-amber-400 mt-0.5"></i>
+                        <div class="min-w-0">
+                          <p class="text-sm font-semibold">CGO disabled — native features will be unavailable</p>
+                          <p class="mt-1 text-xs text-amber-200/80">The binary can still build, but features that depend on native platform libraries may be missing or fall back to limited implementations, including:</p>
+                          <ul class="mt-2 ml-4 list-disc text-xs text-amber-200/80 space-y-1">
+                            <li>Native voice/audio support</li>
+                            <li>macOS keystroke capture and native permission checks</li>
+                            <li>Native plugin loading on Linux and macOS</li>
+                            <li>Windows GPU encoder integrations such as NVENC, AMF, and QSV</li>
+                          </ul>
+                          <p class="mt-2 text-xs font-medium">Only disable CGO when portability is more important than full functionality.</p>
+                        </div>
+                      </div>
+                    </div>
+
                     <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-sky-500 transition-colors">
                       <input type="checkbox" name="no-printing" class="w-4 h-4" />
                       <div class="flex flex-col">

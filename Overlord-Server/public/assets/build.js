@@ -52,6 +52,8 @@ const macosSdkRightsInput = document.getElementById("macos-sdk-rights");
 const macosSdkFileStatus = document.getElementById("macos-sdk-file-status");
 const macosSdkHostWarning = document.getElementById("macos-sdk-host-warning");
 const macosSdkHostPlatform = document.getElementById("macos-sdk-host-platform");
+const disableCgoInput = document.querySelector('input[name="disable-cgo"]');
+const disableCgoWarning = document.getElementById("disable-cgo-warning");
 
 let currentServerVersion = null;
 let currentUserRole = null;
@@ -86,6 +88,10 @@ function updateMacosSdkVisibility() {
   const unsupportedHost = hasDarwin && cgoEnabled && !!macosSdkServerHost && macosSdkServerHost !== "linux" && macosSdkServerHost !== "darwin";
   macosSdkHostWarning?.classList.toggle("hidden", !unsupportedHost);
   if (macosSdkHostPlatform && unsupportedHost) macosSdkHostPlatform.textContent = macosSdkServerHost;
+}
+
+function updateDisableCgoWarning() {
+  disableCgoWarning?.classList.toggle("hidden", !disableCgoInput?.checked);
 }
 
 async function uploadMacosSdk() {
@@ -705,6 +711,8 @@ function applyFormSettings(settings) {
   updateIosSectionVisibility();
   updatePersistenceSettingsVisibility();
   updateShellcodeCheckboxVisibility();
+  updateDisableCgoWarning();
+  updateMacosSdkVisibility();
   if (solMemoCheckbox && solSettings) {
     solSettings.classList.toggle("hidden", !solMemoCheckbox.checked);
   }
@@ -955,6 +963,7 @@ loadBuildPlugins();
 loadMacosSdkStatus();
 updateWindowsSectionVisibility();
 updateShellcodeCheckboxVisibility();
+updateDisableCgoWarning();
 init();
 
 if (solMemoCheckbox && solSettings) {
@@ -1134,7 +1143,8 @@ platformInputs.forEach((input) => {
   input.addEventListener("change", updateMacosSdkVisibility);
 });
 
-document.querySelector('input[name="disable-cgo"]')?.addEventListener("change", updateMacosSdkVisibility);
+disableCgoInput?.addEventListener("change", updateMacosSdkVisibility);
+disableCgoInput?.addEventListener("change", updateDisableCgoWarning);
 macosSdkFileInput?.addEventListener("change", () => {
   const file = macosSdkFileInput.files?.[0];
   if (macosSdkFileStatus && file) macosSdkFileStatus.textContent = `${file.name} selected (${formatFileSize(file.size)}).`;
@@ -1800,6 +1810,13 @@ form?.addEventListener("submit", async (e) => {
 
   if (!validateStartupName()) {
     document.getElementById("startup-name")?.focus();
+    return;
+  }
+
+  if (disableCgoInput?.checked && !confirm(
+    "CGO is disabled. Native features such as voice/audio, macOS keystroke capture and permission checks, native Linux/macOS plugins, and Windows GPU encoder integrations may not work.\n\nContinue with a limited CGO-disabled build?"
+  )) {
+    disableCgoInput.focus();
     return;
   }
 
