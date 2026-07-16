@@ -407,11 +407,11 @@
                       </label>
                       <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-white transition-colors">
                         <input type="checkbox" name="platform" value="darwin-amd64" class="w-4 h-4" />
-                        <span><i class="fa-brands fa-apple text-slate-200"></i> macOS x64</span>
+                        <span><i class="fa-brands fa-apple text-slate-200"></i> macOS x64 <span class="text-[10px] text-slate-500">SDK upload</span></span>
                       </label>
                       <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-white transition-colors">
                         <input type="checkbox" name="platform" value="darwin-arm64" class="w-4 h-4" />
-                        <span><i class="fa-brands fa-apple text-slate-200"></i> macOS ARM64</span>
+                        <span><i class="fa-brands fa-apple text-slate-200"></i> macOS ARM64 <span class="text-[10px] text-slate-500">SDK upload</span></span>
                       </label>
                       <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-sky-500 transition-colors">
                         <input type="checkbox" name="platform" value="freebsd-amd64" class="w-4 h-4" />
@@ -441,6 +441,27 @@
                         <input type="checkbox" name="platform" value="ios-amd64" class="w-4 h-4" />
                         <span><i class="fa-brands fa-apple text-slate-200"></i> iOS Simulator x64</span>
                       </label>
+                    </div>
+
+                    <div id="macos-sdk-upload-section" class="hidden mt-3 p-4 bg-blue-950/30 border border-blue-700/60 rounded-lg">
+                      <div class="flex items-start gap-3">
+                        <i class="fa-brands fa-apple text-blue-300 mt-1"></i>
+                        <div class="min-w-0 flex-1">
+                          <label class="block text-sm font-medium text-slate-100" for="macos-sdk-file">Upload macOS SDK for CGO</label>
+                          <p class="text-xs text-slate-400 mt-1">This Linux/Docker server needs your SDK to compile the selected macOS target with CGO. The upload is used once and deleted after the build.</p>
+                          <input id="macos-sdk-file" type="file" accept=".tar,.tar.gz,.tgz,.tar.xz,.txz,application/x-tar,application/gzip,application/x-xz"
+                            class="mt-3 block w-full text-sm text-slate-300 file:mr-3 file:rounded file:border-0 file:bg-blue-700 file:px-3 file:py-2 file:text-white hover:file:bg-blue-600" />
+                          <p id="macos-sdk-file-status" class="text-xs text-slate-400 mt-1">Choose your <code>.tar.xz</code>, <code>.tar.gz</code>, or <code>.tar</code> archive (maximum 1 GB). It must contain <code>MacOSX*.sdk/System</code> and <code>MacOSX*.sdk/usr</code>.</p>
+                          <label class="mt-3 flex items-start gap-2 text-xs text-slate-300 cursor-pointer">
+                            <input id="macos-sdk-rights" type="checkbox" class="w-4 h-4 mt-0.5 shrink-0" />
+                            <span>I confirm that I obtained this SDK lawfully and have permission to use it for this build.</span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                    <div id="macos-sdk-host-warning" class="hidden mt-3 p-3 bg-amber-950/30 border border-amber-700/50 rounded-lg text-xs text-amber-300">
+                      <i class="fa-solid fa-triangle-exclamation mr-1"></i>
+                      SDK-assisted macOS CGO cross-compilation is available when the server runs on Linux/Docker. This server is running on <span id="macos-sdk-host-platform" class="font-mono"></span>.
                     </div>
                   </div>
                 </div>

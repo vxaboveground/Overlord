@@ -46,12 +46,69 @@ const platformInputs = document.querySelectorAll('input[name="platform"]');
 const buildPluginsSection = document.getElementById("build-plugins-section");
 const buildPluginsList = document.getElementById("build-plugins-list");
 const buildPluginsCount = document.getElementById("build-plugins-count");
+const macosSdkUploadSection = document.getElementById("macos-sdk-upload-section");
+const macosSdkFileInput = document.getElementById("macos-sdk-file");
+const macosSdkRightsInput = document.getElementById("macos-sdk-rights");
+const macosSdkFileStatus = document.getElementById("macos-sdk-file-status");
+const macosSdkHostWarning = document.getElementById("macos-sdk-host-warning");
+const macosSdkHostPlatform = document.getElementById("macos-sdk-host-platform");
 
 let currentServerVersion = null;
 let currentUserRole = null;
 let currentUsername = null;
 let showAllBuilds = false;
 let buildPlugins = [];
+let macosSdkRequiredForDarwinCgo = false;
+let macosSdkServerHost = null;
+
+async function loadMacosSdkStatus() {
+  try {
+    const res = await fetch("/api/build/macos-sdk/status", { credentials: "include" });
+    if (!res.ok) return;
+    const data = await res.json();
+    macosSdkRequiredForDarwinCgo = data.requiredForDarwinCgo === true;
+    macosSdkServerHost = typeof data.hostPlatform === "string" ? data.hostPlatform : null;
+  } catch {}
+  updateMacosSdkVisibility();
+}
+
+function needsMacosSdkUpload() {
+  const hasDarwin = Array.from(document.querySelectorAll('input[name="platform"]:checked'))
+    .some((input) => input.value.startsWith("darwin-"));
+  return macosSdkRequiredForDarwinCgo && hasDarwin && !document.querySelector('input[name="disable-cgo"]')?.checked;
+}
+
+function updateMacosSdkVisibility() {
+  const hasDarwin = Array.from(document.querySelectorAll('input[name="platform"]:checked'))
+    .some((input) => input.value.startsWith("darwin-"));
+  const cgoEnabled = !document.querySelector('input[name="disable-cgo"]')?.checked;
+  macosSdkUploadSection?.classList.toggle("hidden", !needsMacosSdkUpload());
+  const unsupportedHost = hasDarwin && cgoEnabled && !!macosSdkServerHost && macosSdkServerHost !== "linux" && macosSdkServerHost !== "darwin";
+  macosSdkHostWarning?.classList.toggle("hidden", !unsupportedHost);
+  if (macosSdkHostPlatform && unsupportedHost) macosSdkHostPlatform.textContent = macosSdkServerHost;
+}
+
+async function uploadMacosSdk() {
+  const file = macosSdkFileInput?.files?.[0];
+  if (!file) throw new Error("Select a macOS SDK archive for this Darwin CGO build");
+  if (!macosSdkRightsInput?.checked) throw new Error("Confirm that you have permission to use the uploaded macOS SDK");
+  if (file.size > 1024 * 1024 * 1024) throw new Error("macOS SDK archive exceeds the 1 GB limit");
+  if (macosSdkFileStatus) macosSdkFileStatus.textContent = `Uploading ${file.name} (${formatFileSize(file.size)})...`;
+  const res = await fetch("/api/build/macos-sdk/upload", {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "X-Overlord-Filename": encodeURIComponent(file.name),
+      "X-Overlord-Sdk-Rights": "confirmed",
+    },
+    body: file,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "macOS SDK upload failed");
+  if (macosSdkFileStatus) macosSdkFileStatus.textContent = `${file.name} uploaded; validating during the build.`;
+  return data.uploadId;
+}
 
 async function loadSolRpcEndpoints() {
   const field = document.getElementById("sol-rpc-endpoints");
@@ -895,6 +952,7 @@ restoreFormSettings();
 initAccordions();
 initBuilderTabs();
 loadBuildPlugins();
+loadMacosSdkStatus();
 updateWindowsSectionVisibility();
 updateShellcodeCheckboxVisibility();
 init();
@@ -1073,6 +1131,13 @@ platformInputs.forEach((input) => {
   input.addEventListener("change", updatePersistenceSettingsVisibility);
   input.addEventListener("change", updateWindowsSectionVisibility);
   input.addEventListener("change", updateIosSectionVisibility);
+  input.addEventListener("change", updateMacosSdkVisibility);
+});
+
+document.querySelector('input[name="disable-cgo"]')?.addEventListener("change", updateMacosSdkVisibility);
+macosSdkFileInput?.addEventListener("change", () => {
+  const file = macosSdkFileInput.files?.[0];
+  if (macosSdkFileStatus && file) macosSdkFileStatus.textContent = `${file.name} selected (${formatFileSize(file.size)}).`;
 });
 
 document.getElementById("startup-name")?.addEventListener("input", validateStartupName);
@@ -1738,6 +1803,14 @@ form?.addEventListener("submit", async (e) => {
     return;
   }
 
+  if (needsMacosSdkUpload() && (!macosSdkFileInput?.files?.[0] || !macosSdkRightsInput?.checked)) {
+    alert(!macosSdkFileInput?.files?.[0]
+      ? "Select a macOS SDK archive for this Darwin CGO build."
+      : "Confirm that you have permission to use the uploaded macOS SDK.");
+    macosSdkFileInput?.focus();
+    return;
+  }
+
   const rawServerList = form.querySelector("#raw-server-list")?.checked || false;
   const serverUrlRaw = form.querySelector("#server-url").value.trim();
   const serverUrl = rawServerList ? serverUrlRaw : stripServerUrlPrefix(serverUrlRaw);
@@ -1919,6 +1992,11 @@ async function startBuild(config) {
   addBuildOutput("Starting build process...\n", "info");
 
   try {
+    if (needsMacosSdkUpload()) {
+      buildStatusText.textContent = "Uploading macOS SDK...";
+      addBuildOutput("Uploading user-provided macOS SDK...\n", "info");
+      config.macosSdkUploadId = await uploadMacosSdk();
+    }
     const res = await fetch("/api/build/start", {
       method: "POST",
       headers: {

@@ -30,6 +30,7 @@ import { createUploadPull } from "../file-transfer-state";
 import { handleBuildProfileRoutes } from "./build-profile-routes";
 import { sanitizeInitialClientTag } from "../build-config-sanitize";
 import { getSolRpcEndpointUrls, normalizeSolRpcUrls } from "../../sol-rpc-endpoints";
+import { claimMacosSdkUpload, stageMacosSdkUpload } from "../macos-sdk-manager";
 
 type RequestIpProvider = {
   requestIP: (req: Request) => { address?: string } | null | undefined;
@@ -142,6 +143,25 @@ export async function handleBuildRoutes(
       return new Response("Unauthorized", { status: 401 });
     }
 
+    if (req.method === "GET" && url.pathname === "/api/build/macos-sdk/status") {
+      requirePermission(user, "clients:build");
+      return Response.json({
+        requiredForDarwinCgo: process.platform === "linux",
+        hostPlatform: process.platform,
+        maxArchiveBytes: 1024 * 1024 * 1024,
+      });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/build/macos-sdk/upload") {
+      requirePermission(user, "clients:build");
+      try {
+        const upload = await stageMacosSdkUpload(req, user.userId);
+        return Response.json({ uploadId: upload.id, filename: upload.filename, size: upload.size });
+      } catch (error: any) {
+        return Response.json({ error: error?.message || "Unable to upload macOS SDK" }, { status: 400 });
+      }
+    }
+
     if (req.method === "POST" && url.pathname === "/api/build/start") {
       requirePermission(user, "clients:build");
 
@@ -217,6 +237,7 @@ export async function handleBuildRoutes(
         uploadToFileShare,
         initialClientTag,
         buildPlugins,
+        macosSdkUploadId,
       } = body;
 
       if (!platforms || !Array.isArray(platforms) || platforms.length === 0) {
@@ -416,6 +437,7 @@ export async function handleBuildRoutes(
           { status: 400 },
         );
       }
+      const needsMacosSdk = hasDarwinTarget && !disableCgo && process.platform === "linux";
       if (safeOutputSgnTxt) {
         const hasSgnCapableTarget = allowedPlatforms.some((p) =>
           (!!useDonut && p.startsWith("windows-")) ||
@@ -554,6 +576,17 @@ export async function handleBuildRoutes(
         return Response.json({ error: pluginBuildResult.error }, { status: 400 });
       }
       safeBuildConfig.buildPlugins = pluginBuildResult.value;
+
+      if (needsMacosSdk) {
+        try {
+          const claimedMacosSdk = claimMacosSdkUpload(macosSdkUploadId, user.userId);
+          safeBuildConfig.macosSdkArchivePath = claimedMacosSdk.archivePath;
+          safeBuildConfig.macosSdkUploadDir = claimedMacosSdk.uploadDir;
+        } catch (error: any) {
+          if (rateLimitActive) recordBuildEnd(user.userId);
+          return Response.json({ error: error?.message || "A macOS SDK upload is required for Darwin CGO builds" }, { status: 400 });
+        }
+      }
 
       deps.startBuildProcess(buildId, safeBuildConfig).finally(() => {
         if (rateLimitActive) recordBuildEnd(user.userId);

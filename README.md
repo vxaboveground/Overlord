@@ -499,6 +499,12 @@ The compose setup uses a persistent volume for runtime client builds:
 - Mount: `/app/client-build-cache`
 - Env: `OVERLORD_CLIENT_BUILD_CACHE_DIR` (default `/app/client-build-cache`)
 
+### macOS CGO builds on Linux/Docker
+
+When a macOS target is selected with CGO enabled, the builder asks for a user-provided macOS SDK archive. Package the complete `MacOSX*.sdk` directory as `.tar.xz`, `.tar.gz`, `.tgz`, or `.tar` and upload it from the Build page. The archive must contain the SDK's `System/Library/Frameworks` and `usr` directories.
+
+The upload is limited to 1 GB, belongs to the authenticated user, can be used for only one build, and is deleted after the build. Unused uploads expire after one hour. The Docker image supplies Clang and LLD; Apple SDK files are never bundled or downloaded by Overlord.
+
 ### Certbot TLS
 
 To use Let's Encrypt certificates in production Docker:

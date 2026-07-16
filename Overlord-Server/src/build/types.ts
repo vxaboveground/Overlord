@@ -17,6 +17,7 @@ export type BuildConfig = {
   disableMutex?: boolean;
   stripDebug?: boolean;
   disableCgo?: boolean;
+  macosSdkUploadId?: string;
   enableNvenc?: boolean;
   enableAmf?: boolean;
   enableQsv?: boolean;
