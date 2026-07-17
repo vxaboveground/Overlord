@@ -23,7 +23,7 @@ export class P2PClient {
    * @param {(msg: object) => void} opts.send  Send a JSON-encodable msg over the viewer's WS.
    * @param {(state: string) => void} [opts.onState]
    * @param {(stats: object) => void} [opts.onStats]
-   * @param {string[]} [opts.iceServers]  STUN URLs. Default: Google public STUN.
+   * @param {RTCIceServer[]} [opts.iceServers] Optional explicit ICE configuration.
    */
   constructor(opts) {
     this.videoEl = opts.videoEl || null;
@@ -31,7 +31,7 @@ export class P2PClient {
     this.send = opts.send;
     this.onState = opts.onState || (() => {});
     this.onStats = opts.onStats || (() => {});
-    this.iceServers = opts.iceServers || ["stun:stun.l.google.com:19302"];
+    this.iceServers = Array.isArray(opts.iceServers) ? opts.iceServers : null;
     this.pc = null;
     this.pendingRemoteCandidates = [];
     this.statsSampler = null;
@@ -40,8 +40,9 @@ export class P2PClient {
   async start() {
     if (this.pc) await this.stop();
 
+    const iceServers = await this.resolveIceServers();
     const pc = new RTCPeerConnection({
-      iceServers: this.iceServers.map((u) => ({ urls: u })),
+      iceServers,
     });
     this.pc = pc;
     this.statsSampler = new WebRTCStatsSampler(pc, this.onStats);
@@ -79,6 +80,24 @@ export class P2PClient {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     this.send({ type: "webrtc_p2p_offer", sdp: pc.localDescription.sdp });
+  }
+
+  async resolveIceServers() {
+    if (this.iceServers) return this.iceServers;
+    const clientId = new URLSearchParams(window.location.search).get("clientId");
+    if (!clientId) return [];
+    try {
+      const response = await fetch(`/api/webrtc/ice-config?clientId=${encodeURIComponent(clientId)}`, {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const body = await response.json();
+      return Array.isArray(body?.iceServers) ? body.iceServers : [];
+    } catch (error) {
+      console.warn("p2p: failed to load self-hosted ICE configuration; using host candidates only", error);
+      return [];
+    }
   }
 
   /** Handle an SDP answer relayed from the agent. */

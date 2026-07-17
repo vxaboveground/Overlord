@@ -349,7 +349,7 @@ Output: `release/prod-package/`
 The remote desktop viewer has a **Transport** dropdown with three modes:
 
 - **Canvas** (default): H.264 / JPEG / block frames over the existing WebSocket, decoded into a `<canvas>`. Highest latency, works anywhere the WS does.
-- **WebRTC P2P**: browser ↔ agent direct. The server only relays SDP and ICE candidates over the existing WS — MediaMTX is not involved. Lowest latency. Fails when both sides are behind aggressive symmetric NAT.
+- **WebRTC P2P**: browser ↔ agent direct when possible, with the bundled Coturn server as a fallback for restrictive or symmetric NAT. MediaMTX is not involved. Lowest latency on a direct route.
 - **WebRTC Relayed**: agent publishes to a MediaMTX sidecar via WHIP, browser plays via WHEP. The server proxies signaling so the existing JWT auth + per-client RBAC still apply. Lowest-effort fallback when P2P can't punch through.
 
 ### Building agents with WebRTC
@@ -362,6 +362,26 @@ The build tag (`overlord_webrtc`) is also available if you build agents outside 
 go build -tags overlord_webrtc ./cmd/agent
 ```
 
+### Coturn STUN / TURN
+
+Compose starts `overlord-coturn` for ICE traversal in both P2P and MediaMTX Relayed modes. A one-time init service generates a random master secret in the private `overlord-turn-secret` Docker volume. Overlord uses that secret to issue one-hour Coturn REST credentials independently to the authenticated P2P viewer and agent. MediaMTX reads the secret inside Docker and also generates expiring credentials for its WHIP/WHEP clients. No Google STUN server is used, and the master secret is never sent directly to a peer.
+
+The defaults work for same-machine testing. For LAN or internet access, set the address that both the browser and agent can reach in a `.env` file next to the compose file:
+
+```env
+OVERLORD_TURN_HOST=turn.example.com
+OVERLORD_TURN_EXTERNAL_IP=203.0.113.10
+```
+
+`OVERLORD_TURN_HOST` is placed in the ICE URLs and may be a public DNS name or IP. `OVERLORD_TURN_EXTERNAL_IP` tells Coturn which public address to advertise when the Docker host is behind NAT; omit it when Coturn binds the public interface directly. Do not use the Docker service name because peers outside the Compose network cannot resolve or reach it.
+
+Allow and forward these inbound ports to the Coturn host:
+
+- `3478/udp` and `3478/tcp` for STUN and TURN client connections.
+- `49160-49200/udp` for TURN relay allocations.
+
+The bundled setup supports ordinary TURN over UDP and TCP. It intentionally does not enable `turns:` until a trusted Coturn TLS certificate and public hostname are configured.
+
 ### MediaMTX sidecar
 
 Compose starts an `overlord-mediamtx` service for Relayed mode. It needs:
@@ -369,7 +389,7 @@ Compose starts an `overlord-mediamtx` service for Relayed mode. It needs:
 - Port `8189/udp` and `8189/tcp` reachable from operators (WebRTC ICE traffic). The Windows / macOS compose publishes these; Linux uses host networking and shares the host's interfaces directly.
 - No auth config — the Overlord server proxies every WHIP/WHEP request through `/api/webrtc/...` and enforces the existing operator JWT + RBAC there.
 
-If you only ever want P2P, you can comment out the `mediamtx:` service in your compose file — only Relayed mode depends on it.
+If you only ever want P2P, you can comment out the `mediamtx:` service in your compose file — only Relayed mode depends on it. MediaMTX is configured to use the same Coturn service as a client-only ICE fallback, but it is not itself a STUN/TURN server; Coturn handles all relay allocations.
 
 ### LAN / public access
 

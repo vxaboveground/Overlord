@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { authenticateRequest } from "../../auth";
 import { requireClientAccess } from "../../rbac";
 import { logger } from "../../logger";
+import { issueTurnIceServers } from "../turn-credentials";
 
 const MEDIAMTX_URL = (process.env.OVERLORD_MEDIAMTX_URL || "http://localhost:8889").replace(/\/+$/, "");
 
@@ -32,6 +33,24 @@ export function webrtcStreamPathFor(clientId: string, kind: WebrtcKind): string 
 
 export async function handleWebrtcRoutes(req: Request, url: URL): Promise<Response | null> {
   if (!url.pathname.startsWith("/api/webrtc/")) return null;
+
+  if (url.pathname === "/api/webrtc/ice-config") {
+    if (req.method !== "GET") return new Response("Method Not Allowed", { status: 405 });
+    const clientId = url.searchParams.get("clientId") || "";
+    if (!/^[A-Za-z0-9_.-]+$/.test(clientId)) return new Response("Bad Request", { status: 400 });
+    const user = await authenticateRequest(req);
+    if (!user) return new Response("Unauthorized", { status: 401 });
+    try {
+      requireClientAccess(user, clientId);
+    } catch (error) {
+      if (error instanceof Response) return error;
+      return new Response("Forbidden", { status: 403 });
+    }
+    return Response.json(
+      { iceServers: issueTurnIceServers(`${clientId}:viewer`) },
+      { headers: { "cache-control": "no-store" } },
+    );
+  }
 
   const rest = url.pathname.slice("/api/webrtc/".length);
   // /api/webrtc/agents/<clientId>/<kind>/(whip|whep)[/<sessionId>]

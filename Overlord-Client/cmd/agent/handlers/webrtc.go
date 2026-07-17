@@ -103,6 +103,7 @@ func handleWebrtcPublish(ctx context.Context, env *runtime.Env, cmdID string, pa
 		PublishToken:          token,
 		TLSInsecureSkipVerify: env.Cfg.TLSInsecureSkipVerify,
 		TLSCAPath:             env.Cfg.TLSCAPath,
+		ICEServers:            parseICEServers(payload["iceServers"]),
 		HasVideo:              hasVideo,
 		HasAudio:              hasAudio,
 	}
@@ -155,6 +156,7 @@ func handleWebrtcP2POffer(ctx context.Context, env *runtime.Env, cmdID string, p
 	kindStr := string(kind)
 
 	callbacks := webrtcpub.P2POfferCallbacks{
+		ICEServers: parseICEServers(payload["iceServers"]),
 		OnICE: func(c webrtcpub.ICECandidate) {
 			if c.Candidate == "" {
 				return
@@ -201,6 +203,64 @@ func handleWebrtcP2POffer(ctx context.Context, env *runtime.Env, cmdID string, p
 	})
 	sendCommandResultSafe(env, cmdID, true, "")
 	return nil
+}
+
+func parseICEServers(value interface{}) []webrtcpub.ICEServer {
+	items, ok := value.([]interface{})
+	if !ok {
+		return nil
+	}
+	servers := make([]webrtcpub.ICEServer, 0, len(items))
+	for _, item := range items {
+		if len(servers) >= 8 {
+			break
+		}
+		entry, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		var urls []string
+		switch raw := entry["urls"].(type) {
+		case string:
+			urls = appendICEURL(urls, raw)
+		case []interface{}:
+			for _, value := range raw {
+				if url, ok := value.(string); ok && len(urls) < 8 {
+					urls = appendICEURL(urls, url)
+				}
+			}
+		case []string:
+			for _, url := range raw {
+				if len(urls) < 8 {
+					urls = appendICEURL(urls, url)
+				}
+			}
+		}
+		if len(urls) == 0 {
+			continue
+		}
+		username, _ := entry["username"].(string)
+		credential, _ := entry["credential"].(string)
+		servers = append(servers, webrtcpub.ICEServer{URLs: urls, Username: username, Credential: credential})
+	}
+	return servers
+}
+
+func appendICEURL(urls []string, value string) []string {
+	if len(value) == 0 || len(value) > 512 {
+		return urls
+	}
+	valid := false
+	for _, prefix := range []string{"stun:", "stuns:", "turn:", "turns:"} {
+		if len(value) >= len(prefix) && value[:len(prefix)] == prefix {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return urls
+	}
+	return append(urls, value)
 }
 
 func handleWebrtcP2PIce(_ context.Context, env *runtime.Env, cmdID string, payload map[string]interface{}) error {

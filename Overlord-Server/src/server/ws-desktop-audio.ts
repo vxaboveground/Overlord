@@ -6,6 +6,7 @@ import * as sessionManager from "../sessions/sessionManager";
 import type { DesktopAudioViewer, SocketData } from "../sessions/types";
 import { canUserAccessClient } from "../users";
 import { issueWebrtcPublishToken, webrtcStreamPathFor } from "./routes/webrtc-routes";
+import { issueTurnIceServers } from "./turn-credentials";
 import {
   clearP2PSessionForViewer,
   createP2PSession,
@@ -93,6 +94,7 @@ export function handleDesktopAudioViewerMessage(ws: ServerWebSocket<SocketData>,
           kind: "audio",
           hasVideo: false,
           hasAudio: true,
+          iceServers: issueTurnIceServers(`${clientId}:audio:whip`),
         });
         safeJson(ws, {
           type: "webrtc_ready",
@@ -119,6 +121,7 @@ export function handleDesktopAudioViewerMessage(ws: ServerWebSocket<SocketData>,
         kind: "audio",
         hasVideo: false,
         hasAudio: true,
+        iceServers: issueTurnIceServers(`${clientId}:audio:${sessionId}`),
       });
       return;
     }

@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
@@ -144,8 +145,23 @@ func Start(ctx context.Context, kind Kind, opts Options) (*Publisher, error) {
 		}
 	}
 
-	api := webrtc.NewAPI(webrtc.WithMediaEngine(mediaEngine))
-	pc, err := api.NewPeerConnection(webrtc.Configuration{})
+	interceptorRegistry := &interceptor.Registry{}
+	if err := webrtc.RegisterDefaultInterceptors(mediaEngine, interceptorRegistry); err != nil {
+		return nil, fmt.Errorf("register WebRTC interceptors: %w", err)
+	}
+	api := webrtc.NewAPI(
+		webrtc.WithMediaEngine(mediaEngine),
+		webrtc.WithInterceptorRegistry(interceptorRegistry),
+	)
+	iceServers := make([]webrtc.ICEServer, 0, len(opts.ICEServers))
+	for _, server := range opts.ICEServers {
+		iceServers = append(iceServers, webrtc.ICEServer{
+			URLs:       server.URLs,
+			Username:   server.Username,
+			Credential: server.Credential,
+		})
+	}
+	pc, err := api.NewPeerConnection(webrtc.Configuration{ICEServers: iceServers})
 	if err != nil {
 		return nil, fmt.Errorf("new peer connection: %w", err)
 	}

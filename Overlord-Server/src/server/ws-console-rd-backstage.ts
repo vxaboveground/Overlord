@@ -13,6 +13,7 @@ import type { ClientInfo } from "../types";
 import { canUserAccessClient } from "../users";
 import { setClientWebcamInfo } from "../db";
 import { issueWebrtcPublishToken, webrtcStreamPathFor } from "./routes/webrtc-routes";
+import { issueTurnIceServers } from "./turn-credentials";
 import {
   buildViewerFrameBuffer,
   decodeViewerPayload,
@@ -413,6 +414,7 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
             kind: "desktop",
             hasVideo: true,
             hasAudio: false,
+            iceServers: issueTurnIceServers(`${clientId}:desktop:whip`),
           });
           safeSendViewer(ws, {
             type: "webrtc_ready",
@@ -703,7 +705,7 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
       const sdp = typeof (payload as any).sdp === "string" ? (payload as any).sdp : "";
       if (!sdp) break;
       const sessionId = createP2PSession(ws, clientId, "desktop");
-      sendDesktopCommand(target, "webrtc_p2p_offer", { sessionId, sdp, kind: "desktop", hasVideo: true, hasAudio: false });
+      sendDesktopCommand(target, "webrtc_p2p_offer", { sessionId, sdp, kind: "desktop", hasVideo: true, hasAudio: false, iceServers: issueTurnIceServers(`${clientId}:desktop:${sessionId}`) });
       break;
     }
     case "webrtc_p2p_ice": {
@@ -1089,6 +1091,7 @@ export function handleWebcamViewerMessage(ws: ServerWebSocket<SocketData>, raw: 
             kind: "webcam",
             hasVideo: true,
             hasAudio: false,
+            iceServers: issueTurnIceServers(`${clientId}:webcam:whip`),
           });
           safeSendViewer(ws, {
             type: "webrtc_ready",
@@ -1129,7 +1132,7 @@ export function handleWebcamViewerMessage(ws: ServerWebSocket<SocketData>, raw: 
       const sdp = typeof (payload as any).sdp === "string" ? (payload as any).sdp : "";
       if (!sdp) break;
       const sessionId = createP2PSession(ws, clientId, "webcam");
-      sendDesktopCommand(target, "webrtc_p2p_offer", { sessionId, sdp, kind: "webcam", hasVideo: true, hasAudio: false });
+      sendDesktopCommand(target, "webrtc_p2p_offer", { sessionId, sdp, kind: "webcam", hasVideo: true, hasAudio: false, iceServers: issueTurnIceServers(`${clientId}:webcam:${sessionId}`) });
       break;
     }
     case "webrtc_p2p_ice": {
@@ -1222,6 +1225,7 @@ export function handlebackstageViewerMessage(ws: ServerWebSocket<SocketData>, ra
             kind: "backstage",
             hasVideo: true,
             hasAudio: false,
+            iceServers: issueTurnIceServers(`${clientId}:backstage:whip`),
           });
           safeSendViewer(ws, {
             type: "webrtc_ready",
@@ -1445,7 +1449,7 @@ export function handlebackstageViewerMessage(ws: ServerWebSocket<SocketData>, ra
       const sdp = typeof (payload as any).sdp === "string" ? (payload as any).sdp : "";
       if (!sdp) break;
       const sessionId = createP2PSession(ws, clientId, "backstage");
-      sendbackstageCommand(target, "webrtc_p2p_offer", { sessionId, sdp, kind: "backstage", hasVideo: true, hasAudio: false });
+      sendbackstageCommand(target, "webrtc_p2p_offer", { sessionId, sdp, kind: "backstage", hasVideo: true, hasAudio: false, iceServers: issueTurnIceServers(`${clientId}:backstage:${sessionId}`) });
       break;
     }
     case "webrtc_p2p_ice": {

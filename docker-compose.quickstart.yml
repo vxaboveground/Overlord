@@ -49,11 +49,17 @@ services:
       - OVERLORD_CLIENT_BUILD_CACHE_DIR=/app/client-build-cache
       - OVERLORD_FILE_UPLOAD_INTENT_TTL_MS=1800000
       - OVERLORD_FILE_UPLOAD_PULL_TTL_MS=1800000
+      - OVERLORD_TURN_HOST=${OVERLORD_TURN_HOST:-127.0.0.1}
+      - OVERLORD_TURN_PORT=${OVERLORD_TURN_PORT:-3478}
+      - OVERLORD_TURN_REALM=${OVERLORD_TURN_REALM:-overlord}
+      - OVERLORD_TURN_SECRET_FILE=/run/overlord-turn/secret
+      - OVERLORD_TURN_CREDENTIAL_TTL_SECONDS=${OVERLORD_TURN_CREDENTIAL_TTL_SECONDS:-3600}
     volumes:
       - overlord-data:/app/data
       - overlord-certs:/app/certs
       - overlord-client-build-cache:/app/client-build-cache
       - overlord-plugins:/app/plugins
+      - overlord-turn-secret:/run/overlord-turn:ro
       # Uncomment to mount host certbot certs read-only
       # - /etc/letsencrypt:/etc/letsencrypt:ro
       # Uncomment to use a static config file instead of env vars
@@ -66,9 +72,46 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    depends_on:
+      turn-secret-init:
+        condition: service_completed_successfully
+
+  turn-secret-init:
+    image: alpine:3.22
+    command: ["/bin/sh", "-ec", "umask 077; if [ ! -s /run/overlord-turn/secret ]; then head -c 32 /dev/urandom | base64 > /run/overlord-turn/secret; fi; IFS= read -r turn_secret < /run/overlord-turn/secret; printf 'webrtcICEServers2:\n  - url: \"stun:%s:%s\"\n  - url: \"turn:%s:%s?transport=udp\"\n    username: AUTH_SECRET\n    password: \"%s\"\n    clientOnly: true\n  - url: \"turn:%s:%s?transport=tcp\"\n    username: AUTH_SECRET\n    password: \"%s\"\n    clientOnly: true\n' \"$${OVERLORD_TURN_HOST}\" \"$${OVERLORD_TURN_PORT}\" \"$${OVERLORD_TURN_HOST}\" \"$${OVERLORD_TURN_PORT}\" \"$$turn_secret\" \"$${OVERLORD_TURN_HOST}\" \"$${OVERLORD_TURN_PORT}\" \"$$turn_secret\" > /run/overlord-turn/mediamtx.yml; chmod 0444 /run/overlord-turn/secret /run/overlord-turn/mediamtx.yml"]
+    environment:
+      OVERLORD_TURN_HOST: ${OVERLORD_TURN_HOST:-127.0.0.1}
+      OVERLORD_TURN_PORT: ${OVERLORD_TURN_PORT:-3478}
+    volumes:
+      - overlord-turn-secret:/run/overlord-turn
+    restart: "no"
+
+  coturn:
+    image: coturn/coturn:4.14.0-r0-alpine
+    container_name: overlord-coturn
+    network_mode: host
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        secret="$$(cat /run/overlord-turn/secret)"
+        external=""
+        if [ -n "$${OVERLORD_TURN_EXTERNAL_IP:-}" ]; then external="--external-ip=$${OVERLORD_TURN_EXTERNAL_IP}"; fi
+        exec turnserver --fingerprint --use-auth-secret --static-auth-secret="$$secret" --realm="$${OVERLORD_TURN_REALM:-overlord}" --listening-port=3478 --min-port=49160 --max-port=49200 --no-tls --no-dtls --no-multicast-peers --log-file=stdout $$external
+    environment:
+      OVERLORD_TURN_REALM: ${OVERLORD_TURN_REALM:-overlord}
+      OVERLORD_TURN_EXTERNAL_IP: ${OVERLORD_TURN_EXTERNAL_IP:-}
+    volumes:
+      - overlord-turn-secret:/run/overlord-turn:ro
+    depends_on:
+      turn-secret-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
   overlord-data:
   overlord-certs:
   overlord-client-build-cache:
   overlord-plugins:
+  overlord-turn-secret:

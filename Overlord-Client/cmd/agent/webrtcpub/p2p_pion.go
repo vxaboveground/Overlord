@@ -112,11 +112,15 @@ func StartP2POffer(ctx context.Context, kind Kind, sessionID string, offerSDP st
 		webrtc.WithMediaEngine(mediaEngine),
 		webrtc.WithInterceptorRegistry(interceptorRegistry),
 	)
-	pc, err := api.NewPeerConnection(webrtc.Configuration{
-		ICEServers: []webrtc.ICEServer{
-			{URLs: []string{"stun:stun.l.google.com:19302"}},
-		},
-	})
+	iceServers := make([]webrtc.ICEServer, 0, len(opts.ICEServers))
+	for _, server := range opts.ICEServers {
+		iceServers = append(iceServers, webrtc.ICEServer{
+			URLs:       server.URLs,
+			Username:   server.Username,
+			Credential: server.Credential,
+		})
+	}
+	pc, err := api.NewPeerConnection(webrtc.Configuration{ICEServers: iceServers})
 	if err != nil {
 		return "", fmt.Errorf("new peer connection: %w", err)
 	}

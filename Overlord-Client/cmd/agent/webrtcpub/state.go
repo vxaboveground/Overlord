@@ -213,6 +213,8 @@ type Options struct {
 	TLSInsecureSkipVerify bool
 	// TLSCAPath is an optional custom CA bundle.
 	TLSCAPath string
+	// ICEServers contains the server-issued, short-lived Coturn configuration.
+	ICEServers []ICEServer
 	// HasVideo / HasAudio select which tracks to add to the peer connection.
 	HasVideo bool
 	HasAudio bool
@@ -224,7 +226,14 @@ type ICECandidate struct {
 	SDPMLineIndex uint16 `msgpack:"sdpMLineIndex"`
 }
 
+type ICEServer struct {
+	URLs       []string
+	Username   string
+	Credential string
+}
+
 type P2POfferCallbacks struct {
+	ICEServers          []ICEServer
 	OnICE               func(c ICECandidate)
 	OnClose             func()
 	OnBandwidthEstimate func(bps int)

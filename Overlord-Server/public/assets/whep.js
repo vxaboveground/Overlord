@@ -34,7 +34,8 @@ export class WhepClient {
   async start() {
     if (this.pc) await this.stop();
 
-    const pc = new RTCPeerConnection({});
+    const iceServers = await this.resolveIceServers();
+    const pc = new RTCPeerConnection({ iceServers });
     this.pc = pc;
     this.statsSampler = new WebRTCStatsSampler(pc, this.onStats);
     if (this.videoEl) pc.addTransceiver("video", { direction: "recvonly" });
@@ -78,6 +79,23 @@ export class WhepClient {
     this.resourceURL = resp.headers.get("Location") || "";
     const answerSDP = await resp.text();
     await pc.setRemoteDescription({ type: "answer", sdp: answerSDP });
+  }
+
+  async resolveIceServers() {
+    const clientId = new URLSearchParams(window.location.search).get("clientId");
+    if (!clientId) return [];
+    try {
+      const response = await fetch(`/api/webrtc/ice-config?clientId=${encodeURIComponent(clientId)}`, {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const body = await response.json();
+      return Array.isArray(body?.iceServers) ? body.iceServers : [];
+    } catch (error) {
+      console.warn("whep: failed to load self-hosted ICE configuration; using host candidates only", error);
+      return [];
+    }
   }
 
   async stop() {
