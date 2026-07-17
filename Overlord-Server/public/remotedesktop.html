@@ -180,18 +180,19 @@
                   <select
                     id="streamProfileSelect"
                     class="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-100"
-                    title="Resolution and frame-rate combinations supported by this computer"
+                    title="Auto starts with the best supported resolution and adapts to WebRTC network conditions"
                   >
+                    <option value="auto" selected>Auto (best)</option>
                     <option value="720:30">30 FPS - 720p</option>
                     <option value="720:60">60 FPS - 720p</option>
                     <option value="1080:30">30 FPS - 1080p</option>
-                    <option value="1080:60" selected>60 FPS - 1080p</option>
+                    <option value="1080:60">60 FPS - 1080p</option>
                   </select>
                 </div>
                 <div id="streamProfileDetail" class="mb-2 text-xs text-slate-500">Checking hardware encoder profiles…</div>
                 <div class="flex items-center gap-2 mb-2">
                   <label class="text-sm text-slate-300 w-20" for="bitrateSelect">Bitrate</label>
-                  <select id="bitrateSelect" class="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-100" title="H.264 target bitrate; Auto derives it from resolution and FPS">
+                  <select id="bitrateSelect" class="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-100" title="Auto adapts bitrate from receiver feedback when the stream profile is also Auto">
                     <option value="0" selected>Auto</option>
                     <option value="5">5 Mbps</option>
                     <option value="10">10 Mbps</option>

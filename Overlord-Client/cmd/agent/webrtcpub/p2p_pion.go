@@ -9,6 +9,9 @@ import (
 	"log"
 	"sync"
 
+	"github.com/pion/interceptor"
+	"github.com/pion/interceptor/pkg/cc"
+	"github.com/pion/interceptor/pkg/gcc"
 	"github.com/pion/webrtc/v4"
 )
 
@@ -82,7 +85,33 @@ func StartP2POffer(ctx context.Context, kind Kind, sessionID string, offerSDP st
 		}
 	}
 
-	api := webrtc.NewAPI(webrtc.WithMediaEngine(mediaEngine))
+	interceptorRegistry := &interceptor.Registry{}
+	if hasVideo && opts.OnBandwidthEstimate != nil {
+		congestionController, ccErr := cc.NewInterceptor(func() (cc.BandwidthEstimator, error) {
+			return gcc.NewSendSideBWE(
+				gcc.SendSideBWEInitialBitrate(18_000_000),
+				gcc.SendSideBWEMinBitrate(2_000_000),
+				gcc.SendSideBWEMaxBitrate(50_000_000),
+			)
+		})
+		if ccErr != nil {
+			return "", fmt.Errorf("create congestion controller: %w", ccErr)
+		}
+		congestionController.OnNewPeerConnection(func(_ string, estimator cc.BandwidthEstimator) {
+			estimator.OnTargetBitrateChange(opts.OnBandwidthEstimate)
+		})
+		interceptorRegistry.Add(congestionController)
+		if err := webrtc.ConfigureTWCCHeaderExtensionSender(mediaEngine, interceptorRegistry); err != nil {
+			return "", fmt.Errorf("configure TWCC sender: %w", err)
+		}
+	}
+	if err := webrtc.RegisterDefaultInterceptors(mediaEngine, interceptorRegistry); err != nil {
+		return "", fmt.Errorf("register WebRTC interceptors: %w", err)
+	}
+	api := webrtc.NewAPI(
+		webrtc.WithMediaEngine(mediaEngine),
+		webrtc.WithInterceptorRegistry(interceptorRegistry),
+	)
 	pc, err := api.NewPeerConnection(webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{URLs: []string{"stun:stun.l.google.com:19302"}},

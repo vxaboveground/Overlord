@@ -36,3 +36,25 @@ func TestH264TargetCRFTracksManualRate(t *testing.T) {
 		t.Fatalf("higher bitrate CRF = %.2f, want below automatic %.2f", higherRate, auto)
 	}
 }
+
+func TestWebRTCBandwidthEstimateOnlyAppliesInAdaptiveMode(t *testing.T) {
+	original := configuredH264Bitrate()
+	defer func() {
+		SetH264NetworkAdaptive(false)
+		SetH264TargetBitrate(original)
+	}()
+
+	SetH264TargetBitrate(18_000_000)
+	SetH264NetworkAdaptive(false)
+	if got := ApplyWebRTCBandwidthEstimate(10_000_000); got != 0 {
+		t.Fatalf("disabled estimate applied %d, want 0", got)
+	}
+	SetH264NetworkAdaptive(true)
+	lastH264NetworkAdjustment.Store(0)
+	if got := ApplyWebRTCBandwidthEstimate(10_000_000); got != 9_000_000 {
+		t.Fatalf("adaptive estimate applied %d, want 9000000", got)
+	}
+	if got := ApplyWebRTCBandwidthEstimate(2_000_000); got != 0 {
+		t.Fatalf("unthrottled second estimate applied %d, want 0", got)
+	}
+}

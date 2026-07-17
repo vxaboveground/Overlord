@@ -75,6 +75,7 @@ export class WebRTCStatsSampler {
         let decodeMs = null;
         let processingDelayMs = null;
         let framesDroppedDelta = null;
+        let intervalLossPercent = null;
         if (previous && timestamp > previous.timestamp && Number(item.bytesReceived) >= previous.bytesReceived) {
           bitrateMbps = ((Number(item.bytesReceived) - previous.bytesReceived) * 8) /
             ((timestamp - previous.timestamp) * 1000);
@@ -87,6 +88,10 @@ export class WebRTCStatsSampler {
           }
           const droppedDelta = (Number(item.framesDropped) || 0) - previous.framesDropped;
           if (droppedDelta >= 0) framesDroppedDelta = droppedDelta;
+          const receivedDelta = (Number(item.packetsReceived) || 0) - previous.packetsReceived;
+          const lostDelta = (Number(item.packetsLost) || 0) - previous.packetsLost;
+          const packetDelta = Math.max(0, receivedDelta) + Math.max(0, lostDelta);
+          if (packetDelta > 0) intervalLossPercent = (Math.max(0, lostDelta) * 100) / packetDelta;
         }
         this.previous.set(item.id, {
           timestamp,
@@ -95,6 +100,8 @@ export class WebRTCStatsSampler {
           totalDecodeTime: Number(item.totalDecodeTime) || 0,
           totalProcessingDelay: Number(item.totalProcessingDelay) || 0,
           framesDropped: Number(item.framesDropped) || 0,
+          packetsReceived: Number(item.packetsReceived) || 0,
+          packetsLost: Number(item.packetsLost) || 0,
         });
         const packetsReceived = Number(item.packetsReceived) || 0;
         const packetsLost = Math.max(0, Number(item.packetsLost) || 0);
@@ -102,7 +109,7 @@ export class WebRTCStatsSampler {
         result[kind] = {
           bitrateMbps,
           packetsLost,
-          lossPercent: packetTotal > 0 ? (packetsLost * 100) / packetTotal : 0,
+          lossPercent: intervalLossPercent ?? (packetTotal > 0 ? (packetsLost * 100) / packetTotal : 0),
           jitterMs: Number.isFinite(item.jitter) ? item.jitter * 1000 : null,
           jitterBufferMs: averageJitterBufferMs(item),
           decodeMs,

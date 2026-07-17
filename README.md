@@ -409,6 +409,25 @@ To verify the selected route, open `chrome://webrtc-internals` during a relayed 
 
 Automatic public-IP discovery is possible with STUN, but it is not a complete replacement for this setting: it can require random UDP ports, does not discover your intended domain, and can fail behind restrictive or symmetric NAT. For predictable production deployments, explicitly setting the reachable IP/domain and forwarding fixed UDP port `8189` is recommended.
 
+### Remote desktop network impairment tests
+
+On a Linux test host, `scripts/rd-network-impairment.sh` applies repeatable bandwidth, latency, jitter, and packet-loss profiles with `tc netem`. Give it the exact interface carrying the WebRTC traffic:
+
+```bash
+# Inspect interfaces first; do not guess the target.
+ip link show
+
+sudo bash scripts/rd-network-impairment.sh apply eth0 wan
+bash scripts/rd-network-impairment.sh status eth0
+
+# Always restore the interface after the test.
+sudo bash scripts/rd-network-impairment.sh clear eth0
+```
+
+Available profiles are `wan` (20 Mbps), `constrained` (8 Mbps), and `harsh` (3 Mbps), with progressively higher delay, jitter, and loss. The rule affects all egress traffic on the selected interface, not only Overlord. The script refuses to touch loopback unless `OVERLORD_NETEM_ALLOW_LOOPBACK=1` is explicitly set.
+
+For each profile, start Remote Desktop with both **Profile: Auto (best)** and **Bitrate: Auto**, then watch the Stats HUD. Verify that bitrate falls before the profile steps down, decode/processing queues remain bounded, and the profile slowly recovers after clearing the impairment.
+
 ### Advanced MediaMTX customization
 
 The compose file passes a minimal set of `MTX_*` environment variables to MediaMTX — enough for Overlord to work. To change anything else (codecs, paths, ICE servers, etc.), either:

@@ -171,6 +171,14 @@ func handleWebrtcP2POffer(ctx context.Context, env *runtime.Env, cmdID string, p
 		OnClose: func() {
 			log.Printf("webrtc: P2P[%s/%s] session closed", kind, sessionID)
 		},
+		OnBandwidthEstimate: func(bps int) {
+			if kind != webrtcpub.KindDesktop {
+				return
+			}
+			if applied := capture.ApplyWebRTCBandwidthEstimate(bps); applied > 0 {
+				log.Printf("webrtc: P2P congestion target=%d Mbps applied=%d Mbps", bps/1_000_000, applied/1_000_000)
+			}
+		},
 	}
 
 	answerSDP, err := webrtcpub.StartP2POffer(ctx, kind, sessionID, offerSDP, callbacks, hasVideo, hasAudio)

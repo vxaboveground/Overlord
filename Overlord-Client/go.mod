@@ -17,6 +17,7 @@ require (
 	github.com/gen2brain/malgo v0.11.24
 	github.com/gen2brain/shm v0.1.0
 	github.com/jezek/xgb v1.1.1
+	github.com/pion/interceptor v0.1.37
 	github.com/pion/rtcp v1.2.15
 	github.com/pion/webrtc/v4 v4.0.7
 	github.com/tetratelabs/wazero v1.12.0
@@ -34,7 +35,6 @@ require (
 	github.com/pion/datachannel v1.5.10 // indirect
 	github.com/pion/dtls/v3 v3.0.4 // indirect
 	github.com/pion/ice/v4 v4.0.3 // indirect
-	github.com/pion/interceptor v0.1.37 // indirect
 	github.com/pion/logging v0.2.2 // indirect
 	github.com/pion/mdns/v2 v2.0.7 // indirect
 	github.com/pion/randutil v0.1.0 // indirect

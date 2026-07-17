@@ -145,6 +145,7 @@ describe("remote desktop viewer control", () => {
       maxHeight: 1080,
       maxFps: 120,
       bitrateMbps: 0,
+      bitrateAdaptive: false,
       lastFps: 1,
       lastFrameAt: 0,
       startedAt: Date.now() - 5000,
@@ -173,6 +174,23 @@ describe("remote desktop viewer control", () => {
     const command = agentCommands(agentWs).find((msg) => msg.commandType === "desktop_set_bitrate");
     expect(command?.payload?.bitrateMbps).toBe(50);
     expect(rdStreamingState.get(clientId)?.bitrateMbps).toBe(50);
+  });
+
+  test("forwards adaptive bitrate mode to the agent", () => {
+    const clientId = `rd-adaptive-bitrate-${Date.now().toString(36)}`;
+    const { agentWs } = createClient(clientId);
+    const viewer = createMockWs({ clientId });
+
+    handleRemoteDesktopViewerOpen(viewer as any);
+    handleRemoteDesktopViewerMessage(viewer as any, JSON.stringify({
+      type: "desktop_set_bitrate",
+      bitrateMbps: 18,
+      adaptive: true,
+    }));
+
+    const command = agentCommands(agentWs).find((msg) => msg.commandType === "desktop_set_bitrate");
+    expect(command?.payload).toMatchObject({ bitrateMbps: 18, adaptive: true });
+    expect(rdStreamingState.get(clientId)?.bitrateAdaptive).toBe(true);
   });
 
   test("forwards agent pipeline telemetry to every remote desktop viewer", () => {

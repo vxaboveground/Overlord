@@ -912,9 +912,13 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 	case "desktop_set_bitrate":
 		payload, _ := envelope["payload"].(map[string]interface{})
 		bitrateMbps := 0
+		adaptive := false
 		if payload != nil {
 			if v, ok := payloadInt(payload, "bitrateMbps"); ok {
 				bitrateMbps = v
+			}
+			if v, ok := payload["adaptive"].(bool); ok {
+				adaptive = v
 			}
 		}
 		if bitrateMbps < 0 {
@@ -923,8 +927,9 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		if bitrateMbps > 50 {
 			bitrateMbps = 50
 		}
+		capture.SetH264NetworkAdaptive(adaptive)
 		bps := capture.SetH264TargetBitrate(bitrateMbps * 1_000_000)
-		log.Printf("desktop: set target bitrate=%d Mbps (0=auto)", bps/1_000_000)
+		log.Printf("desktop: set target bitrate=%d Mbps (0=auto) adaptive=%v", bps/1_000_000, adaptive)
 		sendCommandResultSafe(env, cmdID, true, "")
 		return nil
 	case "clipboard_sync_start":

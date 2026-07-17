@@ -2,6 +2,7 @@ import { encodeMsgpack, decodeMsgpack } from "./msgpack-helpers.js";
 import { checkFeatureAccess } from "./feature-gate.js";
 import { WhepClient } from "./whep.js";
 import { P2PClient } from "./webrtc-p2p.js";
+import { AdaptiveDesktopQuality, normalizeAdaptiveProfiles } from "./rd-adaptive-quality.js";
 import { createKeyboardCapture } from "./keyboard-capture.js";
 import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-settings.js";
 
@@ -158,6 +159,25 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     width: 0,
     height: 0,
   };
+  let encoderProfiles = [];
+  let adaptiveProfileRunning = false;
+  const adaptiveQuality = new AdaptiveDesktopQuality((target) => {
+    sendCmd("desktop_set_profile", {
+      maxHeight: target.maxHeight,
+      fps: target.fps,
+      source: "webrtc_auto",
+      reason: target.reason,
+    });
+    sendCmd("desktop_set_bitrate", {
+      bitrateMbps: target.bitrateMbps,
+      adaptive: true,
+      source: "webrtc_auto",
+      reason: target.reason,
+    });
+    if (streamProfileDetail) {
+      streamProfileDetail.textContent = `Auto: ${target.width}×${target.height} @ ${target.fps} FPS, ${target.bitrateMbps} Mbps. ${target.reason}.`;
+    }
+  });
 
   let clipboardSyncTimer = null;
   let lastClipboardText = "";
@@ -404,7 +424,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   }
 
   let savedDisplay = null;
-  let savedStreamProfile = null;
+  let savedStreamProfile = "auto";
 
   function setSelectValue(select, value) {
     if (!select || value === undefined || value === null) return false;
@@ -455,7 +475,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     const profile = selectedStreamProfile();
     return {
       display: Number(displaySelect?.value || 0),
-      streamProfile: streamProfileSelect?.value || "1080:60",
+      streamProfile: streamProfileSelect?.value || "auto",
       // Keep the legacy fields so backstage and older remote-desktop builds that
       // share these preferences continue to receive equivalent settings.
       resolution: String(profile.maxHeight),
@@ -977,6 +997,9 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     if (Number.isFinite(media?.framesDropped)) details.push(`Frames dropped: ${media.framesDropped}`);
     if (Number.isFinite(stats.availableIncomingMbps)) details.push(`Available: ${stats.availableIncomingMbps.toFixed(1)} Mbps`);
     networkStats.title = details.join("\n");
+    if (adaptiveProfileRunning) {
+      adaptiveQuality.sample(stats, diagnostics.agent, Date.now());
+    }
     renderDiagnostics();
   }
 
@@ -1479,7 +1502,11 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   }
 
   function selectedStreamProfile() {
-    const [heightValue, fpsValue] = String(streamProfileSelect?.value || "1080:60").split(":");
+    if (streamProfileSelect?.value === "auto") {
+      const best = encoderProfiles[0];
+      return best ? { maxHeight: best.maxHeight, fps: best.fps } : { maxHeight: -1, fps: 120 };
+    }
+    const [heightValue, fpsValue] = String(streamProfileSelect?.value || "auto").split(":");
     const maxHeight = Number.parseInt(heightValue, 10);
     const fps = Number.parseInt(fpsValue, 10);
     return {
@@ -1489,6 +1516,29 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   }
 
   function pushStreamProfile() {
+    if (streamProfileSelect?.value === "auto") {
+      const adaptiveWebrtc = getWebrtcMode() !== "off" && Number(bitrateSelect?.value || 0) === 0;
+      if (adaptiveWebrtc && encoderProfiles.length) {
+        adaptiveQuality.setProfiles(encoderProfiles);
+        adaptiveProfileRunning = true;
+        adaptiveQuality.start(Date.now());
+        return;
+      }
+      adaptiveProfileRunning = false;
+      adaptiveQuality.stop();
+      const best = selectedStreamProfile();
+      console.debug("rd: pushStreamProfile auto best", best);
+      sendCmd("desktop_set_profile", { ...best, source: "auto_best" });
+      if (streamProfileDetail) {
+        const profile = encoderProfiles[0];
+        streamProfileDetail.textContent = profile
+          ? `Auto selected ${profile.width}×${profile.height} @ ${profile.fps} FPS (best available).`
+          : "Auto selected native resolution while capabilities are loading.";
+      }
+      return;
+    }
+    adaptiveProfileRunning = false;
+    adaptiveQuality.stop();
     const profile = selectedStreamProfile();
     console.debug("rd: pushStreamProfile", profile);
     sendCmd("desktop_set_profile", profile);
@@ -1496,11 +1546,13 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
 
   function pushBitrate() {
     const bitrateMbps = Math.max(0, Math.min(50, Number.parseInt(bitrateSelect?.value || "0", 10) || 0));
-    sendCmd("desktop_set_bitrate", { bitrateMbps });
+    if (adaptiveProfileRunning && bitrateMbps === 0) return;
+    sendCmd("desktop_set_bitrate", { bitrateMbps, adaptive: false });
   }
 
   if (bitrateSelect) {
     bitrateSelect.addEventListener("change", function () {
+      pushStreamProfile();
       pushBitrate();
       sharedSettingsSaver.scheduleSave();
     });
@@ -1518,8 +1570,14 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     const selectedDisplay = Number.parseInt(displaySelect?.value || "0", 10) || 0;
     if (Number.isFinite(Number(msg.display)) && Number(msg.display) !== selectedDisplay) return;
     const previous = streamProfileSelect.value;
+    encoderProfiles = normalizeAdaptiveProfiles(msg.profiles);
     streamProfileSelect.innerHTML = "";
-    for (const profile of msg.profiles) {
+    const autoOption = document.createElement("option");
+    autoOption.value = "auto";
+    autoOption.textContent = "Auto (best)";
+    autoOption.title = "Starts at the best supported profile and adapts to WebRTC congestion";
+    streamProfileSelect.appendChild(autoOption);
+    for (const profile of encoderProfiles) {
       const maxHeight = Number(profile.maxHeight);
       const fps = Number(profile.fps);
       if (!Number.isFinite(maxHeight) || !Number.isFinite(fps)) continue;
@@ -1533,22 +1591,25 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       }
       streamProfileSelect.appendChild(option);
     }
-    if (!streamProfileSelect.options.length) {
+    if (streamProfileSelect.options.length === 1) {
       const option = document.createElement("option");
       option.value = "1080:60";
       option.textContent = "60 FPS - 1080p";
       streamProfileSelect.appendChild(option);
     }
-    if (!setSelectValue(streamProfileSelect, savedStreamProfile) &&
+    if (!setSelectValue(streamProfileSelect, savedStreamProfile || "auto") &&
         !setSelectValue(streamProfileSelect, previous) &&
-        !setSelectValue(streamProfileSelect, "1080:60")) {
-      streamProfileSelect.selectedIndex = 0;
+        !setSelectValue(streamProfileSelect, "auto")) {
+      streamProfileSelect.value = "auto";
     }
     savedStreamProfile = streamProfileSelect.value;
     if (streamProfileDetail) {
       const providers = streamProfileSelect.selectedOptions[0]?.dataset?.providers || "";
-      streamProfileDetail.textContent = providers ? `Available through ${providers}.` :
-        (msg.detail || (msg.probed ? "Profiles tested on this display adapter." : "Safe fallback profiles shown."));
+      const best = encoderProfiles[0];
+      streamProfileDetail.textContent = streamProfileSelect.value === "auto" && best
+        ? `Auto starts at ${best.width}×${best.height} @ ${best.fps} FPS and adapts on WebRTC.`
+        : (providers ? `Available through ${providers}.` :
+          (msg.detail || (msg.probed ? "Profiles tested on this display adapter." : "Safe fallback profiles shown.")));
     }
     if (desiredStreaming) pushStreamProfile();
   }
@@ -1559,6 +1620,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       const providers = streamProfileSelect.selectedOptions[0]?.dataset?.providers || "";
       if (streamProfileDetail && providers) streamProfileDetail.textContent = `Available through ${providers}.`;
       pushStreamProfile();
+      pushBitrate();
       sharedSettingsSaver.scheduleSave();
     });
   }
@@ -1642,6 +1704,8 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   stopBtn.addEventListener("click", function () {
     if (isRecording()) stopRecording();
     desiredStreaming = false;
+    adaptiveProfileRunning = false;
+    adaptiveQuality.stop();
     lastFrameAt = 0;
     setStreamState("stopping", "Stopping stream");
     disablePrivacyIfActive();

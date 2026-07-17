@@ -186,6 +186,7 @@ export const rdStreamingState = new Map<string, {
   maxHeight: number;
   maxFps: number;
   bitrateMbps: number;
+  bitrateAdaptive: boolean;
   lastFps: number;
   lastFrameAt: number;
   startedAt: number;
@@ -212,6 +213,7 @@ function defaultRdStreamingState() {
     maxHeight: 0,
     maxFps: 120,
     bitrateMbps: 0,
+    bitrateAdaptive: false,
     lastFps: 0,
     lastFrameAt: 0,
     startedAt: 0,
@@ -420,7 +422,7 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
         }
         safeSendViewer(ws, { type: "status", status: "starting" });
         sendDesktopCommand(target, "desktop_set_fps", { fps: clampDesktopFps(state.maxFps) });
-        sendDesktopCommand(target, "desktop_set_bitrate", { bitrateMbps: state.bitrateMbps || 0 });
+        sendDesktopCommand(target, "desktop_set_bitrate", { bitrateMbps: state.bitrateMbps || 0, adaptive: state.bitrateAdaptive });
         sendDesktopCommand(target, "desktop_start", {});
         state.isStreaming = true;
         state.startedAt = Date.now();
@@ -432,7 +434,7 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
         if (lastFrameAgeMs > 3000 && startAgeMs > 3000) {
           logger.info(`[rd-debug] desktop_start reasserting stale stream client=${clientId} lastFrameAgeMs=${Number.isFinite(lastFrameAgeMs) ? lastFrameAgeMs : -1} state=${JSON.stringify(state)} viewers=${sessionManager.getRdSessionsForClient(clientId).length}`);
           sendDesktopCommand(target, "desktop_set_fps", { fps: clampDesktopFps(state.maxFps) });
-          sendDesktopCommand(target, "desktop_set_bitrate", { bitrateMbps: state.bitrateMbps || 0 });
+          sendDesktopCommand(target, "desktop_set_bitrate", { bitrateMbps: state.bitrateMbps || 0, adaptive: state.bitrateAdaptive });
           sendDesktopCommand(target, "desktop_start", {});
           safeSendViewer(ws, { type: "status", status: "starting" });
           state.isStreaming = true;
@@ -603,11 +605,13 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
     }
     case "desktop_set_bitrate": {
       const newBitrateMbps = Math.max(0, Math.min(50, Math.floor(Number((payload as any).bitrateMbps) || 0)));
-      if (state.bitrateMbps !== newBitrateMbps) {
-        sendDesktopCommand(target, "desktop_set_bitrate", { bitrateMbps: newBitrateMbps });
+      const adaptive = (payload as any).adaptive === true;
+      if (state.bitrateMbps !== newBitrateMbps || state.bitrateAdaptive !== adaptive) {
+        sendDesktopCommand(target, "desktop_set_bitrate", { bitrateMbps: newBitrateMbps, adaptive });
         state.bitrateMbps = newBitrateMbps;
+        state.bitrateAdaptive = adaptive;
         rdStreamingState.set(clientId, state);
-        logger.debug(`[rd] set target bitrate=${newBitrateMbps || "auto"} Mbps`);
+        logger.debug(`[rd] set target bitrate=${newBitrateMbps || "auto"} Mbps adaptive=${adaptive}`);
       }
       break;
     }

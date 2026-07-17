@@ -9,10 +9,10 @@ import (
 type Kind string
 
 const (
-	KindDesktop Kind = "desktop"
-	Kindbackstage    Kind = "backstage"
-	KindWebcam  Kind = "webcam"
-	KindAudio   Kind = "audio"
+	KindDesktop   Kind = "desktop"
+	Kindbackstage Kind = "backstage"
+	KindWebcam    Kind = "webcam"
+	KindAudio     Kind = "audio"
 )
 
 type VideoWriter interface {
@@ -225,6 +225,7 @@ type ICECandidate struct {
 }
 
 type P2POfferCallbacks struct {
-	OnICE   func(c ICECandidate)
-	OnClose func()
+	OnICE               func(c ICECandidate)
+	OnClose             func()
+	OnBandwidthEstimate func(bps int)
 }

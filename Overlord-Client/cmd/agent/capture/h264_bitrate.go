@@ -3,11 +3,56 @@ package capture
 import (
 	"math"
 	"sync/atomic"
+	"time"
 )
 
 const maxH264Bitrate = 50_000_000
 
 var h264TargetBitrate atomic.Int64
+var h264NetworkAdaptive atomic.Bool
+var lastH264NetworkAdjustment atomic.Int64
+
+const h264NetworkAdjustmentInterval = 3 * time.Second
+
+func SetH264NetworkAdaptive(enabled bool) {
+	h264NetworkAdaptive.Store(enabled)
+	if !enabled {
+		lastH264NetworkAdjustment.Store(0)
+	}
+}
+
+func ApplyWebRTCBandwidthEstimate(bps int) int {
+	if !h264NetworkAdaptive.Load() || bps <= 0 {
+		return 0
+	}
+	target := bps * 85 / 100
+	if target < 2_000_000 {
+		target = 2_000_000
+	}
+	if target > maxH264Bitrate {
+		target = maxH264Bitrate
+	}
+	target = ((target + 500_000) / 1_000_000) * 1_000_000
+	current := configuredH264Bitrate()
+	if current > 0 {
+		delta := current - target
+		if delta < 0 {
+			delta = -delta
+		}
+		if delta < 1_000_000 || float64(delta)/float64(current) < 0.15 {
+			return 0
+		}
+	}
+	now := time.Now().UnixNano()
+	last := lastH264NetworkAdjustment.Load()
+	if last > 0 && time.Duration(now-last) < h264NetworkAdjustmentInterval {
+		return 0
+	}
+	if !lastH264NetworkAdjustment.CompareAndSwap(last, now) {
+		return 0
+	}
+	return SetH264TargetBitrate(target)
+}
 
 func SetH264TargetBitrate(bps int) int {
 	if bps < 0 {
