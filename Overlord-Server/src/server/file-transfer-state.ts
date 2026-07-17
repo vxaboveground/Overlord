@@ -91,6 +91,11 @@ export function isSafeRemotePath(value: string): boolean {
   return true;
 }
 
+export function remotePathBasename(value: string): string {
+  const segments = value.split(/[\\/]+/).filter(Boolean);
+  return segments.at(-1) || "";
+}
+
 export function notifyPullWaiters(state: StreamingPullState) {
   const list = state.waiters.splice(0);
   for (const w of list) {

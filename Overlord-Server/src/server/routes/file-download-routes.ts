@@ -13,6 +13,7 @@ import {
   UUID_TOKEN_RE,
   getFileTransferLimits,
   isSafeRemotePath,
+  remotePathBasename,
   makeIncrementalPullStream,
   notifyPullWaiters,
   streamFileRangeWithCleanup,
@@ -125,7 +126,7 @@ async function serveDownloadById(
 
   const commandId = uuidv4();
 
-  let fileName = path.basename(downloadPath) || "download.bin";
+  let fileName = remotePathBasename(downloadPath) || "download.bin";
   try {
     fileName = deps.sanitizeOutputName(fileName);
   } catch {
@@ -604,7 +605,7 @@ export async function handleFileDownloadRoutes(
       ip: server.requestIP(req)?.address || "unknown",
     });
 
-    const fileName = deps.sanitizeOutputName(path.basename(pull.fileName) || "upload.bin");
+    const fileName = deps.sanitizeOutputName(remotePathBasename(pull.fileName) || "upload.bin");
     const baseHeaders = {
       ...deps.secureHeaders("application/octet-stream"),
       "Content-Disposition": `attachment; filename="${fileName}"`,
