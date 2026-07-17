@@ -65,6 +65,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   const duplicationCtrl = document.getElementById("duplicationCtrl");
   const streamProfileSelect = document.getElementById("streamProfileSelect");
   const streamProfileDetail = document.getElementById("streamProfileDetail");
+  const bitrateSelect = document.getElementById("bitrateSelect");
   const smoothingSlider = document.getElementById("smoothingSlider");
   const smoothingValue = document.getElementById("smoothingValue");
   const qualitySlider = document.getElementById("qualitySlider");
@@ -78,6 +79,14 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   const agentFps = document.getElementById("agentFps");
   const viewerFps = document.getElementById("viewerFps");
   const inputLatency = document.getElementById("inputLatency");
+  const networkStats = document.getElementById("networkStats");
+  const diagnosticsBtn = document.getElementById("diagnosticsBtn");
+  const diagnosticsHud = document.getElementById("diagnosticsHud");
+  const diagnosticsClose = document.getElementById("diagnosticsClose");
+  const diagnosticEls = Object.fromEntries([
+    "Summary", "Transport", "Codec", "Resolution", "Capture", "Encode", "Send", "AgentTotal",
+    "Bitrate", "Rtt", "LossJitter", "JitterBuffer", "Decode", "Render", "Queue", "Dropped", "Fps", "Input",
+  ].map((name) => [name, document.getElementById(`diag${name}`)]));
   const statusEl = document.getElementById("streamStatus");
   const clipboardSyncCtrl = document.getElementById("clipboardSyncCtrl");
   const privacyCtrl = document.getElementById("privacyCtrl");
@@ -111,6 +120,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   let frameDecodeBusy = false;
   let pendingFrame = null;
   let videoDecoder = null;
+  let videoDecoderConfigKey = "";
+  let h264StreamCodec = "";
+  let canvasDecodePressure = false;
+  let h264PendingTimings = [];
   let h264TimestampUs = 0;
   let prefersH264 = typeof VideoDecoder === "function";
   let h264LowFpsStreak = 0;
@@ -129,6 +142,22 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   const mouseMoveIntervalMs = 33;
   const inputBackpressureBytes = 256 * 1024;
   let lastMoveSentAt = 0;
+  const diagnostics = {
+    agent: null,
+    network: null,
+    decodeMs: null,
+    renderMs: null,
+    decodeQueue: 0,
+    coalescedFrames: 0,
+    currentAgentFps: null,
+    currentViewerFps: null,
+    wsBitrateMbps: null,
+    wsBytes: 0,
+    wsWindowStartedAt: performance.now(),
+    codec: "",
+    width: 0,
+    height: 0,
+  };
 
   let clipboardSyncTimer = null;
   let lastClipboardText = "";
@@ -149,6 +178,9 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
 
   function resetH264RuntimeState() {
     h264TimestampUs = 0;
+    h264StreamCodec = "";
+    h264PendingTimings = [];
+    diagnostics.decodeQueue = 0;
     h264LowFpsStreak = 0;
     h264FirstFrameAt = 0;
     h264FramesSeen = 0;
@@ -396,6 +428,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
         ? `${settings.resolution}:${settings.targetFps}`
         : savedStreamProfile);
     setSelectValue(streamProfileSelect, savedStreamProfile);
+    setSelectValue(bitrateSelect, settings.bitrateMbps);
     setSelectValue(webrtcMode, settings.webrtcMode);
     setSelectValue(audioTransport, settings.audioTransport);
     setSelectValue(recordMode, settings.recordMode);
@@ -428,6 +461,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       resolution: String(profile.maxHeight),
       targetFps: String(profile.fps),
       quality: Number(qualitySlider?.value || 90),
+      bitrateMbps: Number(bitrateSelect?.value || 0),
       preferH264: !!prefersH264,
       webrtcMode: getWebrtcMode(),
       mouse: !!mouseCtrl?.checked,
@@ -469,6 +503,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   function updateFpsDisplay(agentValue) {
     if (agentValue !== undefined && agentValue !== null && agentFps) {
       agentFps.textContent = String(agentValue);
+      diagnostics.currentAgentFps = Number(agentValue) || null;
     }
     const now = performance.now();
     renderCount += 1;
@@ -476,6 +511,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     if (elapsed >= 1000 && viewerFps) {
       const fps = Math.round((renderCount * 1000) / elapsed);
       viewerFps.textContent = String(fps);
+      diagnostics.currentViewerFps = fps;
       renderCount = 0;
       renderWindowStart = now;
     }
@@ -827,6 +863,142 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     }
   }
 
+  function finite(value) {
+    return Number.isFinite(value) ? Number(value) : null;
+  }
+
+  function smoothed(previous, next, weight = 0.25) {
+    const value = finite(next);
+    if (value == null) return previous;
+    return previous == null ? value : previous * (1 - weight) + value * weight;
+  }
+
+  function msText(value) {
+    const number = finite(value);
+    return number == null ? "-- ms" : `${number < 10 ? number.toFixed(1) : Math.round(number)} ms`;
+  }
+
+  function setDiagnosticsVisible(visible) {
+    if (!diagnosticsHud) return;
+    diagnosticsHud.classList.toggle("hidden", !visible);
+    diagnosticsBtn?.setAttribute("aria-pressed", visible ? "true" : "false");
+    try { localStorage.setItem("overlord.rd.statsHud", visible ? "1" : "0"); } catch {}
+  }
+
+  function renderDiagnostics() {
+    if (!diagnosticsHud) return;
+    const agent = diagnostics.agent || {};
+    const network = diagnostics.network || {};
+    const media = network.video || network.audio || {};
+    const mode = getWebrtcMode();
+    const transport = mode === "p2p" ? "WebRTC P2P" : mode === "relayed" ? "WebRTC server" : "Canvas WebSocket";
+    const bitrate = finite(media.bitrateMbps) ?? finite(diagnostics.wsBitrateMbps);
+    const decodeMs = finite(media.decodeMs) ?? finite(diagnostics.decodeMs);
+    const renderMs = finite(media.processingDelayMs) ?? finite(diagnostics.renderMs);
+    const dropped = finite(media.framesDropped) ?? 0;
+    const queue = mode === "off" ? diagnostics.decodeQueue : null;
+    const fps = finite(agent.fps) ?? diagnostics.currentAgentFps;
+    const viewerRate = finite(media.framesPerSecond) ?? diagnostics.currentViewerFps;
+    const frameBudget = 1000 / Math.max(1, fps || viewerRate || 30);
+
+    let summary = "Pipeline healthy";
+    let severity = "ok";
+    if (streamState !== "streaming" && streamState !== "stalled") {
+      summary = "Stream is not active";
+      severity = "warn";
+    } else if (finite(agent.captureMs) > frameBudget * 0.75) {
+      summary = "Capture is limiting frame rate";
+      severity = "bad";
+    } else if (finite(agent.encodeMs) > frameBudget * 0.75) {
+      summary = "Encoder is limiting frame rate";
+      severity = "bad";
+    } else if (decodeMs != null && decodeMs > frameBudget * 0.75) {
+      const viewerKeepingUp = fps != null && viewerRate != null && viewerRate >= fps * 0.9;
+      summary = viewerKeepingUp
+        ? `Decoder buffering adds ${Math.round(decodeMs)} ms`
+        : "Viewer decoder throughput is limiting FPS";
+      severity = viewerKeepingUp ? "warn" : "bad";
+    } else if ((finite(media.lossPercent) ?? 0) > 3 || (finite(network.rttMs) ?? 0) > 150 || (finite(media.jitterMs) ?? 0) > 35) {
+      summary = "Network conditions are causing delay";
+      severity = "bad";
+    } else if ((queue ?? 0) > 2 || (renderMs != null && renderMs > frameBudget)) {
+      summary = "Viewer render queue is backing up";
+      severity = "warn";
+    } else if (!diagnostics.agent && !diagnostics.network) {
+      summary = "Waiting for stream telemetry";
+      severity = "warn";
+    }
+
+    diagnosticEls.Summary.textContent = summary;
+    diagnosticEls.Summary.dataset.severity = severity;
+    diagnosticEls.Transport.textContent = transport;
+    diagnosticEls.Codec.textContent = String(media.codec || agent.format || diagnostics.codec || "--").toUpperCase();
+    const width = finite(media.width) ?? diagnostics.width;
+    const height = finite(media.height) ?? diagnostics.height;
+    diagnosticEls.Resolution.textContent = width && height ? `${width}×${height}` : "--";
+    diagnosticEls.Capture.textContent = msText(agent.captureMs);
+    diagnosticEls.Encode.textContent = msText(agent.encodeMs);
+    diagnosticEls.Send.textContent = msText(agent.sendMs);
+    diagnosticEls.AgentTotal.textContent = msText(agent.totalMs);
+    diagnosticEls.Bitrate.textContent = bitrate == null ? "-- Mbps" : `${bitrate.toFixed(2)} Mbps`;
+    diagnosticEls.Rtt.textContent = msText(network.rttMs);
+    diagnosticEls.LossJitter.textContent = `${finite(media.lossPercent)?.toFixed(1) ?? "--"}% / ${msText(media.jitterMs)}`;
+    diagnosticEls.JitterBuffer.textContent = msText(media.jitterBufferMs);
+    diagnosticEls.Decode.textContent = msText(decodeMs);
+    diagnosticEls.Render.textContent = msText(renderMs);
+    diagnosticEls.Queue.textContent = queue == null ? "managed by browser" : String(queue);
+    diagnosticEls.Dropped.textContent = `${Math.round(dropped)} / ${diagnostics.coalescedFrames}`;
+    diagnosticEls.Fps.textContent = `${fps == null ? "--" : Math.round(fps)} → ${viewerRate == null ? "--" : Math.round(viewerRate)}`;
+    diagnosticEls.Input.textContent = msText(latencyAvg);
+  }
+
+  diagnosticsBtn?.addEventListener("click", () => setDiagnosticsVisible(diagnosticsHud?.classList.contains("hidden")));
+  diagnosticsClose?.addEventListener("click", () => setDiagnosticsVisible(false));
+  networkStats?.addEventListener("click", () => setDiagnosticsVisible(true));
+  try { setDiagnosticsVisible(localStorage.getItem("overlord.rd.statsHud") === "1"); } catch {}
+  setInterval(renderDiagnostics, 250);
+
+  function updateNetworkStats(stats) {
+    if (!networkStats || !stats) return;
+    diagnostics.network = stats;
+    const media = stats.video || stats.audio;
+    const parts = [];
+    if (Number.isFinite(media?.bitrateMbps)) parts.push(`${media.bitrateMbps.toFixed(1)} Mbps`);
+    if (Number.isFinite(stats.rttMs)) parts.push(`${Math.round(stats.rttMs)} ms`);
+    if (Number.isFinite(media?.lossPercent)) parts.push(`${media.lossPercent.toFixed(1)}% loss`);
+    const route = [stats.protocol, stats.route].filter(Boolean).join("/");
+    if (route) parts.push(route);
+    networkStats.textContent = parts.join(" · ") || "Connected";
+    const details = [];
+    if (media?.codec) details.push(`Codec: ${media.codec}`);
+    if (media?.width && media?.height) details.push(`Video: ${media.width}×${media.height}${media.framesPerSecond ? ` @ ${Math.round(media.framesPerSecond)} FPS` : ""}`);
+    if (Number.isFinite(media?.jitterMs)) details.push(`Jitter: ${media.jitterMs.toFixed(1)} ms`);
+    if (Number.isFinite(media?.jitterBufferMs)) details.push(`Jitter buffer: ${media.jitterBufferMs.toFixed(1)} ms`);
+    if (Number.isFinite(media?.framesDropped)) details.push(`Frames dropped: ${media.framesDropped}`);
+    if (Number.isFinite(stats.availableIncomingMbps)) details.push(`Available: ${stats.availableIncomingMbps.toFixed(1)} Mbps`);
+    networkStats.title = details.join("\n");
+    renderDiagnostics();
+  }
+
+  function handleDesktopStreamStats(stats) {
+    const previous = diagnostics.agent || {};
+    diagnostics.agent = {
+      ...stats,
+      captureMs: smoothed(finite(previous.captureMs), stats.captureMs),
+      encodeMs: smoothed(finite(previous.encodeMs), stats.encodeMs),
+      sendMs: smoothed(finite(previous.sendMs), stats.sendMs),
+      totalMs: smoothed(finite(previous.totalMs), stats.totalMs),
+    };
+    diagnostics.currentAgentFps = finite(stats.fps);
+    diagnostics.codec = String(stats.format || diagnostics.codec || "");
+    diagnostics.width = finite(stats.width) || diagnostics.width;
+    diagnostics.height = finite(stats.height) || diagnostics.height;
+    if (agentFps && diagnostics.currentAgentFps != null) {
+      agentFps.textContent = String(Math.round(diagnostics.currentAgentFps));
+    }
+    renderDiagnostics();
+  }
+
   function clearOfflineTimer() {
     if (offlineTimer) {
       clearTimeout(offlineTimer);
@@ -919,10 +1091,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
           if (mode === "relayed") {
             sendCmd("desktop_start", { webrtc: true });
           } else if (mode === "p2p") {
-            sendCmd("desktop_start", {});
+            sendCmd("desktop_start", { canvasFlowControl: false });
             startP2P();
           } else {
-            sendCmd("desktop_start", {});
+            sendCmd("desktop_start", { canvasFlowControl: true });
           }
         }
       } else {
@@ -1043,17 +1215,19 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       return;
     }
     const msg = { type, ...payload };
-    rdDebug("send", {
-      msg,
-      readyState: ws.readyState,
-      streamState,
-      desiredStreaming,
-      display: displaySelect?.value ?? "",
-      quality: qualitySlider?.value ?? "",
-      streamProfile: streamProfileSelect?.value ?? "",
-      transport: getWebrtcMode(),
-      lastFrameAgeMs: lastFrameAt ? Math.round(performance.now() - lastFrameAt) : null,
-    });
+    if (type !== "desktop_decode_pressure") {
+      rdDebug("send", {
+        msg,
+        readyState: ws.readyState,
+        streamState,
+        desiredStreaming,
+        display: displaySelect?.value ?? "",
+        quality: qualitySlider?.value ?? "",
+        streamProfile: streamProfileSelect?.value ?? "",
+        transport: getWebrtcMode(),
+        lastFrameAgeMs: lastFrameAt ? Math.round(performance.now() - lastFrameAt) : null,
+      });
+    }
     ws.send(encodeMsgpack(msg));
   }
 
@@ -1061,6 +1235,11 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     webrtcActive = !!active;
     if (canvas) canvas.style.display = active ? "none" : "block";
     if (webrtcVideo) webrtcVideo.style.display = active ? "block" : "none";
+    if (!active && networkStats) {
+      networkStats.textContent = "--";
+      networkStats.title = "";
+      diagnostics.network = null;
+    }
   }
 
   function onWebrtcState(label, s) {
@@ -1084,15 +1263,22 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     stopWebrtcFrameTicker();
     webrtcFpsCount = 0;
     webrtcFpsWindowStart = performance.now();
-    const tick = (now) => {
+    const tick = (now, metadata = {}) => {
       markFrameReceived();
+      if (Number.isFinite(metadata.processingDuration)) {
+        diagnostics.decodeMs = smoothed(diagnostics.decodeMs, metadata.processingDuration * 1000);
+      }
+      if (Number.isFinite(metadata.receiveTime) && Number.isFinite(metadata.expectedDisplayTime)) {
+        diagnostics.renderMs = smoothed(diagnostics.renderMs, Math.max(0, metadata.expectedDisplayTime - metadata.receiveTime));
+      }
+      diagnostics.width = webrtcVideo.videoWidth || diagnostics.width;
+      diagnostics.height = webrtcVideo.videoHeight || diagnostics.height;
       webrtcFpsCount += 1;
       const elapsed = now - webrtcFpsWindowStart;
       if (elapsed >= 1000) {
         const fps = Math.round((webrtcFpsCount * 1000) / elapsed);
-        // Agent and viewer FPS are effectively equal in WebRTC mode — the
-        // browser renders every frame the agent sends, no decode skipping.
-        updateFpsDisplay(fps);
+        diagnostics.currentViewerFps = fps;
+        updateFpsDisplay();
         webrtcFpsCount = 0;
         webrtcFpsWindowStart = now;
       } else {
@@ -1116,6 +1302,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       whepPath,
       videoEl: webrtcVideo,
       onState: (s) => onWebrtcState("WebRTC Relayed", s),
+      onStats: (stats) => updateNetworkStats({ ...stats, route: "Server" }),
     });
     try {
       await whepClient.start();
@@ -1139,6 +1326,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
         }
       },
       onState: (s) => onWebrtcState("WebRTC P2P", s),
+      onStats: updateNetworkStats,
     });
     try {
       await p2pClient.start();
@@ -1306,6 +1494,18 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     sendCmd("desktop_set_profile", profile);
   }
 
+  function pushBitrate() {
+    const bitrateMbps = Math.max(0, Math.min(50, Number.parseInt(bitrateSelect?.value || "0", 10) || 0));
+    sendCmd("desktop_set_bitrate", { bitrateMbps });
+  }
+
+  if (bitrateSelect) {
+    bitrateSelect.addEventListener("change", function () {
+      pushBitrate();
+      sharedSettingsSaver.scheduleSave();
+    });
+  }
+
   function requestEncoderCapabilities() {
     if (streamProfileDetail) streamProfileDetail.textContent = "Checking hardware encoder profiles…";
     sendCmd("desktop_encoder_capabilities", {
@@ -1419,6 +1619,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       ensureDuplicationForH264();
     }
     pushStreamProfile();
+    pushBitrate();
     desiredStreaming = true;
     lastFrameAt = 0;
     firstFrameLogged = false;
@@ -1429,10 +1630,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       sendCmd("desktop_start", { webrtc: true });
     } else if (mode === "p2p") {
       // Kick off the P2P offer asynchronously; capture starts in parallel.
-      sendCmd("desktop_start", {});
+      sendCmd("desktop_start", { canvasFlowControl: false });
       startP2P();
     } else {
-      sendCmd("desktop_start", {});
+      sendCmd("desktop_start", { canvasFlowControl: true });
     }
     if (audioCtrl && audioCtrl.checked) {
       connectAudio();
@@ -1644,6 +1845,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   }
 
   function destroyVideoDecoder() {
+    updateCanvasDecodePressure(true);
     if (!videoDecoder) return;
     try {
       videoDecoder.close();
@@ -1651,6 +1853,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       // Ignore close errors when decoder is already shutting down.
     }
     videoDecoder = null;
+    videoDecoderConfigKey = "";
     resetH264RuntimeState();
   }
 
@@ -1724,6 +1927,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       sendCmd("desktop_start", {
         source: "rd_viewer",
         reason: "h264_recovery_restart",
+        canvasFlowControl: getWebrtcMode() === "off",
       });
       const q = Number(qualitySlider?.value) || 90;
       sendCmd("desktop_set_quality", {
@@ -1769,16 +1973,39 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     return false;
   }
 
-  function ensureVideoDecoder() {
-    if (videoDecoder) {
+  function h264CodecFromAnnexB(data) {
+    for (let i = 0; i + 7 < data.length; i++) {
+      let startCodeLength = 0;
+      if (data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 1) startCodeLength = 3;
+      else if (data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 0 && data[i + 3] === 1) startCodeLength = 4;
+      if (!startCodeLength) continue;
+      const nal = i + startCodeLength;
+      if ((data[nal] & 0x1f) !== 7 || nal + 3 >= data.length) continue;
+      return `avc1.${[data[nal + 1], data[nal + 2], data[nal + 3]]
+        .map((value) => value.toString(16).padStart(2, "0"))
+        .join("")}`;
+    }
+    return "";
+  }
+
+  function ensureVideoDecoder(h264Bytes, width, height) {
+    const detectedCodec = h264CodecFromAnnexB(h264Bytes);
+    const codec = detectedCodec || h264StreamCodec || "avc1.4d0034";
+    const codedWidth = Math.max(0, Number(width) || 0);
+    const codedHeight = Math.max(0, Number(height) || 0);
+    const configKey = `${codec}:${codedWidth}x${codedHeight}`;
+    if (videoDecoder && videoDecoderConfigKey === configKey) {
       return true;
     }
     if (typeof VideoDecoder !== "function") {
       return false;
     }
     try {
+      if (videoDecoder) destroyVideoDecoder();
       videoDecoder = new VideoDecoder({
         output: (frame) => {
+          const outputStartedAt = performance.now();
+          const timing = h264PendingTimings.shift();
           const width = frame.displayWidth || frame.codedWidth || frameWidth;
           const height = frame.displayHeight || frame.codedHeight || frameHeight;
           if (width > 0 && height > 0 && (canvas.width !== width || canvas.height !== height)) {
@@ -1792,12 +2019,34 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
           } finally {
             frame.close();
           }
+          const renderedAt = performance.now();
+          if (timing) {
+            diagnostics.decodeMs = smoothed(diagnostics.decodeMs, Math.max(0, outputStartedAt - timing.decodeStartedAt));
+            diagnostics.renderMs = smoothed(diagnostics.renderMs, Math.max(0, renderedAt - timing.receivedAt));
+          }
+          diagnostics.decodeQueue = videoDecoder?.decodeQueueSize || h264PendingTimings.length;
+          diagnostics.width = width;
+          diagnostics.height = height;
+          updateFpsDisplay();
+          updateCanvasDecodePressure();
         },
         error: (err) => {
           console.warn("rd: h264 decoder error", err);
+          updateCanvasDecodePressure(true);
         },
       });
-      videoDecoder.configure({ codec: "avc1.42E01E", optimizeForLatency: true });
+      videoDecoder.addEventListener("dequeue", () => {
+        diagnostics.decodeQueue = videoDecoder?.decodeQueueSize || 0;
+        updateCanvasDecodePressure();
+      });
+      const config = { codec, optimizeForLatency: true };
+      if (codedWidth > 0 && codedHeight > 0) {
+        config.codedWidth = codedWidth;
+        config.codedHeight = codedHeight;
+      }
+      videoDecoder.configure(config);
+      videoDecoderConfigKey = configKey;
+      h264StreamCodec = codec;
       return true;
     } catch (err) {
       console.warn("rd: h264 decoder unavailable", err);
@@ -1807,22 +2056,72 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     }
   }
 
-  async function processFrameBuffer(buf) {
+  function recordWsFrameBytes(byteLength) {
+    diagnostics.wsBytes += Math.max(0, Number(byteLength) || 0);
+    const now = performance.now();
+    const elapsed = now - diagnostics.wsWindowStartedAt;
+    if (elapsed >= 1000) {
+      const rate = (diagnostics.wsBytes * 8) / (elapsed * 1000);
+      diagnostics.wsBitrateMbps = smoothed(diagnostics.wsBitrateMbps, rate, 0.4);
+      diagnostics.wsBytes = 0;
+      diagnostics.wsWindowStartedAt = now;
+    }
+  }
+
+  function recordCanvasFrameTiming(receivedAt, decodeStartedAt) {
+    const renderedAt = performance.now();
+    diagnostics.decodeMs = smoothed(diagnostics.decodeMs, Math.max(0, renderedAt - decodeStartedAt));
+    diagnostics.renderMs = smoothed(diagnostics.renderMs, Math.max(0, renderedAt - receivedAt));
+    diagnostics.decodeQueue = videoDecoder?.decodeQueueSize || (pendingFrame ? 1 : 0);
+    diagnostics.width = frameWidth || canvas.width || diagnostics.width;
+    diagnostics.height = frameHeight || canvas.height || diagnostics.height;
+  }
+
+  function updateCanvasDecodePressure(forceRelease = false) {
+    const queueSize = videoDecoder?.decodeQueueSize || 0;
+    const shouldApply = !forceRelease && getWebrtcMode() === "off" && queueSize > 3;
+    const shouldRelease = forceRelease || getWebrtcMode() !== "off" || queueSize <= 1;
+    let next = canvasDecodePressure;
+    if (!canvasDecodePressure && shouldApply) next = true;
+    else if (canvasDecodePressure && shouldRelease) next = false;
+    if (next === canvasDecodePressure) return;
+    canvasDecodePressure = next;
+    sendCmd("desktop_decode_pressure", { active: next, queueSize });
+  }
+
+  async function processFrameBuffer(buf, receivedAt = performance.now()) {
+    const decodeStartedAt = performance.now();
     const fps = buf[5];
     const format = buf[6];
+    const headerLength = buf[3] >= 2 && buf.length >= 12 ? 12 : 8;
+    const encodedWidth = headerLength === 12 ? buf[8] | (buf[9] << 8) : 0;
+    const encodedHeight = headerLength === 12 ? buf[10] | (buf[11] << 8) : 0;
+    if (encodedWidth > 0 && encodedHeight > 0) {
+      frameWidth = encodedWidth;
+      frameHeight = encodedHeight;
+      diagnostics.width = encodedWidth;
+      diagnostics.height = encodedHeight;
+    }
 
     if (format === 1) {
-      const jpegBytes = buf.slice(8);
+      const jpegBytes = buf.slice(headerLength);
       setCodecModeLabel("jpeg", "active");
+      diagnostics.codec = "jpeg";
       await drawJpegSlice(jpegBytes, null);
+      recordCanvasFrameTiming(receivedAt, decodeStartedAt);
       updateFpsDisplay(fps);
+      updateCanvasDecodePressure(true);
       return;
     }
 
     if (format === 2 || format === 3) {
       setCodecModeLabel(format === 3 ? "raw" : "jpeg", format === 3 ? "blocks" : "blocks");
-      if (buf.length < 16) return;
-      const dv = new DataView(buf.buffer, 8);
+      diagnostics.codec = format === 3 ? "raw blocks" : "jpeg blocks";
+      if (buf.length < headerLength + 8) {
+        updateCanvasDecodePressure(true);
+        return;
+      }
+      const dv = new DataView(buf.buffer, buf.byteOffset + headerLength, buf.byteLength - headerLength);
       let pos = 0;
       const width = dv.getUint16(pos, true);
       pos += 2;
@@ -1857,7 +2156,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
         pos += 2;
         const len = dv.getUint32(pos, true);
         pos += 4;
-        const start = 8 + pos;
+        const start = headerLength + pos;
         const end = start + len;
         if (end > buf.length) break;
         const slice = buf.subarray(start, end);
@@ -1872,15 +2171,22 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       }
 
       updateFpsDisplay(fps);
+      recordCanvasFrameTiming(receivedAt, decodeStartedAt);
+      updateCanvasDecodePressure(true);
       return;
     }
 
     if (format === 4) {
       setCodecModeLabel("h264", "active");
-      const h264Bytes = buf.slice(8);
-      if (!h264Bytes.length) return;
-      if (!ensureVideoDecoder()) {
+      diagnostics.codec = "h264";
+      const h264Bytes = buf.slice(headerLength);
+      if (!h264Bytes.length) {
+        updateCanvasDecodePressure(true);
+        return;
+      }
+      if (!ensureVideoDecoder(h264Bytes, encodedWidth || frameWidth, encodedHeight || frameHeight)) {
         fallbackToJpegCodec("WebCodecs decoder unavailable");
+        updateCanvasDecodePressure(true);
         return;
       }
 
@@ -1905,6 +2211,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
         h264LowFpsStreak >= H264_LOW_FPS_STREAK_LIMIT
       ) {
         fallbackToJpegCodec(`low h264 fps (${fps})`);
+        updateCanvasDecodePressure(true);
         return;
       }
 
@@ -1916,10 +2223,13 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       });
       h264TimestampUs += frameIntervalUs;
       try {
+        h264PendingTimings.push({ receivedAt, decodeStartedAt: performance.now() });
         videoDecoder.decode(chunk);
+        diagnostics.decodeQueue = videoDecoder.decodeQueueSize;
+        updateCanvasDecodePressure();
         h264KeyframeErrorStreak = 0;
-        updateFpsDisplay(fps);
       } catch (err) {
+        h264PendingTimings.pop();
         if (isKeyframeRequiredError(err)) {
           h264KeyframeErrorStreak += 1;
           const now = Date.now();
@@ -1936,12 +2246,16 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
               fallbackToJpegCodec("h264_keyframe_required_loop");
             }
           }
+          updateCanvasDecodePressure(true);
           return;
         }
         console.warn("rd: h264 decode failed", err);
         fallbackToJpegCodec(err);
+        updateCanvasDecodePressure(true);
       }
+      return;
     }
+    updateCanvasDecodePressure(true);
   }
 
   function flushPendingFrame() {
@@ -1951,7 +2265,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     const next = pendingFrame;
     pendingFrame = null;
     frameDecodeBusy = true;
-    processFrameBuffer(next).finally(() => {
+    processFrameBuffer(next.buf, next.receivedAt).finally(() => {
       frameDecodeBusy = false;
       if (pendingFrame) {
         flushPendingFrame();
@@ -1964,8 +2278,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       const buf = new Uint8Array(ev.data);
       if (isFramePacket(buf)) {
         markFrameReceived();
+        recordWsFrameBytes(buf.byteLength);
         // Coalesce bursty arrivals so the renderer catches up to the newest frame.
-        pendingFrame = buf;
+        if (pendingFrame) diagnostics.coalescedFrames += 1;
+        pendingFrame = { buf, receivedAt: performance.now() };
         flushPendingFrame();
         return;
       }
@@ -1973,6 +2289,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       const msg = decodeMsgpack(buf);
       if (msg && msg.type === "desktop_encoder_capabilities") {
         applyEncoderCapabilities(msg);
+        return;
+      }
+      if (msg && msg.type === "desktop_stream_stats") {
+        handleDesktopStreamStats(msg);
         return;
       }
       if (msg && msg.type === "status" && msg.status) {
@@ -2014,6 +2334,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       applyEncoderCapabilities(msg);
       return;
     }
+    if (msg && msg.type === "desktop_stream_stats") {
+      handleDesktopStreamStats(msg);
+      return;
+    }
     if (msg && msg.type === "status" && msg.status) {
       handleStatus(msg);
       return;
@@ -2045,6 +2369,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     if (qualitySlider) {
       pushQuality(qualitySlider.value);
     }
+    pushBitrate();
     pushInputToggles();
     pushCaptureToggles();
     clearOfflineTimer();
@@ -2060,10 +2385,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       if (mode === "relayed") {
         sendCmd("desktop_start", { webrtc: true });
       } else if (mode === "p2p") {
-        sendCmd("desktop_start", {});
+        sendCmd("desktop_start", { canvasFlowControl: false });
         startP2P();
       } else {
-        sendCmd("desktop_start", {});
+        sendCmd("desktop_start", { canvasFlowControl: true });
       }
     } else {
       setStreamState("idle", "Stopped");

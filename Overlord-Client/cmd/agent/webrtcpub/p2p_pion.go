@@ -71,11 +71,12 @@ func StartP2POffer(ctx context.Context, kind Kind, sessionID string, offerSDP st
 	if hasAudio {
 		if err := mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
 			RTPCodecCapability: webrtc.RTPCodecCapability{
-				MimeType:  webrtc.MimeTypePCMU,
-				ClockRate: 8000,
-				Channels:  1,
+				MimeType:    webrtc.MimeTypeOpus,
+				ClockRate:   48000,
+				Channels:    2,
+				SDPFmtpLine: "minptime=10;useinbandfec=1",
 			},
-			PayloadType: 0,
+			PayloadType: 111,
 		}, webrtc.RTPCodecTypeAudio); err != nil {
 			return "", fmt.Errorf("register audio codec: %w", err)
 		}
@@ -92,8 +93,9 @@ func StartP2POffer(ctx context.Context, kind Kind, sessionID string, offerSDP st
 	}
 
 	var (
-		videoTrack *webrtc.TrackLocalStaticSample
-		audioTrack *webrtc.TrackLocalStaticSample
+		videoTrack  *webrtc.TrackLocalStaticSample
+		audioTrack  *webrtc.TrackLocalStaticSample
+		audioWriter AudioWriter
 	)
 	if hasVideo {
 		videoTrack, err = webrtc.NewTrackLocalStaticSample(
@@ -117,12 +119,17 @@ func StartP2POffer(ctx context.Context, kind Kind, sessionID string, offerSDP st
 	}
 	if hasAudio {
 		audioTrack, err = webrtc.NewTrackLocalStaticSample(
-			webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypePCMU, ClockRate: 8000, Channels: 1},
+			webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2, SDPFmtpLine: "minptime=10;useinbandfec=1"},
 			"overlord-audio-p2p-"+string(kind), "overlord-"+string(kind),
 		)
 		if err != nil {
 			_ = pc.Close()
 			return "", fmt.Errorf("new audio track: %w", err)
+		}
+		audioWriter, err = newOpusAudioWriter(audioTrack)
+		if err != nil {
+			_ = pc.Close()
+			return "", fmt.Errorf("new opus encoder: %w", err)
 		}
 		tx, err := pc.AddTransceiverFromTrack(audioTrack, webrtc.RTPTransceiverInit{
 			Direction: webrtc.RTPTransceiverDirectionSendonly,
@@ -201,7 +208,7 @@ func StartP2POffer(ctx context.Context, kind Kind, sessionID string, offerSDP st
 		registerVideoWriter(kind, writerID, &h264TrackWriter{t: videoTrack})
 	}
 	if audioTrack != nil {
-		registerAudioWriter(kind, writerID, newPCMUAudioWriter(audioTrack))
+		registerAudioWriter(kind, writerID, audioWriter)
 	}
 	return answer.SDP, nil
 }

@@ -1296,12 +1296,6 @@ func failedHR(hr uintptr) bool {
 	return hr&0x80000000 != 0
 }
 
-func targetH264Bitrate(width, height, fps int) int {
-	pixelsPerSecond := float64(width * height * fps)
-	bitrate := int(pixelsPerSecond * 0.08)
-	return clampInt(bitrate, 1_500_000, 18_000_000)
-}
-
 func h264LevelFor(width, height, fps int) int {
 	mbsPerFrame := ((width + 15) / 16) * ((height + 15) / 16)
 	mbsPerSecond := mbsPerFrame * fps

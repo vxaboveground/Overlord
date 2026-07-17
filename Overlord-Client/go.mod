@@ -20,6 +20,7 @@ require (
 	github.com/pion/rtcp v1.2.15
 	github.com/pion/webrtc/v4 v4.0.7
 	github.com/tetratelabs/wazero v1.12.0
+	github.com/thesyncim/gopus v0.1.1
 	golang.org/x/crypto v0.49.0
 	golang.org/x/sys v0.44.0
 )

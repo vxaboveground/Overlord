@@ -107,17 +107,33 @@ type ClientLogsResult struct {
 }
 
 type FrameHeader struct {
-	Monitor int    `msgpack:"monitor"`
-	FPS     int    `msgpack:"fps"`
-	Format  string `msgpack:"format"`
-	Backstage    bool   `msgpack:"backstage,omitempty"`
-	Webcam  bool   `msgpack:"webcam,omitempty"`
+	Monitor   int    `msgpack:"monitor"`
+	FPS       int    `msgpack:"fps"`
+	Format    string `msgpack:"format"`
+	Width     int    `msgpack:"width,omitempty"`
+	Height    int    `msgpack:"height,omitempty"`
+	Backstage bool   `msgpack:"backstage,omitempty"`
+	Webcam    bool   `msgpack:"webcam,omitempty"`
 }
 
 type Frame struct {
 	Type   string      `msgpack:"type"`
 	Header FrameHeader `msgpack:"header"`
 	Data   []byte      `msgpack:"data"`
+}
+
+type DesktopStreamStats struct {
+	Type      string  `msgpack:"type"`
+	FPS       int     `msgpack:"fps"`
+	Format    string  `msgpack:"format"`
+	Bytes     int     `msgpack:"bytes"`
+	Width     int     `msgpack:"width"`
+	Height    int     `msgpack:"height"`
+	CaptureMs float64 `msgpack:"captureMs"`
+	EncodeMs  float64 `msgpack:"encodeMs"`
+	SendMs    float64 `msgpack:"sendMs"`
+	TotalMs   float64 `msgpack:"totalMs"`
+	Transport string  `msgpack:"transport"`
 }
 
 type FrameAck struct {
@@ -381,9 +397,9 @@ type BackstageInstalledApp struct {
 }
 
 type BackstageInstalledAppsResult struct {
-	Type string             `msgpack:"type"`
+	Type string                  `msgpack:"type"`
 	Apps []BackstageInstalledApp `msgpack:"apps"`
-	Done bool               `msgpack:"done"`
+	Done bool                    `msgpack:"done"`
 }
 
 type BackstageBrowserLaunchStatus struct {
@@ -416,7 +432,7 @@ type BackstageMonitorEntry struct {
 }
 
 type BackstageWindowListResult struct {
-	Type     string             `msgpack:"type"`
+	Type     string                  `msgpack:"type"`
 	Windows  []BackstageWindowEntry  `msgpack:"windows"`
 	Monitors []BackstageMonitorEntry `msgpack:"monitors"`
 }

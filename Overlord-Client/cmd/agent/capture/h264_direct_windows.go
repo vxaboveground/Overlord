@@ -14,7 +14,7 @@ func tryBuildDirectH264Frame(display int) (wire.Frame, time.Duration, time.Durat
 		return wire.Frame{}, 0, 0, false, nil
 	}
 	forceKeyframe := webrtcpub.ConsumeKeyframeRequest()
-	data, _, _, captureDur, encodeDur, used, err := captureDisplayDXGIH264(display, forceKeyframe)
+	data, width, height, captureDur, encodeDur, used, err := captureDisplayDXGIH264(display, forceKeyframe)
 	if !used || err != nil {
 		return wire.Frame{}, captureDur, encodeDur, used, err
 	}
@@ -24,5 +24,5 @@ func tryBuildDirectH264Frame(display int) (wire.Frame, time.Duration, time.Durat
 	now := time.Now()
 	lastKeyframe.Store(now.UnixNano())
 	statFullFrames.Add(1)
-	return wire.Frame{Type: "frame", Header: wire.FrameHeader{Monitor: display, FPS: 0, Format: "h264"}, Data: data}, captureDur, encodeDur, true, nil
+	return wire.Frame{Type: "frame", Header: wire.FrameHeader{Monitor: display, FPS: 0, Format: "h264", Width: width, Height: height}, Data: data}, captureDur, encodeDur, true, nil
 }

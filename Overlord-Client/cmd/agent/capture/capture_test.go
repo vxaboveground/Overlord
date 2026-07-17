@@ -44,6 +44,7 @@ func TestCaptureAndSend_NoDisplays(t *testing.T) {
 }
 
 func TestCaptureAndSend_SendsFrame(t *testing.T) {
+	previousStatsAt := lastDesktopStreamStatsMs.Swap(0)
 	originalCount := activeDisplays
 	originalCapture := captureDisplayFn
 	activeDisplays = func() int { return 1 }
@@ -56,6 +57,7 @@ func TestCaptureAndSend_SendsFrame(t *testing.T) {
 	t.Cleanup(func() {
 		activeDisplays = originalCount
 		captureDisplayFn = originalCapture
+		lastDesktopStreamStatsMs.Store(previousStatsAt)
 	})
 
 	writer := &recordingWriter{}
@@ -63,8 +65,8 @@ func TestCaptureAndSend_SendsFrame(t *testing.T) {
 	if err := CaptureAndSend(context.Background(), env); err != nil {
 		t.Fatalf("CaptureAndSend returned error: %v", err)
 	}
-	if len(writer.msgs) != 1 {
-		t.Fatalf("expected one message written, got %d", len(writer.msgs))
+	if len(writer.msgs) != 2 {
+		t.Fatalf("expected frame and telemetry messages, got %d", len(writer.msgs))
 	}
 
 	var frame wire.Frame
@@ -83,6 +85,17 @@ func TestCaptureAndSend_SendsFrame(t *testing.T) {
 
 	if _, err := jpeg.Decode(bytes.NewReader(frame.Data)); err != nil {
 		t.Fatalf("jpeg payload did not decode: %v", err)
+	}
+
+	var stats wire.DesktopStreamStats
+	if err := msgpack.Unmarshal(writer.msgs[1], &stats); err != nil {
+		t.Fatalf("decode desktop stream stats: %v", err)
+	}
+	if stats.Type != "desktop_stream_stats" || stats.Format != "jpeg" {
+		t.Fatalf("unexpected stream stats: %#v", stats)
+	}
+	if stats.CaptureMs < 0 || stats.EncodeMs < 0 || stats.TotalMs < 0 {
+		t.Fatalf("stream stats contained a negative duration: %#v", stats)
 	}
 }
 
@@ -306,8 +319,13 @@ func TestCaptureAndSend_DisplayOutOfRange(t *testing.T) {
 				t.Errorf("expected capture from display %d, got %d", tt.expectedDisplay, capturedDisplay)
 			}
 
-			if len(writer.msgs) != 1 {
-				t.Errorf("expected 1 message, got %d", len(writer.msgs))
+			if len(writer.msgs) == 0 {
+				t.Error("expected a frame message")
+			} else {
+				var frame wire.Frame
+				if err := msgpack.Unmarshal(writer.msgs[0], &frame); err != nil || frame.Type != "frame" {
+					t.Errorf("first message was not a valid frame: type=%q err=%v", frame.Type, err)
+				}
 			}
 		})
 	}

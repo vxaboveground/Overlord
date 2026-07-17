@@ -9,6 +9,7 @@ import {
   handlebackstageViewerOpen,
   handleRemoteDesktopViewerMessage,
   handleRemoteDesktopViewerOpen,
+  handleDesktopStreamStats,
   backstageStreamingState,
   rdStreamingState,
 } from "./ws-console-rd-backstage";
@@ -143,6 +144,7 @@ describe("remote desktop viewer control", () => {
       duplication: true,
       maxHeight: 1080,
       maxFps: 120,
+      bitrateMbps: 0,
       lastFps: 1,
       lastFrameAt: 0,
       startedAt: Date.now() - 5000,
@@ -155,6 +157,78 @@ describe("remote desktop viewer control", () => {
     expect(commands.filter((msg) => msg.commandType === "desktop_start")).toHaveLength(1);
     expect(commands.filter((msg) => msg.commandType === "desktop_request_keyframe")).toHaveLength(0);
     expect(rdStreamingState.get(clientId)?.isStreaming).toBe(true);
+  });
+
+  test("forwards and clamps the desktop bitrate setting", () => {
+    const clientId = `rd-bitrate-${Date.now().toString(36)}`;
+    const { agentWs } = createClient(clientId);
+    const viewer = createMockWs({ clientId });
+
+    handleRemoteDesktopViewerOpen(viewer as any);
+    handleRemoteDesktopViewerMessage(viewer as any, JSON.stringify({
+      type: "desktop_set_bitrate",
+      bitrateMbps: 75,
+    }));
+
+    const command = agentCommands(agentWs).find((msg) => msg.commandType === "desktop_set_bitrate");
+    expect(command?.payload?.bitrateMbps).toBe(50);
+    expect(rdStreamingState.get(clientId)?.bitrateMbps).toBe(50);
+  });
+
+  test("forwards agent pipeline telemetry to every remote desktop viewer", () => {
+    const clientId = `rd-stats-${Date.now().toString(36)}`;
+    createClient(clientId);
+    const viewer = createMockWs({ clientId });
+    handleRemoteDesktopViewerOpen(viewer as any);
+
+    handleDesktopStreamStats(clientId, {
+      type: "desktop_stream_stats",
+      fps: 60,
+      format: "h264",
+      captureMs: 2.25,
+      encodeMs: 4.5,
+      sendMs: 0.4,
+      totalMs: 7.3,
+      transport: "webrtc",
+    });
+
+    const message = decodeMessage(viewer.sent.at(-1) as Uint8Array) as any;
+    expect(message.type).toBe("desktop_stream_stats");
+    expect(message.captureMs).toBe(2.25);
+    expect(message.encodeMs).toBe(4.5);
+    expect(message.transport).toBe("webrtc");
+  });
+
+  test("holds Canvas acknowledgements only while the browser decoder is under pressure", () => {
+    const clientId = `rd-flow-${Date.now().toString(36)}`;
+    const { agentWs } = createClient(clientId);
+    const viewer = createMockWs({ clientId });
+    handleRemoteDesktopViewerOpen(viewer as any);
+    handleRemoteDesktopViewerMessage(viewer as any, JSON.stringify({
+      type: "desktop_start",
+      canvasFlowControl: true,
+    }));
+
+    const healthyAck = (globalThis as any).__rdBroadcast(
+      clientId,
+      new Uint8Array([1, 2, 3]),
+      { format: "h264", fps: 60, width: 2560, height: 1440 },
+    );
+    expect(healthyAck).toBe(true);
+    const frame = viewer.sent.at(-1) as Uint8Array;
+    expect(frame[3]).toBe(2);
+    expect(frame.byteLength).toBe(15);
+
+    handleRemoteDesktopViewerMessage(viewer as any, JSON.stringify({ type: "desktop_decode_pressure", active: true }));
+    const pressuredAck = (globalThis as any).__rdBroadcast(
+      clientId,
+      new Uint8Array([4, 5, 6]),
+      { format: "h264", fps: 60, width: 2560, height: 1440 },
+    );
+    expect(pressuredAck).toBe(false);
+
+    handleRemoteDesktopViewerMessage(viewer as any, JSON.stringify({ type: "desktop_decode_pressure", active: false }));
+    expect(agentCommands(agentWs).filter((msg) => msg.type === "frame_ack")).toHaveLength(1);
   });
 });
 

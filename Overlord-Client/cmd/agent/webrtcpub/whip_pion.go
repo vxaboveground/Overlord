@@ -133,11 +133,12 @@ func Start(ctx context.Context, kind Kind, opts Options) (*Publisher, error) {
 	if opts.HasAudio {
 		if err := mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
 			RTPCodecCapability: webrtc.RTPCodecCapability{
-				MimeType:  webrtc.MimeTypePCMU,
-				ClockRate: 8000,
-				Channels:  1,
+				MimeType:    webrtc.MimeTypeOpus,
+				ClockRate:   48000,
+				Channels:    2,
+				SDPFmtpLine: "minptime=10;useinbandfec=1",
 			},
-			PayloadType: 0,
+			PayloadType: 111,
 		}, webrtc.RTPCodecTypeAudio); err != nil {
 			return nil, fmt.Errorf("register audio codec: %w", err)
 		}
@@ -150,8 +151,9 @@ func Start(ctx context.Context, kind Kind, opts Options) (*Publisher, error) {
 	}
 
 	var (
-		videoTrack *webrtc.TrackLocalStaticSample
-		audioTrack *webrtc.TrackLocalStaticSample
+		videoTrack  *webrtc.TrackLocalStaticSample
+		audioTrack  *webrtc.TrackLocalStaticSample
+		audioWriter AudioWriter
 	)
 	if opts.HasVideo {
 		videoTrack, err = webrtc.NewTrackLocalStaticSample(
@@ -175,12 +177,17 @@ func Start(ctx context.Context, kind Kind, opts Options) (*Publisher, error) {
 	}
 	if opts.HasAudio {
 		audioTrack, err = webrtc.NewTrackLocalStaticSample(
-			webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypePCMU, ClockRate: 8000, Channels: 1},
+			webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2, SDPFmtpLine: "minptime=10;useinbandfec=1"},
 			"overlord-audio-"+string(kind), "overlord-"+string(kind),
 		)
 		if err != nil {
 			_ = pc.Close()
 			return nil, fmt.Errorf("new audio track: %w", err)
+		}
+		audioWriter, err = newOpusAudioWriter(audioTrack)
+		if err != nil {
+			_ = pc.Close()
+			return nil, fmt.Errorf("new opus encoder: %w", err)
 		}
 		tx, err := pc.AddTransceiverFromTrack(audioTrack, webrtc.RTPTransceiverInit{
 			Direction: webrtc.RTPTransceiverDirectionSendonly,
@@ -256,7 +263,7 @@ func Start(ctx context.Context, kind Kind, opts Options) (*Publisher, error) {
 		registerVideoWriter(kind, writerID, &h264TrackWriter{t: videoTrack})
 	}
 	if audioTrack != nil {
-		registerAudioWriter(kind, writerID, newPCMUAudioWriter(audioTrack))
+		registerAudioWriter(kind, writerID, audioWriter)
 	}
 	log.Printf("webrtcpub: WHIP[%s] session established (resource=%s)", kind, resourceURL)
 	return pub, nil

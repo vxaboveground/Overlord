@@ -154,6 +154,8 @@ func CaptureAndSend(ctx context.Context, env *rt.Env) error {
 		slotAcquired = true
 	}
 
+	frameWidth := img.Bounds().Dx()
+	frameHeight := img.Bounds().Dy()
 	quality := jpegQuality()
 	frame, encodeDur, err := buildFrame(img, display, quality)
 	PutRGBA(img)
@@ -164,6 +166,8 @@ func CaptureAndSend(ctx context.Context, env *rt.Env) error {
 		}
 		return err
 	}
+	frame.Header.Width = frameWidth
+	frame.Header.Height = frameHeight
 	now := time.Now()
 	fps := frameFPS(now)
 	if fps <= 0 {
@@ -181,17 +185,21 @@ func CaptureAndSend(ctx context.Context, env *rt.Env) error {
 		if dur <= 0 {
 			dur = 33 * time.Millisecond
 		}
+		sendStart := time.Now()
 		if werr := webrtcpub.WriteH264(webrtcpub.KindDesktop, frame.Data, dur); werr != nil {
 			log.Printf("webrtc: write h264 failed: %v", werr)
 		}
+		sendDur := time.Since(sendStart)
 		if slotAcquired {
 			ReleaseFrameSlot()
 		}
 		statFrames.Add(1)
 		statCapNs.Add(captureDur.Nanoseconds())
 		statEncNs.Add(encodeDur.Nanoseconds())
-		statTotalNs.Add(time.Since(t0).Nanoseconds())
+		totalDur := time.Since(t0)
+		statTotalNs.Add(totalDur.Nanoseconds())
 		statBytes.Add(int64(len(frame.Data)))
+		emitDesktopStreamStats(ctx, env, frame, fps, captureDur, encodeDur, sendDur, totalDur, "webrtc")
 		return nil
 	}
 	if !slotAcquired {
@@ -233,6 +241,7 @@ func CaptureAndSend(ctx context.Context, env *rt.Env) error {
 	statSendNs.Add(sendDur.Nanoseconds())
 	statTotalNs.Add(time.Since(t0).Nanoseconds())
 	statBytes.Add(int64(len(frame.Data)))
+	emitDesktopStreamStats(ctx, env, frame, fps, captureDur, encodeDur, sendDur, time.Since(t0), "websocket")
 	return err
 }
 
@@ -251,14 +260,18 @@ func sendCompletedFrame(ctx context.Context, env *rt.Env, frame wire.Frame, disp
 		if dur <= 0 {
 			dur = 33 * time.Millisecond
 		}
+		sendStart := time.Now()
 		if werr := webrtcpub.WriteH264(webrtcpub.KindDesktop, frame.Data, dur); werr != nil {
 			log.Printf("webrtc: write h264 failed: %v", werr)
 		}
+		sendDur := time.Since(sendStart)
 		statFrames.Add(1)
 		statCapNs.Add(captureDur.Nanoseconds())
 		statEncNs.Add(encodeDur.Nanoseconds())
-		statTotalNs.Add(time.Since(t0).Nanoseconds())
+		totalDur := time.Since(t0)
+		statTotalNs.Add(totalDur.Nanoseconds())
 		statBytes.Add(int64(len(frame.Data)))
+		emitDesktopStreamStats(ctx, env, frame, fps, captureDur, encodeDur, sendDur, totalDur, "webrtc")
 		return nil
 	}
 	if !AcquireFrameSlot() {
@@ -301,6 +314,7 @@ func sendCompletedFrame(ctx context.Context, env *rt.Env, frame wire.Frame, disp
 	statSendNs.Add(sendDur.Nanoseconds())
 	statTotalNs.Add(time.Since(t0).Nanoseconds())
 	statBytes.Add(int64(len(frame.Data)))
+	emitDesktopStreamStats(ctx, env, frame, fps, captureDur, encodeDur, sendDur, time.Since(t0), "websocket")
 	return nil
 }
 

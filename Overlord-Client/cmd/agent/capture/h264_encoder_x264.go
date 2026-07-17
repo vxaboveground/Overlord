@@ -104,7 +104,7 @@ func ensureH264EncoderLocked(width, height int) error {
 		Preset:       "veryfast",
 		Profile:      "main",
 		RateControl:  "crf",
-		RateConstant: 23,
+		RateConstant: targetH264CRF(width, height, fps),
 		LogLevel:     x264.LogError,
 	}
 
@@ -201,7 +201,7 @@ func ensurebackstageH264EncoderLocked(width, height int) error {
 		Preset:       "veryfast",
 		Profile:      "main",
 		RateControl:  "crf",
-		RateConstant: 23,
+		RateConstant: targetH264CRF(width, height, fps),
 		LogLevel:     x264.LogError,
 	}
 	enc, err := x264.NewEncoder(&backstageH264Buf, opts)
@@ -280,7 +280,7 @@ func ensureWebcamH264EncoderLocked(width, height int) error {
 		Preset:       "veryfast",
 		Profile:      "main",
 		RateControl:  "crf",
-		RateConstant: 23,
+		RateConstant: targetH264CRF(width, height, fps),
 		LogLevel:     x264.LogError,
 	}
 	enc, err := x264.NewEncoder(&webcamH264Buf, opts)

@@ -21,6 +21,7 @@ export const ALLOWED_CLIENT_MESSAGE_TYPES = new Set([
   "file_hash_result",
   "command_result",
   "desktop_encoder_capabilities",
+  "desktop_stream_stats",
   "client_logs_result",
   "screenshot_result",
   "command_progress",

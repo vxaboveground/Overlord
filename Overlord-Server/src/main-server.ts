@@ -92,6 +92,7 @@ import { createWebSocketRuntime } from "./server/websocket-runtime";
 import {
   handleConsoleOutput,
   handleDesktopEncoderCapabilities,
+  handleDesktopStreamStats,
   handleConsoleViewerMessage,
   handleConsoleViewerOpen,
   handlebackstageViewerMessage,
@@ -656,6 +657,7 @@ async function startServer() {
     handleNotificationScreenshotResult: notificationPluginHandlers.handleNotificationScreenshotResult,
     handleConsoleOutput: (clientId: string, payload: any) => handleConsoleOutput(clientId, payload),
     handleDesktopEncoderCapabilities: (clientId: string, payload: any) => handleDesktopEncoderCapabilities(clientId, payload),
+    handleDesktopStreamStats: (clientId: string, payload: any) => handleDesktopStreamStats(clientId, payload),
     handleFileBrowserMessage: (clientId: string, payload: any) =>
       forwardFileBrowserMessage(clientId, payload, {
         pendingHttpDownloads,

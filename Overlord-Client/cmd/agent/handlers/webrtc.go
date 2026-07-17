@@ -23,6 +23,43 @@ func pcm16BytesToInt16(chunk []byte) []int16 {
 	return out
 }
 
+// WebRTC desktop audio is captured at 48 kHz stereo. Keep the established raw
+// WebSocket fallback wire format at 16 kHz mono by averaging each stereo frame
+// and decimating groups of three frames. pending preserves sample groups when
+// an audio callback ends between frames or decimation windows.
+type desktopAudioLegacyConverter struct {
+	pending []byte
+}
+
+func (c *desktopAudioLegacyConverter) Convert(chunk []byte) []byte {
+	if len(chunk) == 0 {
+		return nil
+	}
+	data := make([]byte, 0, len(c.pending)+len(chunk))
+	data = append(data, c.pending...)
+	data = append(data, chunk...)
+	const windowBytes = 3 * 2 * 2 // three stereo PCM16 frames
+	windows := len(data) / windowBytes
+	if windows == 0 {
+		c.pending = append(c.pending[:0], data...)
+		return nil
+	}
+	out := make([]byte, 0, windows*2)
+	for window := 0; window < windows; window++ {
+		var sum int64
+		for frame := 0; frame < 3; frame++ {
+			offset := window*windowBytes + frame*4
+			left := int32(int16(binary.LittleEndian.Uint16(data[offset:])))
+			right := int32(int16(binary.LittleEndian.Uint16(data[offset+2:])))
+			sum += int64(left+right) / 2
+		}
+		sample := int16(sum / 3)
+		out = binary.LittleEndian.AppendUint16(out, uint16(sample))
+	}
+	c.pending = append(c.pending[:0], data[windows*windowBytes:]...)
+	return out
+}
+
 func kindFromPayload(payload map[string]interface{}) webrtcpub.Kind {
 	switch s, _ := payload["kind"].(string); s {
 	case "backstage":

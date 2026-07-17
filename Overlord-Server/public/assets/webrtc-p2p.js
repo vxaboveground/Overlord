@@ -10,6 +10,8 @@
 // The server proxies these to the agent via its existing WS command channel
 // (sessionId is server-side state, not visible to the browser).
 //
+import { WebRTCStatsSampler } from "./webrtc-stats.js";
+
 // Once SDP + ICE settle, the <video> element receives frames directly from
 // the agent — MediaMTX is not involved.
 
@@ -20,6 +22,7 @@ export class P2PClient {
    * @param {HTMLAudioElement} [opts.audioEl]
    * @param {(msg: object) => void} opts.send  Send a JSON-encodable msg over the viewer's WS.
    * @param {(state: string) => void} [opts.onState]
+   * @param {(stats: object) => void} [opts.onStats]
    * @param {string[]} [opts.iceServers]  STUN URLs. Default: Google public STUN.
    */
   constructor(opts) {
@@ -27,9 +30,11 @@ export class P2PClient {
     this.audioEl = opts.audioEl || null;
     this.send = opts.send;
     this.onState = opts.onState || (() => {});
+    this.onStats = opts.onStats || (() => {});
     this.iceServers = opts.iceServers || ["stun:stun.l.google.com:19302"];
     this.pc = null;
     this.pendingRemoteCandidates = [];
+    this.statsSampler = null;
   }
 
   async start() {
@@ -39,6 +44,7 @@ export class P2PClient {
       iceServers: this.iceServers.map((u) => ({ urls: u })),
     });
     this.pc = pc;
+    this.statsSampler = new WebRTCStatsSampler(pc, this.onStats);
 
     if (this.videoEl) pc.addTransceiver("video", { direction: "recvonly" });
     if (this.audioEl) pc.addTransceiver("audio", { direction: "recvonly" });
@@ -66,6 +72,8 @@ export class P2PClient {
     };
     pc.onconnectionstatechange = () => {
       this.onState(pc.connectionState);
+      if (pc.connectionState === "connected") this.statsSampler?.start();
+      if (["failed", "closed", "disconnected"].includes(pc.connectionState)) this.statsSampler?.stop();
     };
 
     const offer = await pc.createOffer();
@@ -105,6 +113,8 @@ export class P2PClient {
   async stop() {
     const pc = this.pc;
     this.pc = null;
+    this.statsSampler?.stop();
+    this.statsSampler = null;
     this.pendingRemoteCandidates = [];
     if (pc) {
       try { pc.close(); } catch {}

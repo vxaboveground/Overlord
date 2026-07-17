@@ -109,6 +109,17 @@
             <span class="uppercase tracking-wide text-xs text-slate-500">input</span>
             <span id="inputLatency" class="pill pill-ghost font-mono text-amber-200">-- ms</span>
           </div>
+          <div
+            class="flex items-center gap-2 bg-slate-900/70 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-300"
+            title="WebRTC receive bitrate, network RTT, packet loss, and selected route"
+          >
+            <span class="uppercase tracking-wide text-xs text-slate-500">net</span>
+            <span id="networkStats" class="pill pill-ghost font-mono text-cyan-200">--</span>
+          </div>
+
+          <button id="diagnosticsBtn" type="button" class="button ghost" aria-pressed="false" title="Show streaming diagnostics HUD">
+            <i class="fa-solid fa-gauge-high"></i><span>Stats HUD</span>
+          </button>
 
           <div class="relative ml-auto" id="rdSettingsWrap">
             <button
@@ -178,6 +189,19 @@
                   </select>
                 </div>
                 <div id="streamProfileDetail" class="mb-2 text-xs text-slate-500">Checking hardware encoder profiles…</div>
+                <div class="flex items-center gap-2 mb-2">
+                  <label class="text-sm text-slate-300 w-20" for="bitrateSelect">Bitrate</label>
+                  <select id="bitrateSelect" class="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-100" title="H.264 target bitrate; Auto derives it from resolution and FPS">
+                    <option value="0" selected>Auto</option>
+                    <option value="5">5 Mbps</option>
+                    <option value="10">10 Mbps</option>
+                    <option value="15">15 Mbps</option>
+                    <option value="20">20 Mbps</option>
+                    <option value="30">30 Mbps</option>
+                    <option value="40">40 Mbps</option>
+                    <option value="50">50 Mbps</option>
+                  </select>
+                </div>
                 <div class="flex items-center justify-between gap-2">
                   <label class="flex items-center gap-2 text-sm text-slate-200" title="Prefer H.264 when available; disable to force JPEG">
                     <input type="checkbox" id="codecH264" checked /> H.264
@@ -201,7 +225,7 @@
                 </label>
                 <div class="flex items-center gap-2">
                   <label class="text-sm text-slate-300 w-20" for="audioTransport">Via</label>
-                  <select id="audioTransport" class="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-100" title="Audio transport. WS: raw PCM over the existing WebSocket (current default). WebRTC modes use G.711 over the WebRTC track instead.">
+                  <select id="audioTransport" class="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-100" title="Audio transport. WS uses raw PCM over the existing WebSocket. WebRTC modes use full-band Opus.">
                     <option value="off" selected>WS</option>
                     <option value="p2p">WebRTC P2P</option>
                     <option value="relayed">WebRTC Relayed</option>
@@ -249,7 +273,7 @@
             Client: <span id="clientLabel" class="text-slate-100">-</span>
           </div>
           <div
-            class="flex-1 flex items-center justify-center p-4"
+            class="relative flex-1 flex items-center justify-center p-4"
             style="min-height: 0; overflow: hidden"
           >
             <canvas
@@ -279,6 +303,49 @@
                 height: auto;
               "
             ></video>
+            <section id="diagnosticsHud" class="rd-diagnostics-hud hidden" aria-label="Streaming diagnostics">
+              <div class="rd-diagnostics-header">
+                <div>
+                  <div class="rd-diagnostics-title">Streaming diagnostics</div>
+                  <div id="diagSummary" class="rd-diagnostics-summary">Waiting for frames</div>
+                </div>
+                <button id="diagnosticsClose" type="button" class="rd-diagnostics-close" aria-label="Close diagnostics">×</button>
+              </div>
+              <div class="rd-diagnostics-meta">
+                <span id="diagTransport">Canvas</span>
+                <span id="diagCodec">--</span>
+                <span id="diagResolution">--</span>
+              </div>
+              <div class="rd-diagnostics-section">
+                <div class="rd-diagnostics-section-title">Agent pipeline</div>
+                <div class="rd-diagnostics-grid">
+                  <span>Capture</span><strong id="diagCapture">-- ms</strong>
+                  <span>Encode</span><strong id="diagEncode">-- ms</strong>
+                  <span>Packet/write</span><strong id="diagSend">-- ms</strong>
+                  <span>Agent total</span><strong id="diagAgentTotal">-- ms</strong>
+                </div>
+              </div>
+              <div class="rd-diagnostics-section">
+                <div class="rd-diagnostics-section-title">Transport</div>
+                <div class="rd-diagnostics-grid">
+                  <span>Receive rate</span><strong id="diagBitrate">-- Mbps</strong>
+                  <span>Network RTT</span><strong id="diagRtt">-- ms</strong>
+                  <span>Loss / jitter</span><strong id="diagLossJitter">--</strong>
+                  <span>Jitter buffer</span><strong id="diagJitterBuffer">-- ms</strong>
+                </div>
+              </div>
+              <div class="rd-diagnostics-section">
+                <div class="rd-diagnostics-section-title">Viewer pipeline</div>
+                <div class="rd-diagnostics-grid">
+                  <span>Decode latency</span><strong id="diagDecode">-- ms</strong>
+                  <span>Receive → render</span><strong id="diagRender">-- ms</strong>
+                  <span>Decode queue</span><strong id="diagQueue">0</strong>
+                  <span>Dropped / coalesced</span><strong id="diagDropped">0 / 0</strong>
+                  <span>FPS agent → viewer</span><strong id="diagFps">-- → --</strong>
+                  <span>Input RTT</span><strong id="diagInput">-- ms</strong>
+                </div>
+              </div>
+            </section>
           </div>
         </div>
         <style>
@@ -311,6 +378,37 @@
             object-fit: contain;
             margin: auto;
           }
+          .rd-diagnostics-hud {
+            position: absolute;
+            top: 1.25rem;
+            right: 1.25rem;
+            z-index: 30;
+            width: min(360px, calc(100% - 2.5rem));
+            max-height: calc(100% - 2.5rem);
+            overflow-y: auto;
+            padding: 14px;
+            border: 1px solid rgba(71, 85, 105, 0.9);
+            border-radius: 12px;
+            color: #e2e8f0;
+            background: rgba(2, 6, 23, 0.9);
+            box-shadow: 0 18px 45px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(12px);
+            font-size: 12px;
+          }
+          .rd-diagnostics-hud.hidden { display: none; }
+          .rd-diagnostics-header, .rd-diagnostics-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+          .rd-diagnostics-title { color: #f8fafc; font-size: 14px; font-weight: 700; }
+          .rd-diagnostics-summary { margin-top: 2px; color: #67e8f9; }
+          .rd-diagnostics-summary[data-severity="warn"] { color: #fbbf24; }
+          .rd-diagnostics-summary[data-severity="bad"] { color: #fb7185; }
+          .rd-diagnostics-close { border: 0; background: transparent; color: #94a3b8; font-size: 22px; cursor: pointer; }
+          .rd-diagnostics-meta { justify-content: flex-start; flex-wrap: wrap; margin: 10px 0; color: #94a3b8; font-family: ui-monospace, monospace; }
+          .rd-diagnostics-meta span { padding: 2px 6px; border-radius: 999px; background: rgba(30, 41, 59, 0.8); }
+          .rd-diagnostics-section { padding-top: 9px; margin-top: 9px; border-top: 1px solid rgba(51, 65, 85, 0.75); }
+          .rd-diagnostics-section-title { margin-bottom: 6px; color: #64748b; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+          .rd-diagnostics-grid { display: grid; grid-template-columns: 1fr auto; gap: 5px 14px; }
+          .rd-diagnostics-grid span { color: #94a3b8; }
+          .rd-diagnostics-grid strong { color: #e2e8f0; font-family: ui-monospace, monospace; font-weight: 600; text-align: right; }
         </style>
       </div>
     </main>

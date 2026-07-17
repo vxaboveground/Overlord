@@ -503,6 +503,7 @@ func startDesktopAudioSession(ctx context.Context, env *runtime.Env, sessionID s
 	stopDesktopAudioSession()
 
 	vCtx, cancel := context.WithCancel(ctx)
+	legacyConverter := &desktopAudioLegacyConverter{}
 	session, err := audio.StartCaptureOnlySession(vCtx, source, func(chunk []byte) {
 		if len(chunk) == 0 {
 			return
@@ -513,10 +514,14 @@ func startDesktopAudioSession(ctx context.Context, env *runtime.Env, sessionID s
 			samples := pcm16BytesToInt16(chunk)
 			_ = webrtcpub.WriteAudio(webrtcpub.KindAudio, samples)
 		}
+		legacyPCM := legacyConverter.Convert(chunk)
+		if len(legacyPCM) == 0 {
+			return
+		}
 		msg := map[string]interface{}{
 			"type":      "desktop_audio_uplink",
 			"sessionId": sessionID,
-			"data":      chunk,
+			"data":      legacyPCM,
 		}
 		_ = wire.WriteMsg(vCtx, env.Conn, msg)
 	})
@@ -902,6 +907,24 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		}
 		fps = SetDesktopTargetFPS(fps)
 		log.Printf("desktop: set target fps=%d", fps)
+		sendCommandResultSafe(env, cmdID, true, "")
+		return nil
+	case "desktop_set_bitrate":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		bitrateMbps := 0
+		if payload != nil {
+			if v, ok := payloadInt(payload, "bitrateMbps"); ok {
+				bitrateMbps = v
+			}
+		}
+		if bitrateMbps < 0 {
+			bitrateMbps = 0
+		}
+		if bitrateMbps > 50 {
+			bitrateMbps = 50
+		}
+		bps := capture.SetH264TargetBitrate(bitrateMbps * 1_000_000)
+		log.Printf("desktop: set target bitrate=%d Mbps (0=auto)", bps/1_000_000)
 		sendCommandResultSafe(env, cmdID, true, "")
 		return nil
 	case "clipboard_sync_start":

@@ -175,6 +175,7 @@ function broadcastFrameToViewers(
 
 const rdSendStats = { lastLog: 0, frames: 0, sendMs: 0, bytes: 0 };
 const rdDebugFrameLogAt = new Map<string, number>();
+const rdCanvasFrameAckPending = new Map<string, string>();
 export const rdStreamingState = new Map<string, {
   isStreaming: boolean;
   display: number;
@@ -184,6 +185,7 @@ export const rdStreamingState = new Map<string, {
   duplication: boolean;
   maxHeight: number;
   maxFps: number;
+  bitrateMbps: number;
   lastFps: number;
   lastFrameAt: number;
   startedAt: number;
@@ -209,6 +211,7 @@ function defaultRdStreamingState() {
     duplication: false,
     maxHeight: 0,
     maxFps: 120,
+    bitrateMbps: 0,
     lastFps: 0,
     lastFrameAt: 0,
     startedAt: 0,
@@ -366,7 +369,9 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
 
   const state = rdStreamingState.get(clientId) || defaultRdStreamingState();
 
-  logger.debug(`[rd] inbound viewer msg type=${payload.type} client=${clientId}`);
+  if (payload.type !== "desktop_decode_pressure") {
+    logger.debug(`[rd] inbound viewer msg type=${payload.type} client=${clientId}`);
+  }
   switch (payload.type) {
     case "desktop_encoder_capabilities":
       sendDesktopCommand(target, "desktop_encoder_capabilities", {
@@ -374,6 +379,9 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
       });
       break;
     case "desktop_start":
+      (ws.data as any).rdCanvasFlowControl = (payload as any).canvasFlowControl === true && (payload as any).webrtc !== true;
+      (ws.data as any).rdCanvasBackpressure = false;
+      releaseCanvasFrameAck(clientId);
       logger.debug(`[rd-debug] desktop_start requested client=${clientId} session=${ws.data.sessionId || ""} state=${JSON.stringify(state)} viewers=${sessionManager.getRdSessionsForClient(clientId).length} webrtc=${(payload as any).webrtc === true}`);
       if (!state.isStreaming) {
         const targetOs = String(target.os || "").toLowerCase();
@@ -412,6 +420,7 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
         }
         safeSendViewer(ws, { type: "status", status: "starting" });
         sendDesktopCommand(target, "desktop_set_fps", { fps: clampDesktopFps(state.maxFps) });
+        sendDesktopCommand(target, "desktop_set_bitrate", { bitrateMbps: state.bitrateMbps || 0 });
         sendDesktopCommand(target, "desktop_start", {});
         state.isStreaming = true;
         state.startedAt = Date.now();
@@ -423,6 +432,7 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
         if (lastFrameAgeMs > 3000 && startAgeMs > 3000) {
           logger.info(`[rd-debug] desktop_start reasserting stale stream client=${clientId} lastFrameAgeMs=${Number.isFinite(lastFrameAgeMs) ? lastFrameAgeMs : -1} state=${JSON.stringify(state)} viewers=${sessionManager.getRdSessionsForClient(clientId).length}`);
           sendDesktopCommand(target, "desktop_set_fps", { fps: clampDesktopFps(state.maxFps) });
+          sendDesktopCommand(target, "desktop_set_bitrate", { bitrateMbps: state.bitrateMbps || 0 });
           sendDesktopCommand(target, "desktop_start", {});
           safeSendViewer(ws, { type: "status", status: "starting" });
           state.isStreaming = true;
@@ -439,6 +449,9 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
       }
       break;
     case "desktop_stop": {
+      (ws.data as any).rdCanvasFlowControl = false;
+      (ws.data as any).rdCanvasBackpressure = false;
+      releaseCanvasFrameAck(clientId);
       const otherViewers = sessionManager.getRdSessionsForClient(clientId)
         .filter(s => s.id !== ws.data.sessionId);
       logger.debug(`[rd-debug] desktop_stop requested client=${clientId} session=${ws.data.sessionId || ""} otherViewers=${otherViewers.length} state=${JSON.stringify(state)}`);
@@ -578,6 +591,23 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
         state.maxFps = newMaxFps;
         rdStreamingState.set(clientId, state);
         logger.debug(`[rd] set target fps=${newMaxFps}`);
+      }
+      break;
+    }
+    case "desktop_decode_pressure": {
+      if (!(ws.data as any).rdCanvasFlowControl) break;
+      const active = (payload as any).active === true;
+      (ws.data as any).rdCanvasBackpressure = active;
+      if (!active) releaseCanvasFrameAck(clientId, ws.data.sessionId);
+      break;
+    }
+    case "desktop_set_bitrate": {
+      const newBitrateMbps = Math.max(0, Math.min(50, Math.floor(Number((payload as any).bitrateMbps) || 0)));
+      if (state.bitrateMbps !== newBitrateMbps) {
+        sendDesktopCommand(target, "desktop_set_bitrate", { bitrateMbps: newBitrateMbps });
+        state.bitrateMbps = newBitrateMbps;
+        rdStreamingState.set(clientId, state);
+        logger.debug(`[rd] set target bitrate=${newBitrateMbps || "auto"} Mbps`);
       }
       break;
     }
@@ -732,6 +762,11 @@ export function handleWebrtcP2PIce(_clientId: string, payload: any) {
 }
 
 export function cleanupViewerP2P(ws: ServerWebSocket<SocketData>) {
+  if (ws.data.role === "rd_viewer") {
+    (ws.data as any).rdCanvasFlowControl = false;
+    (ws.data as any).rdCanvasBackpressure = false;
+    releaseCanvasFrameAck(ws.data.clientId, ws.data.sessionId);
+  }
   const cleared = clearP2PSessionForViewer(ws);
   if (!cleared) return;
   const target = clientManager.getClient(cleared.clientId);
@@ -776,6 +811,15 @@ function broadcastRemoteDesktopFrame(clientId: string, bytes: Uint8Array, header
   const buf = buildViewerFrameBuffer(bytes, header);
   const sessions = sessionManager.getRdSessionsForClient(clientId);
   const result = broadcastFrameToViewers(sessions, buf, header);
+  if (result.sent) {
+    const controller = sessions.find((session) =>
+      (session.viewer.data as any).rdCanvasFlowControl === true &&
+      (session.viewer.data as any).rdCanvasBackpressure === true
+    );
+    if (controller?.viewer.data.sessionId) {
+      rdCanvasFrameAckPending.set(clientId, controller.viewer.data.sessionId);
+    }
+  }
   if (result.dropped) {
     const target = clientManager.getClient(clientId);
     if (target) {
@@ -785,7 +829,7 @@ function broadcastRemoteDesktopFrame(clientId: string, bytes: Uint8Array, header
       });
     }
   }
-  return result.sent || result.viewers === 0;
+  return (result.sent && !rdCanvasFrameAckPending.has(clientId)) || result.viewers === 0;
 }
 
 (globalThis as any).__rdBroadcast = (clientId: string, bytes: Uint8Array, header?: any): boolean => {
@@ -1445,6 +1489,40 @@ export function sendbackstageCommand(target: ClientInfo | undefined, commandType
 export function handleDesktopEncoderCapabilities(clientId: string, payload: any) {
   for (const session of sessionManager.getRdSessionsForClient(clientId)) {
     safeSendViewer(session.viewer, payload);
+  }
+}
+
+function releaseCanvasFrameAck(clientId: string, sessionId?: string): boolean {
+  const controllerSessionId = rdCanvasFrameAckPending.get(clientId);
+  if (!controllerSessionId || (sessionId && controllerSessionId !== sessionId)) return false;
+  rdCanvasFrameAckPending.delete(clientId);
+  const target = clientManager.getClient(clientId);
+  if (!target) return false;
+  try {
+    target.ws.send(encodeMessage({ type: "frame_ack" }));
+    return true;
+  } catch (err) {
+    logger.debug(`[rd] canvas frame ack failed client=${clientId}: ${(err as Error).message}`);
+    return false;
+  }
+}
+
+export function handleDesktopStreamStats(clientId: string, payload: any) {
+  const stats = {
+    type: "desktop_stream_stats",
+    fps: Math.max(0, Number(payload?.fps) || 0),
+    format: String(payload?.format || ""),
+    bytes: Math.max(0, Number(payload?.bytes) || 0),
+    width: Math.max(0, Number(payload?.width) || 0),
+    height: Math.max(0, Number(payload?.height) || 0),
+    captureMs: Math.max(0, Number(payload?.captureMs) || 0),
+    encodeMs: Math.max(0, Number(payload?.encodeMs) || 0),
+    sendMs: Math.max(0, Number(payload?.sendMs) || 0),
+    totalMs: Math.max(0, Number(payload?.totalMs) || 0),
+    transport: String(payload?.transport || ""),
+  };
+  for (const session of sessionManager.getRdSessionsForClient(clientId)) {
+    safeSendViewer(session.viewer, stats, "rd-stats");
   }
 }
 

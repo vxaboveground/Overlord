@@ -33,11 +33,14 @@ export function safeSendViewer(
 }
 
 export function buildViewerFrameBuffer(bytes: Uint8Array, header?: any): Uint8Array {
-  const meta = new Uint8Array(8);
+  const width = Math.max(0, Math.min(65535, Math.floor(Number(header?.width) || 0)));
+  const height = Math.max(0, Math.min(65535, Math.floor(Number(header?.height) || 0)));
+  const metaLength = width > 0 && height > 0 ? 12 : 8;
+  const meta = new Uint8Array(metaLength);
   meta[0] = 0x46;
   meta[1] = 0x52;
   meta[2] = 0x4d;
-  meta[3] = 1;
+  meta[3] = metaLength === 12 ? 2 : 1;
   meta[4] = (header?.monitor ?? 0) & 0xff;
   meta[5] = (header?.fps ?? 0) & 0xff;
   const fmt = header?.format === "blocks"
@@ -49,10 +52,15 @@ export function buildViewerFrameBuffer(bytes: Uint8Array, header?: any): Uint8Ar
     : 1;
   meta[6] = fmt;
   meta[7] = 0;
+  if (metaLength === 12) {
+    const view = new DataView(meta.buffer);
+    view.setUint16(8, width, true);
+    view.setUint16(10, height, true);
+  }
 
-  const buf = new Uint8Array(8 + bytes.length);
+  const buf = new Uint8Array(metaLength + bytes.length);
   buf.set(meta, 0);
-  buf.set(bytes, 8);
+  buf.set(bytes, metaLength);
   return buf;
 }
 

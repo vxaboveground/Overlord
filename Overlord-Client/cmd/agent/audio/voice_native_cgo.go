@@ -18,6 +18,8 @@ import (
 const (
 	voiceSampleRate         = 16000
 	voiceChannels           = 1
+	desktopAudioSampleRate  = 48000
+	desktopAudioChannels    = 2
 	voiceBytesPerSample     = 2
 	maxPlaybackBufferMillis = 250
 )
@@ -390,15 +392,15 @@ func StartCaptureOnlySession(parent context.Context, source string, onCapture fu
 	}
 
 	capCfg := malgo.DefaultDeviceConfig(malgo.Capture)
-	capCfg.SampleRate = voiceSampleRate
+	capCfg.SampleRate = desktopAudioSampleRate
 	capCfg.Capture.Format = malgo.FormatS16
-	capCfg.Capture.Channels = voiceChannels
+	capCfg.Capture.Channels = desktopAudioChannels
 	useLoopback := false
 	if strings.EqualFold(source, "system") {
 		capCfg = malgo.DefaultDeviceConfig(malgo.Loopback)
-		capCfg.SampleRate = voiceSampleRate
+		capCfg.SampleRate = desktopAudioSampleRate
 		capCfg.Capture.Format = malgo.FormatS16
-		capCfg.Capture.Channels = voiceChannels
+		capCfg.Capture.Channels = desktopAudioChannels
 		useLoopback = true
 	} else if strings.HasPrefix(strings.ToLower(source), "device:") {
 		deviceName := strings.TrimSpace(source[len("device:"):])
@@ -442,9 +444,9 @@ func StartCaptureOnlySession(parent context.Context, source string, onCapture fu
 	capDev, err := malgo.InitDevice(audioCtx.Context, capCfg, capCallbacks)
 	if err != nil && useLoopback {
 		capCfg = malgo.DefaultDeviceConfig(malgo.Capture)
-		capCfg.SampleRate = voiceSampleRate
+		capCfg.SampleRate = desktopAudioSampleRate
 		capCfg.Capture.Format = malgo.FormatS16
-		capCfg.Capture.Channels = voiceChannels
+		capCfg.Capture.Channels = desktopAudioChannels
 		deviceID, _, ok := findSystemCaptureDevice(audioCtx.Context)
 		if !ok || deviceID == nil {
 			audioCtx.Free()

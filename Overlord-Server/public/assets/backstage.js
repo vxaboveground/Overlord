@@ -69,8 +69,28 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     }, reconnectDelay);
   }
   const latencyEl = document.getElementById("latencyDisplay");
+  const networkStats = document.getElementById("networkStats");
   let lastInputSentAt = 0;
   let lastLatencyMs = 0;
+
+  function updateNetworkStats(stats) {
+    if (!networkStats || !stats) return;
+    const media = stats.video || stats.audio;
+    const parts = [];
+    if (Number.isFinite(media?.bitrateMbps)) parts.push(`${media.bitrateMbps.toFixed(1)} Mbps`);
+    if (Number.isFinite(stats.rttMs)) parts.push(`${Math.round(stats.rttMs)} ms`);
+    if (Number.isFinite(media?.lossPercent)) parts.push(`${media.lossPercent.toFixed(1)}% loss`);
+    const route = [stats.protocol, stats.route].filter(Boolean).join("/");
+    if (route) parts.push(route);
+    networkStats.textContent = parts.join(" · ") || "Connected";
+    const details = [];
+    if (media?.codec) details.push(`Codec: ${media.codec}`);
+    if (media?.width && media?.height) details.push(`Video: ${media.width}×${media.height}${media.framesPerSecond ? ` @ ${Math.round(media.framesPerSecond)} FPS` : ""}`);
+    if (Number.isFinite(media?.jitterMs)) details.push(`Jitter: ${media.jitterMs.toFixed(1)} ms`);
+    if (Number.isFinite(media?.jitterBufferMs)) details.push(`Jitter buffer: ${media.jitterBufferMs.toFixed(1)} ms`);
+    if (Number.isFinite(media?.framesDropped)) details.push(`Frames dropped: ${media.framesDropped}`);
+    networkStats.title = details.join("\n");
+  }
 
   const displaySelect = document.getElementById("displaySelect");
   const refreshBtn = document.getElementById("refreshDisplays");
@@ -771,6 +791,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     webrtcActive = !!active;
     if (canvas) canvas.style.display = active ? "none" : "block";
     if (webrtcVideo) webrtcVideo.style.display = active ? "block" : "none";
+    if (!active && networkStats) {
+      networkStats.textContent = "--";
+      networkStats.title = "";
+    }
   }
 
   function onWebrtcState(label, state) {
@@ -823,6 +847,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       whepPath,
       videoEl: webrtcVideo,
       onState: (state) => onWebrtcState("WebRTC Relayed", state),
+      onStats: (stats) => updateNetworkStats({ ...stats, route: "Server" }),
     });
     try {
       await whepClient.start();
@@ -846,6 +871,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
         }
       },
       onState: (state) => onWebrtcState("WebRTC P2P", state),
+      onStats: updateNetworkStats,
     });
     try {
       await p2pClient.start();
