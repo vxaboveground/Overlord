@@ -5,6 +5,7 @@ import { logger } from "../logger";
 export const STREAM_REORDER_BUFFER_LIMIT = 16;
 export const STREAM_REORDER_BUFFER_MAX_BYTES = 32 * 1024 * 1024;
 export const STREAM_MAX_CHUNK_BYTES = 4 * 1024 * 1024;
+export const STREAM_OUTPUT_QUEUE_MAX_CHUNKS = 16;
 
 export type PendingHttpDownload = {
   commandId: string;
@@ -54,7 +55,14 @@ async function failStream(pending: PendingHttpDownload, err: Error): Promise<voi
 
 function enqueueOrdered(pending: PendingHttpDownload, offset: number, data: Uint8Array): boolean {
   if (!pending.streamController || pending.streamErrored) return false;
+  const outputQueueFull = () => {
+    const desiredSize = pending.streamController?.desiredSize;
+    if (typeof desiredSize !== "number" || desiredSize > -STREAM_OUTPUT_QUEUE_MAX_CHUNKS) return false;
+    void failStream(pending, new Error("download receiver is not consuming data fast enough"));
+    return true;
+  };
   if (offset === (pending.nextExpectedOffset ?? 0)) {
+    if (outputQueueFull()) return false;
     try {
       pending.streamController.enqueue(data);
     } catch (err) {
@@ -67,6 +75,7 @@ function enqueueOrdered(pending: PendingHttpDownload, offset: number, data: Uint
         const next = pending.reorderBuffer.get(pending.nextExpectedOffset ?? 0);
         if (!next) break;
         pending.reorderBuffer.delete(pending.nextExpectedOffset ?? 0);
+        if (outputQueueFull()) return false;
         try {
           pending.streamController.enqueue(next);
         } catch (err) {
@@ -120,7 +129,7 @@ export async function consumeHttpDownloadPayload(
   if (!pending) return;
 
   if (payload?.error) {
-    const err = new Error(String(payload.error));
+    const err = new Error(String(payload.error).slice(0, 1024));
     if (isStreamMode(pending)) {
       await failStream(pending, err);
       clearTimeout(pending.timeout);
@@ -134,7 +143,7 @@ export async function consumeHttpDownloadPayload(
   }
 
   const toNumber = (value: unknown): number | null => {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "number" && Number.isSafeInteger(value)) return value;
     if (typeof value === "bigint") {
       const asNumber = Number(value);
       if (Number.isSafeInteger(asNumber)) return asNumber;
@@ -168,12 +177,20 @@ export async function consumeHttpDownloadPayload(
 
   if (payload?.data) {
     let data = payload.data;
-    if (data instanceof ArrayBuffer) {
-      data = new Uint8Array(data);
-    } else if (typeof data === "string") {
-      data = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
-    } else if (ArrayBuffer.isView(data)) {
-      data = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    try {
+      if (data instanceof ArrayBuffer) {
+        data = new Uint8Array(data);
+      } else if (typeof data === "string") {
+        data = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+      } else if (ArrayBuffer.isView(data)) {
+        data = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+      }
+    } catch {
+      await failStream(pending, new Error("invalid download chunk encoding"));
+      clearTimeout(pending.timeout);
+      pendingHttpDownloads.delete(commandId);
+      pending.resolve(pending);
+      return;
     }
 
     if (data instanceof Uint8Array) {

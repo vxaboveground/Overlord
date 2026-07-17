@@ -2,6 +2,7 @@ import fs from "fs/promises";
 import type { FileHandle } from "fs/promises";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
+import { getConfig } from "../config";
 
 export type PendingHttpDownload = {
   commandId: string;
@@ -71,27 +72,14 @@ export type UploadPull = {
   deleteFile: boolean;
   state?: StreamingPullState;
   expectedTotal?: number;
+  userId?: number;
 };
-
-function parsePositiveIntEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (!raw) return fallback;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
-  return Math.floor(parsed);
-}
 
 export const UUID_TOKEN_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-// WAN uploads can be significantly slower than LAN transfers.
-export const FILE_UPLOAD_INTENT_TTL_MS = parsePositiveIntEnv(
-  "OVERLORD_FILE_UPLOAD_INTENT_TTL_MS",
-  30 * 60_000,
-);
-export const FILE_UPLOAD_PULL_TTL_MS = parsePositiveIntEnv(
-  "OVERLORD_FILE_UPLOAD_PULL_TTL_MS",
-  30 * 60_000,
-);
+export function getFileTransferLimits() {
+  return getConfig().fileTransfers;
+}
 
 export const uploadIntents = new Map<string, UploadIntent>();
 export const uploadPulls = new Map<string, UploadPull>();
@@ -260,7 +248,7 @@ export function createUploadPull(opts: {
   ttlMs?: number;
 }): string {
   const pullId = uuidv4();
-  const ttl = opts.ttlMs ?? FILE_UPLOAD_PULL_TTL_MS;
+  const ttl = opts.ttlMs ?? getFileTransferLimits().uploadPullTtlMs;
   const expiresAt = Date.now() + ttl;
   const pullTimeout = setTimeout(() => {
     uploadPulls.delete(pullId);

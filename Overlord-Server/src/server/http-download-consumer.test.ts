@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   consumeHttpDownloadPayload,
   STREAM_MAX_CHUNK_BYTES,
+  STREAM_OUTPUT_QUEUE_MAX_CHUNKS,
   type PendingHttpDownload,
 } from "./http-download-consumer";
 
@@ -54,5 +55,33 @@ describe("HTTP download stream limits", () => {
     clearTimeout(fixture.pending.timeout);
     expect(entries.has("cmd")).toBeFalse();
     expect(fixture.state().streamError).toContain("requested byte limit");
+  });
+
+  test("bounds queued output when the HTTP receiver stops consuming", async () => {
+    const fixture = pendingDownload({
+      streamController: {
+        desiredSize: -STREAM_OUTPUT_QUEUE_MAX_CHUNKS,
+        enqueue() {},
+        close() {},
+        error(error: Error) { fixtureError = error.message; },
+      } as any,
+    });
+    let fixtureError = "";
+    const entries = new Map([[fixture.pending.commandId, fixture.pending]]);
+    await consumeHttpDownloadPayload({
+      commandId: "cmd", offset: 0, total: 4, data: new Uint8Array(4),
+    }, entries);
+    clearTimeout(fixture.pending.timeout);
+    expect(entries.has("cmd")).toBeFalse();
+    expect(fixtureError).toContain("not consuming");
+  });
+
+  test("rejects malformed encoded chunks without throwing", async () => {
+    const fixture = pendingDownload();
+    const entries = new Map([[fixture.pending.commandId, fixture.pending]]);
+    await consumeHttpDownloadPayload({ commandId: "cmd", data: "%%%not-base64%%%" }, entries);
+    clearTimeout(fixture.pending.timeout);
+    expect(entries.has("cmd")).toBeFalse();
+    expect(fixture.state().streamError).toContain("encoding");
   });
 });

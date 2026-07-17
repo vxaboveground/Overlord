@@ -134,6 +134,14 @@ export interface Config {
     maxFileBytes: number;
     pollIntervalSeconds: number;
   };
+  fileTransfers: {
+    maxFileBytes: number;
+    maxStagedBytes: number;
+    maxActiveGlobal: number;
+    maxActivePerUser: number;
+    uploadIntentTtlMs: number;
+    uploadPullTtlMs: number;
+  };
 }
 
 const DEFAULT_CONFIG: Config = {
@@ -265,6 +273,14 @@ const DEFAULT_CONFIG: Config = {
     retentionDays: 7,
     maxFileBytes: 5 * 1024 * 1024,
     pollIntervalSeconds: 300,
+  },
+  fileTransfers: {
+    maxFileBytes: 1024 * 1024 * 1024,
+    maxStagedBytes: 4 * 1024 * 1024 * 1024,
+    maxActiveGlobal: 16,
+    maxActivePerUser: 4,
+    uploadIntentTtlMs: 30 * 60_000,
+    uploadPullTtlMs: 30 * 60_000,
   },
 };
 
@@ -959,6 +975,68 @@ export function loadConfig(): Config {
         ),
       ),
     },
+    fileTransfers: (() => {
+      const maxFileBytes = Math.min(
+        1024 * 1024 * 1024,
+        Math.max(
+          1024 * 1024,
+          Number(process.env.OVERLORD_FILE_UPLOAD_MAX_BYTES)
+            || Number(fileConfig.fileTransfers?.maxFileBytes)
+            || DEFAULT_CONFIG.fileTransfers.maxFileBytes,
+        ),
+      );
+      const maxStagedBytes = Math.min(
+        500 * 1024 * 1024 * 1024,
+        Math.max(
+          maxFileBytes,
+          Number(process.env.OVERLORD_FILE_UPLOAD_MAX_STAGED_BYTES)
+            || Number(fileConfig.fileTransfers?.maxStagedBytes)
+            || DEFAULT_CONFIG.fileTransfers.maxStagedBytes,
+        ),
+      );
+      const maxActiveGlobal = Math.min(
+        1000,
+        Math.max(
+          1,
+          Number(process.env.OVERLORD_FILE_UPLOAD_MAX_ACTIVE_GLOBAL)
+            || Number(fileConfig.fileTransfers?.maxActiveGlobal)
+            || DEFAULT_CONFIG.fileTransfers.maxActiveGlobal,
+        ),
+      );
+      const maxActivePerUser = Math.min(
+        maxActiveGlobal,
+        Math.max(
+          1,
+          Number(process.env.OVERLORD_FILE_UPLOAD_MAX_ACTIVE_PER_USER)
+            || Number(fileConfig.fileTransfers?.maxActivePerUser)
+            || DEFAULT_CONFIG.fileTransfers.maxActivePerUser,
+        ),
+      );
+      return {
+        maxFileBytes: Math.floor(maxFileBytes),
+        maxStagedBytes: Math.floor(maxStagedBytes),
+        maxActiveGlobal: Math.floor(maxActiveGlobal),
+        maxActivePerUser: Math.floor(maxActivePerUser),
+        uploadIntentTtlMs: Math.min(
+          24 * 60 * 60_000,
+          Math.max(
+            60_000,
+            Number(process.env.OVERLORD_FILE_UPLOAD_INTENT_TTL_MS)
+              || Number(fileConfig.fileTransfers?.uploadIntentTtlMs)
+              || DEFAULT_CONFIG.fileTransfers.uploadIntentTtlMs,
+          ),
+        ),
+        uploadPullTtlMs: Math.min(
+          24 * 60 * 60_000,
+          Math.max(
+            60_000,
+            Number(process.env.OVERLORD_FILE_UPLOAD_PULL_TTL_MS)
+              || Number(fileConfig.fileTransfers?.uploadPullTtlMs)
+              || DEFAULT_CONFIG.fileTransfers.uploadPullTtlMs,
+          ),
+        ),
+      };
+    })(),
   };
 
   if (saveChanged) {
@@ -1303,6 +1381,51 @@ export async function updateInputArchiveConfig(
   return next;
 }
 
+export async function updateFileTransfersConfig(
+  updates: Partial<Config["fileTransfers"]>,
+): Promise<Config["fileTransfers"]> {
+  const current = getConfig();
+  const numberOr = (value: unknown, fallback: number) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+  const next: Config["fileTransfers"] = {
+    ...current.fileTransfers,
+    ...updates,
+  };
+
+  next.maxFileBytes = Math.floor(Math.min(
+    1024 * 1024 * 1024,
+    Math.max(1024 * 1024, numberOr(next.maxFileBytes, DEFAULT_CONFIG.fileTransfers.maxFileBytes)),
+  ));
+  next.maxStagedBytes = Math.floor(Math.min(
+    500 * 1024 * 1024 * 1024,
+    Math.max(next.maxFileBytes, numberOr(next.maxStagedBytes, DEFAULT_CONFIG.fileTransfers.maxStagedBytes)),
+  ));
+  next.maxActiveGlobal = Math.floor(Math.min(
+    1000,
+    Math.max(1, numberOr(next.maxActiveGlobal, DEFAULT_CONFIG.fileTransfers.maxActiveGlobal)),
+  ));
+  next.maxActivePerUser = Math.floor(Math.min(
+    next.maxActiveGlobal,
+    Math.max(1, numberOr(next.maxActivePerUser, DEFAULT_CONFIG.fileTransfers.maxActivePerUser)),
+  ));
+  next.uploadIntentTtlMs = Math.floor(Math.min(
+    24 * 60 * 60_000,
+    Math.max(60_000, numberOr(next.uploadIntentTtlMs, DEFAULT_CONFIG.fileTransfers.uploadIntentTtlMs)),
+  ));
+  next.uploadPullTtlMs = Math.floor(Math.min(
+    24 * 60 * 60_000,
+    Math.max(60_000, numberOr(next.uploadPullTtlMs, DEFAULT_CONFIG.fileTransfers.uploadPullTtlMs)),
+  ));
+
+  configCache = { ...current, fileTransfers: next };
+  const fileConfig = readFileConfigForUpdate();
+  fileConfig.fileTransfers = next;
+  await writePersistentFileConfig(fileConfig);
+  return next;
+}
+
 export async function updateRegistrationConfig(
   updates: Partial<Config["registration"]>,
 ): Promise<Config["registration"]> {
@@ -1489,6 +1612,7 @@ export function getExportableConfig(serverVersion: string): Record<string, unkno
     },
     thumbnails: config.thumbnails,
     inputArchive: config.inputArchive,
+    fileTransfers: config.fileTransfers,
   };
 }
 
@@ -1617,6 +1741,11 @@ export async function importFullConfig(data: Record<string, any>): Promise<{ app
   if (data.inputArchive && typeof data.inputArchive === "object") {
     await updateInputArchiveConfig(data.inputArchive);
     applied.push("inputArchive");
+  }
+
+  if (data.fileTransfers && typeof data.fileTransfers === "object") {
+    await updateFileTransfersConfig(data.fileTransfers);
+    applied.push("fileTransfers");
   }
 
   if (data.auth && typeof data.auth === "object") {

@@ -10,9 +10,8 @@ import { getConfig } from "../../config";
 import { isAuthorizedAgentRequest } from "../agent-auth";
 import { requireClientAccess, requireFeatureAccess, requirePermission } from "../../rbac";
 import {
-  FILE_UPLOAD_INTENT_TTL_MS,
-  FILE_UPLOAD_PULL_TTL_MS,
   UUID_TOKEN_RE,
+  getFileTransferLimits,
   isSafeRemotePath,
   makeIncrementalPullStream,
   notifyPullWaiters,
@@ -36,6 +35,26 @@ type FileDownloadRouteDeps = {
   pendingHttpDownloads: Map<string, PendingHttpDownload>;
   downloadIntents: Map<string, DownloadIntent>;
 };
+
+class UploadStagingLimitError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
+}
+
+function activeStagedPulls() {
+  const now = Date.now();
+  return [...uploadPulls.values()].filter((pull) =>
+    pull.deleteFile && pull.expiresAt >= now,
+  );
+}
+
+function reservedStagedBytes(excludePullId = ""): number {
+  return activeStagedPulls().reduce((total, pull) => {
+    if (pull.id === excludePullId) return total;
+    return total + Math.max(0, pull.expectedTotal || 0, pull.state?.size || 0, pull.size || 0);
+  }, 0);
+}
 
 async function serveDownloadById(
   req: Request,
@@ -155,6 +174,7 @@ async function serveDownloadById(
       }
       firstChunkReject(new Error("Download timed out"));
       reject(new Error("Download timed out"));
+      try { target.ws.send(encodeMessage({ type: "command_abort", commandId } as any)); } catch {}
     }, 5 * 60_000);
 
     deps.pendingHttpDownloads.set(commandId, {
@@ -309,11 +329,19 @@ export async function handleFileDownloadRoutes(
       return new Response("Client offline", { status: 404 });
     }
 
+    const limits = getFileTransferLimits();
+    const activeForUser = [...uploadIntents.values()]
+      .filter((intent) => intent.userId === user.userId && intent.expiresAt >= Date.now()).length
+      + activeStagedPulls().filter((pull) => pull.userId === user.userId).length;
+    if (activeForUser >= limits.maxActivePerUser) {
+      return new Response("Too many pending uploads", { status: 429, headers: { "Retry-After": "10" } });
+    }
+
     const uploadId = uuidv4();
-    const expiresAt = Date.now() + FILE_UPLOAD_INTENT_TTL_MS;
+    const expiresAt = Date.now() + limits.uploadIntentTtlMs;
     const timeout = setTimeout(() => {
       uploadIntents.delete(uploadId);
-    }, FILE_UPLOAD_INTENT_TTL_MS);
+    }, limits.uploadIntentTtlMs);
 
     uploadIntents.set(uploadId, {
       id: uploadId,
@@ -372,25 +400,42 @@ export async function handleFileDownloadRoutes(
     if (!intent || intent.userId !== user.userId || intent.expiresAt < Date.now()) {
       return new Response("Not found", { status: 404 });
     }
+    try {
+      requireClientAccess(user, intent.clientId);
+    } catch (error) {
+      if (error instanceof Response) return error;
+      return new Response("Forbidden", { status: 403 });
+    }
 
-    const uploadDir = path.join(deps.DATA_DIR, "uploads");
-    await fs.mkdir(uploadDir, { recursive: true });
-
-    const pullId = uuidv4();
-    const tmpPath = path.join(uploadDir, `${pullId}.bin`);
+    const limits = getFileTransferLimits();
+    const activePulls = activeStagedPulls();
+    if (activePulls.length >= limits.maxActiveGlobal
+        || activePulls.filter((pull) => pull.userId === user.userId).length >= limits.maxActivePerUser) {
+      return new Response("Too many active staged uploads", { status: 429, headers: { "Retry-After": "10" } });
+    }
 
     const contentLength = Number(req.headers.get("content-length") || 0);
     const expectedTotal = Number.isFinite(contentLength) && contentLength >= 0 ? contentLength : 0;
+    if (expectedTotal > limits.maxFileBytes) {
+      return new Response("Upload exceeds the server staging limit", { status: 413 });
+    }
+    if (reservedStagedBytes() + expectedTotal > limits.maxStagedBytes) {
+      return new Response("Server upload staging quota exceeded", { status: 429, headers: { "Retry-After": "30" } });
+    }
+
+    const uploadDir = path.join(deps.DATA_DIR, "uploads");
+    const pullId = uuidv4();
+    const tmpPath = path.join(uploadDir, `${pullId}.bin`);
     const canStream = !!req.body && expectedTotal > 0;
 
-    const pullExpiresAt = Date.now() + FILE_UPLOAD_PULL_TTL_MS;
+    const pullExpiresAt = Date.now() + limits.uploadPullTtlMs;
     const pullTimeout = setTimeout(() => {
       const stale = uploadPulls.get(pullId);
       uploadPulls.delete(pullId);
       if (stale && stale.deleteFile) {
         void fs.unlink(stale.tmpPath).catch(() => {});
       }
-    }, FILE_UPLOAD_PULL_TTL_MS);
+    }, limits.uploadPullTtlMs);
 
     const state: StreamingPullState | undefined = canStream
       ? { size: 0, done: false, error: null, waiters: [] }
@@ -408,6 +453,7 @@ export async function handleFileDownloadRoutes(
       deleteFile: true,
       state,
       expectedTotal,
+      userId: user.userId,
     });
 
     uploadIntents.delete(uploadId);
@@ -416,14 +462,27 @@ export async function handleFileDownloadRoutes(
     const pullUrl = `/api/file/upload/pull/${encodeURIComponent(pullId)}`;
 
     let stagedSize = 0;
-    const fileHandle = await fs.open(tmpPath, "w");
+    let fileHandle: Awaited<ReturnType<typeof fs.open>> | null = null;
     try {
+      await fs.mkdir(uploadDir, { recursive: true });
+      fileHandle = await fs.open(tmpPath, "w");
       if (req.body) {
         const reader = req.body.getReader();
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
           if (!value || value.byteLength === 0) continue;
+          const currentPull = uploadPulls.get(pullId);
+          if (!currentPull || currentPull.expiresAt < Date.now()) {
+            throw new UploadStagingLimitError("Upload staging expired", 408);
+          }
+          if (stagedSize + value.byteLength > limits.maxFileBytes) {
+            throw new UploadStagingLimitError("Upload exceeds the server staging limit", 413);
+          }
+          if (reservedStagedBytes(pullId) + stagedSize + value.byteLength > limits.maxStagedBytes) {
+            throw new UploadStagingLimitError("Server upload staging quota exceeded", 429);
+          }
+          currentPull.size = Math.max(currentPull.size, stagedSize + value.byteLength);
           await fileHandle.write(value, 0, value.byteLength, stagedSize);
           stagedSize += value.byteLength;
           if (state) {
@@ -434,6 +493,17 @@ export async function handleFileDownloadRoutes(
       } else {
         const bytes = new Uint8Array(await req.arrayBuffer());
         if (bytes.byteLength > 0) {
+          if (bytes.byteLength > limits.maxFileBytes) {
+            throw new UploadStagingLimitError("Upload exceeds the server staging limit", 413);
+          }
+          if (reservedStagedBytes(pullId) + bytes.byteLength > limits.maxStagedBytes) {
+            throw new UploadStagingLimitError("Server upload staging quota exceeded", 429);
+          }
+          const currentPull = uploadPulls.get(pullId);
+          if (!currentPull || currentPull.expiresAt < Date.now()) {
+            throw new UploadStagingLimitError("Upload staging expired", 408);
+          }
+          currentPull.size = Math.max(currentPull.size, bytes.byteLength);
           await fileHandle.write(bytes, 0, bytes.byteLength, 0);
           stagedSize = bytes.byteLength;
           if (state) {
@@ -452,10 +522,16 @@ export async function handleFileDownloadRoutes(
         state.done = true;
         notifyPullWaiters(state);
       }
-      await fileHandle.close();
+      if (fileHandle) await fileHandle.close().catch(() => {});
       await fs.unlink(tmpPath).catch(() => {});
       uploadPulls.delete(pullId);
       clearTimeout(pullTimeout);
+      if (err instanceof UploadStagingLimitError) {
+        return new Response(err.message, {
+          status: err.status,
+          ...(err.status === 429 ? { headers: { "Retry-After": "30" } } : {}),
+        });
+      }
       return new Response("Upload staging failed", { status: 500 });
     }
     await fileHandle.close();
@@ -467,6 +543,9 @@ export async function handleFileDownloadRoutes(
     const finalPull = uploadPulls.get(pullId);
     if (finalPull) {
       finalPull.size = stagedSize;
+    } else {
+      await fs.unlink(tmpPath).catch(() => {});
+      return new Response("Upload staging expired", { status: 408 });
     }
 
     logger.debug("[filebrowser] http upload staged bytes", {

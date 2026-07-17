@@ -2118,6 +2118,88 @@ function initRegistrationHandlers() {
   });
 }
 
+// ── File Transfer Limit Settings ──────────────────────────────────────────
+
+async function loadFileTransferLimits() {
+  if (!userHas("system:security")) return;
+  try {
+    const res = await fetch("/api/settings/file-transfers", { credentials: "include" });
+    if (!res.ok) return;
+    const data = await res.json();
+    const limits = data.fileTransfers || {};
+    const mb = 1024 * 1024;
+    document.getElementById("ft-max-file-mb").value = Math.round((limits.maxFileBytes || 1024 * mb) / mb);
+    document.getElementById("ft-max-staged-mb").value = Math.round((limits.maxStagedBytes || 4096 * mb) / mb);
+    document.getElementById("ft-max-active-global").value = limits.maxActiveGlobal ?? 16;
+    document.getElementById("ft-max-active-user").value = limits.maxActivePerUser ?? 4;
+    document.getElementById("ft-intent-ttl-minutes").value = Math.round((limits.uploadIntentTtlMs || 30 * 60_000) / 60_000);
+    document.getElementById("ft-pull-ttl-minutes").value = Math.round((limits.uploadPullTtlMs || 30 * 60_000) / 60_000);
+  } catch (error) {
+    console.error("Failed to load file transfer limits", error);
+  }
+}
+
+function showFileTransferLimitsMsg(text, type) {
+  const el = document.getElementById("file-transfer-limits-msg");
+  if (!el) return;
+  el.textContent = text;
+  el.className = `text-sm rounded-lg px-3 py-2 border ${type === "error" ? "border-rose-800 bg-rose-900/20 text-rose-200" : "border-emerald-800 bg-emerald-900/20 text-emerald-200"}`;
+  el.classList.remove("hidden");
+  setTimeout(() => el.classList.add("hidden"), 5000);
+}
+
+async function saveFileTransferLimits(event) {
+  event.preventDefault();
+  if (!requireUiPermission("system:security", "Security settings permission required.")) return;
+  const mb = 1024 * 1024;
+  const maxFileMb = Number(document.getElementById("ft-max-file-mb")?.value);
+  const maxStagedMb = Number(document.getElementById("ft-max-staged-mb")?.value);
+  const maxActiveGlobal = Number(document.getElementById("ft-max-active-global")?.value);
+  const maxActivePerUser = Number(document.getElementById("ft-max-active-user")?.value);
+  const intentMinutes = Number(document.getElementById("ft-intent-ttl-minutes")?.value);
+  const pullMinutes = Number(document.getElementById("ft-pull-ttl-minutes")?.value);
+  if (![maxFileMb, maxStagedMb, maxActiveGlobal, maxActivePerUser, intentMinutes, pullMinutes].every(Number.isFinite)) {
+    showFileTransferLimitsMsg("All limits must be valid numbers.", "error");
+    return;
+  }
+  if (maxStagedMb < maxFileMb) {
+    showFileTransferLimitsMsg("Total staging quota must be at least the maximum file size.", "error");
+    return;
+  }
+  if (maxActivePerUser > maxActiveGlobal) {
+    showFileTransferLimitsMsg("Per-user active transfers cannot exceed the global limit.", "error");
+    return;
+  }
+  try {
+    const res = await fetch("/api/settings/file-transfers", {
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        maxFileBytes: Math.round(maxFileMb * mb),
+        maxStagedBytes: Math.round(maxStagedMb * mb),
+        maxActiveGlobal: Math.round(maxActiveGlobal),
+        maxActivePerUser: Math.round(maxActivePerUser),
+        uploadIntentTtlMs: Math.round(intentMinutes * 60_000),
+        uploadPullTtlMs: Math.round(pullMinutes * 60_000),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showFileTransferLimitsMsg(data.error || "Failed to save transfer limits.", "error");
+      return;
+    }
+    await loadFileTransferLimits();
+    showFileTransferLimitsMsg("File transfer limits saved and active.", "success");
+  } catch {
+    showFileTransferLimitsMsg("Network error.", "error");
+  }
+}
+
+function initFileTransferLimitHandlers() {
+  document.getElementById("file-transfer-limits-form")?.addEventListener("submit", saveFileTransferLimits);
+}
+
 // ── Build Rate Limit Settings ──────────────────────────────────────────────
 
 async function loadBuildRateLimitSettings() {
@@ -2598,6 +2680,10 @@ async function init() {
     if (userHas("system:build-limits")) {
       await loadBuildRateLimitSettings();
       initBuildRateLimitHandlers();
+    }
+    if (userHas("system:security")) {
+      await loadFileTransferLimits();
+      initFileTransferLimitHandlers();
     }
     if (userHas("system:thumbnails")) {
       await loadThumbnailSettings();

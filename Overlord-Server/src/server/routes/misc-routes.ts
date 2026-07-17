@@ -1,7 +1,7 @@
 import { authenticateRequest } from "../../auth";
 import { AuditAction, getAuditLogs, logAudit } from "../../auditLog";
 import { logger } from "../../logger";
-import { getConfig, updateSecurityConfig, updateTlsConfig, updateOidcConfig, updateAppearanceConfig, updateChatConfig, getExportableConfig, importFullConfig, updateRegistrationConfig, updateBuildRateLimitConfig, updateThumbnailsConfig, updateInputArchiveConfig } from "../../config";
+import { getConfig, updateSecurityConfig, updateTlsConfig, updateOidcConfig, updateAppearanceConfig, updateChatConfig, getExportableConfig, importFullConfig, updateRegistrationConfig, updateBuildRateLimitConfig, updateThumbnailsConfig, updateInputArchiveConfig, updateFileTransfersConfig } from "../../config";
 import {
   saveBrandingImage,
   getClientMetricsSummary,
@@ -667,6 +667,40 @@ export async function handleMiscRoutes(
       });
 
       return Response.json({ ok: true, security: updated }, { headers: deps.CORS_HEADERS });
+    }
+  }
+
+  if (url.pathname === "/api/settings/file-transfers") {
+    const user = await authenticateRequest(req);
+    if (!user) return new Response("Unauthorized", { status: 401 });
+    try { requirePermission(user, "system:security"); } catch (error) { if (error instanceof Response) return error; return new Response("Forbidden", { status: 403 }); }
+
+    if (req.method === "GET") {
+      return Response.json({ fileTransfers: getConfig().fileTransfers }, { headers: deps.CORS_HEADERS });
+    }
+
+    if (req.method === "PUT") {
+      let body: any = {};
+      try { body = await req.json(); } catch {
+        return Response.json({ error: "Invalid JSON" }, { status: 400 });
+      }
+      const updated = await updateFileTransfersConfig({
+        maxFileBytes: body?.maxFileBytes !== undefined ? Number(body.maxFileBytes) : undefined,
+        maxStagedBytes: body?.maxStagedBytes !== undefined ? Number(body.maxStagedBytes) : undefined,
+        maxActiveGlobal: body?.maxActiveGlobal !== undefined ? Number(body.maxActiveGlobal) : undefined,
+        maxActivePerUser: body?.maxActivePerUser !== undefined ? Number(body.maxActivePerUser) : undefined,
+        uploadIntentTtlMs: body?.uploadIntentTtlMs !== undefined ? Number(body.uploadIntentTtlMs) : undefined,
+        uploadPullTtlMs: body?.uploadPullTtlMs !== undefined ? Number(body.uploadPullTtlMs) : undefined,
+      });
+      logAudit({
+        timestamp: Date.now(),
+        username: user.username,
+        ip: deps.requestIP?.(req)?.address || "unknown",
+        action: AuditAction.COMMAND,
+        details: "Updated file transfer limits",
+        success: true,
+      });
+      return Response.json({ ok: true, fileTransfers: updated }, { headers: deps.CORS_HEADERS });
     }
   }
 

@@ -45,7 +45,7 @@ type ProcessViewer = {
 };
 
 type WsViewerClusterDeps = {
-  pendingHttpDownloads: Map<string, unknown>;
+  pendingHttpDownloads: ReadonlyMap<string, { clientId?: string }>;
   consumeHttpDownloadPayload: (payload: any) => Promise<void> | void;
 };
 
@@ -397,17 +397,23 @@ export function handleFileBrowserViewerMessage(ws: ServerWebSocket<SocketData>, 
 
 export function handleFileBrowserMessage(clientId: string, payload: any, deps: WsViewerClusterDeps) {
   const type = payload?.type as string | undefined;
+  const payloadCommandId = typeof payload?.commandId === "string" ? payload.commandId : undefined;
+  const pendingDownload = payloadCommandId
+    ? deps.pendingHttpDownloads.get(payloadCommandId)
+    : undefined;
   const isHttpDownload =
     type === "file_download" &&
-    typeof payload?.commandId === "string" &&
-    deps.pendingHttpDownloads.has(payload.commandId);
+    pendingDownload?.clientId === clientId;
 
-  if (type === "file_download" && typeof payload?.commandId === "string") {
+  if (isHttpDownload) {
     void deps.consumeHttpDownloadPayload(payload);
   }
 
-  const payloadCommandId = typeof payload?.commandId === "string" ? payload.commandId : undefined;
   const commandOwner = payloadCommandId ? fileBrowserCommandSessions.get(payloadCommandId) : undefined;
+  if (type === "file_download" && !isHttpDownload && !commandOwner) {
+    logger.debug(`[filebrowser] dropped unsolicited download payload client=${clientId}`);
+    return;
+  }
   const ownerSessionId = commandOwner?.sessionId;
 
   let hasSession = false;

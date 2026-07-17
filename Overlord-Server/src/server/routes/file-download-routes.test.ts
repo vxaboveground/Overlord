@@ -12,6 +12,7 @@ import {
   setUserFeaturePermission,
 } from "../../users";
 import { handleFileDownloadRoutes } from "./file-download-routes";
+import { getFileTransferLimits } from "../file-transfer-state";
 
 const PASSWORD = "Aa1!RouteUploadTestPass123";
 
@@ -58,6 +59,114 @@ async function removeTempDataDir(dir: string): Promise<void> {
 }
 
 describe("file upload route flow", () => {
+  test("consumes an upload intent atomically when staging requests race", async () => {
+    const auth = await createAdminToken();
+    const clientId = `client-${Date.now().toString(36)}`;
+    const dataDir = await createTempDataDir();
+    const deps = makeRouteDeps(dataDir);
+    clientManager.addClient(clientId, {
+      id: clientId, lastSeen: Date.now(), role: "client", ws: { send: () => {} },
+    });
+    const previousDisableAgentAuth = process.env.OVERLORD_DISABLE_AGENT_AUTH;
+    process.env.OVERLORD_DISABLE_AGENT_AUTH = "true";
+
+    try {
+      const requestUrl = new URL("https://localhost/api/file/upload/request");
+      const requestRes = await handleFileDownloadRoutes(
+        new Request(requestUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${auth.token}` },
+          body: JSON.stringify({ clientId, path: "C:\\Games\\race.bin", fileName: "race.bin" }),
+        }),
+        requestUrl,
+        mockServer,
+        deps,
+      );
+      const requestJson = await requestRes!.json() as any;
+      const stageUrl = new URL(`https://localhost${requestJson.uploadUrl}`);
+      const makeStageRequest = () => new Request(stageUrl, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${auth.token}` },
+        body: new TextEncoder().encode("race payload"),
+      });
+      const responses = await Promise.all([
+        handleFileDownloadRoutes(makeStageRequest(), stageUrl, mockServer, deps),
+        handleFileDownloadRoutes(makeStageRequest(), stageUrl, mockServer, deps),
+      ]);
+
+      expect(responses.map((response) => response!.status).sort()).toEqual([200, 404]);
+      const successful = responses.find((response) => response!.status === 200)!;
+      const staged = await successful!.json() as any;
+      const pullUrl = new URL(staged.pullUrl, "https://localhost");
+      const pullResponse = await handleFileDownloadRoutes(
+        new Request(pullUrl, { headers: { "x-overlord-client-id": clientId } }),
+        pullUrl,
+        mockServer,
+        deps,
+      );
+      expect(await pullResponse!.text()).toBe("race payload");
+    } finally {
+      if (previousDisableAgentAuth === undefined) delete process.env.OVERLORD_DISABLE_AGENT_AUTH;
+      else process.env.OVERLORD_DISABLE_AGENT_AUTH = previousDisableAgentAuth;
+      clientManager.deleteClient(clientId);
+      deleteUser(auth.userId);
+      await removeTempDataDir(dataDir);
+    }
+  });
+
+  test("rejects an oversized staged upload before writing a payload file", async () => {
+    const auth = await createAdminToken();
+    const clientId = `client-${Date.now().toString(36)}`;
+    const dataDir = await createTempDataDir();
+    const deps = makeRouteDeps(dataDir);
+
+    clientManager.addClient(clientId, {
+      id: clientId,
+      lastSeen: Date.now(),
+      role: "client",
+      ws: { send: () => {} },
+    });
+
+    try {
+      const requestUrl = new URL("https://localhost/api/file/upload/request");
+      const requestRes = await handleFileDownloadRoutes(
+        new Request(requestUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${auth.token}`,
+          },
+          body: JSON.stringify({ clientId, path: "C:\\Games\\too-big.iso", fileName: "too-big.iso" }),
+        }),
+        requestUrl,
+        mockServer,
+        deps,
+      );
+      const requestJson = await requestRes!.json() as any;
+      const stageUrl = new URL(`https://localhost${requestJson.uploadUrl}`);
+      const stageRes = await handleFileDownloadRoutes(
+        new Request(stageUrl, {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${auth.token}`,
+            "Content-Length": String(getFileTransferLimits().maxFileBytes + 1),
+          },
+        }),
+        stageUrl,
+        mockServer,
+        deps,
+      );
+
+      expect(stageRes!.status).toBe(413);
+      const uploadEntries = await readdir(join(dataDir, "uploads")).catch(() => [] as string[]);
+      expect(uploadEntries).toHaveLength(0);
+    } finally {
+      clientManager.deleteClient(clientId);
+      deleteUser(auth.userId);
+      await removeTempDataDir(dataDir);
+    }
+  });
+
   test("stages and serves one-time upload payload for matching client", async () => {
     const auth = await createAdminToken();
     const clientId = `client-${Date.now().toString(36)}`;
@@ -579,6 +688,52 @@ describe("file route feature_browser enforcement", () => {
       expect(stageRes).not.toBeNull();
       expect(stageRes!.status).toBe(403);
       expect(await stageRes!.text()).toContain("feature access denied");
+    } finally {
+      clientManager.deleteClient(clientId);
+      deleteUser(auth.userId);
+      await removeTempDataDir(dataDir);
+    }
+  });
+
+  test("upload stage PUT rechecks client access after intent creation", async () => {
+    const auth = await createOperatorToken({ fileBrowserAllowed: true });
+    const clientId = `client-${Date.now().toString(36)}`;
+    const dataDir = await createTempDataDir();
+    const deps = makeRouteDeps(dataDir);
+    clientManager.addClient(clientId, {
+      id: clientId, lastSeen: Date.now(), role: "client", ws: { send: () => {} },
+    });
+
+    try {
+      const requestUrl = new URL("https://localhost/api/file/upload/request");
+      const requestRes = await handleFileDownloadRoutes(
+        new Request(requestUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${auth.token}` },
+          body: JSON.stringify({ clientId, path: "C:\\Games\\blocked.bin", fileName: "blocked.bin" }),
+        }),
+        requestUrl,
+        mockServer,
+        deps,
+      );
+      const requestJson = await requestRes!.json() as any;
+      setUserClientAccessScope(auth.userId, "none");
+
+      const stageUrl = new URL(`https://localhost${requestJson.uploadUrl}`);
+      const stageRes = await handleFileDownloadRoutes(
+        new Request(stageUrl, {
+          method: "PUT",
+          headers: { Authorization: `Bearer ${auth.token}` },
+          body: new TextEncoder().encode("must not be staged"),
+        }),
+        stageUrl,
+        mockServer,
+        deps,
+      );
+
+      expect(stageRes!.status).toBe(403);
+      const uploadEntries = await readdir(join(dataDir, "uploads")).catch(() => [] as string[]);
+      expect(uploadEntries).toHaveLength(0);
     } finally {
       clientManager.deleteClient(clientId);
       deleteUser(auth.userId);

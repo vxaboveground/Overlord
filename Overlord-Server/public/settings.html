@@ -120,6 +120,7 @@
             <span class="settings-nav-group-label">Admin</span>
             <a data-target="section-permissions-overview" class="settings-nav-link" data-permission="users:manage" style="--accent: 167 139 250"><i class="fa-solid fa-user-shield w-4 text-violet-400"></i><span>Access Overview</span></a>
             <a data-target="section-security"         class="settings-nav-link" data-permission="system:security" style="--accent: 129 140 248"><i class="fa-solid fa-shield-halved w-4 text-indigo-400"></i><span>Security Policy</span></a>
+            <a data-target="file-transfer-limits-section" class="settings-nav-link" data-permission="system:security" style="--accent: 45 212 191"><i class="fa-solid fa-hard-drive w-4 text-teal-400"></i><span>File Transfer Limits</span></a>
             <a data-target="section-tls"              class="settings-nav-link" data-permission="system:tls" style="--accent: 34 211 238"><i class="fa-solid fa-certificate w-4 text-cyan-400"></i><span>TLS Certificates</span></a>
             <a data-target="section-oidc"             class="settings-nav-link" data-permission="system:oidc" style="--accent: 20 184 166"><i class="fa-solid fa-right-to-bracket w-4 text-teal-400"></i><span>OIDC / SSO</span></a>
             <a data-target="chat-settings-section"    class="settings-nav-link" data-permission="system:chat" style="--accent: 56 189 248"><i class="fa-solid fa-comments w-4 text-sky-400"></i><span>Team Chat</span></a>
@@ -719,6 +720,55 @@
             <i class="fa-solid fa-shield-halved"></i>Save Security Policy
           </button>
         </form>
+      </section>
+
+      <section id="file-transfer-limits-section" data-permission="system:security" class="hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 settings-section">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-teal-500/10 border border-teal-500/30">
+            <i class="fa-solid fa-hard-drive text-teal-400"></i>
+          </div>
+          <div>
+            <h2 class="text-lg font-semibold">File Transfer Limits</h2>
+            <p class="text-sm text-slate-400">Bound temporary server disk usage for operator-to-agent uploads.</p>
+          </div>
+        </div>
+
+        <div class="text-xs text-slate-400 bg-slate-800/40 border border-slate-700/60 rounded-lg p-3">
+          Agent-to-operator downloads are streamed and are not staged on server disk. These limits apply to temporary files under the server uploads directory and take effect immediately for new transfers.
+        </div>
+
+        <form id="file-transfer-limits-form" class="space-y-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <label class="block">
+              <span class="text-sm text-slate-300">Maximum file size (MB)</span>
+              <input id="ft-max-file-mb" type="number" min="1" max="1024" step="1" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500" />
+            </label>
+            <label class="block">
+              <span class="text-sm text-slate-300">Total staging quota (MB)</span>
+              <input id="ft-max-staged-mb" type="number" min="1" max="512000" step="1" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500" />
+            </label>
+            <label class="block">
+              <span class="text-sm text-slate-300">Maximum active globally</span>
+              <input id="ft-max-active-global" type="number" min="1" max="1000" step="1" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500" />
+            </label>
+            <label class="block">
+              <span class="text-sm text-slate-300">Maximum active per user</span>
+              <input id="ft-max-active-user" type="number" min="1" max="1000" step="1" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500" />
+            </label>
+            <label class="block">
+              <span class="text-sm text-slate-300">Upload intent expiry (minutes)</span>
+              <input id="ft-intent-ttl-minutes" type="number" min="1" max="1440" step="1" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500" />
+            </label>
+            <label class="block">
+              <span class="text-sm text-slate-300">Staged file expiry (minutes)</span>
+              <input id="ft-pull-ttl-minutes" type="number" min="1" max="1440" step="1" class="mt-1 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500" />
+            </label>
+          </div>
+          <button type="submit" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-700 hover:bg-teal-600 transition-colors text-white text-sm font-medium">
+            <i class="fa-solid fa-floppy-disk"></i>Save Transfer Limits
+          </button>
+        </form>
+        <p id="file-transfer-limits-msg" class="hidden text-sm rounded-lg px-3 py-2 border"></p>
       </section>
 
       <!-- TLS Certificates -->
