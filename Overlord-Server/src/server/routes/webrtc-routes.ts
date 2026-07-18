@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { authenticateRequest } from "../../auth";
-import { requireClientAccess } from "../../rbac";
+import { requireClientAccess, requireFeatureAccess } from "../../rbac";
 import { logger } from "../../logger";
 import { issueTurnIceServers } from "../turn-credentials";
 
@@ -26,6 +26,13 @@ export function issueWebrtcPublishToken(clientId: string): string {
 }
 
 export type WebrtcKind = "desktop" | "backstage" | "webcam" | "audio";
+
+const WEBRTC_FEATURES = {
+  desktop: "remote_desktop",
+  backstage: "backstage",
+  webcam: "webcam",
+  audio: "voice",
+} as const;
 
 export function webrtcStreamPathFor(clientId: string, kind: WebrtcKind): string {
   return `agents/${clientId}/${kind}`;
@@ -78,6 +85,8 @@ export async function handleWebrtcRoutes(req: Request, url: URL): Promise<Respon
     if (!user) return new Response("Unauthorized", { status: 401 });
     try {
       requireClientAccess(user, clientId);
+      const streamKind = streamPath.split("/")[2] as WebrtcKind;
+      requireFeatureAccess(user, WEBRTC_FEATURES[streamKind]);
     } catch (error) {
       if (error instanceof Response) return error;
       return new Response("Forbidden", { status: 403 });

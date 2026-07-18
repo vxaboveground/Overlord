@@ -1405,6 +1405,67 @@
             </label>
           </div>
 
+          <fieldset class="rounded-xl border border-slate-700 bg-slate-950/50 p-4 space-y-4">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 class="text-sm font-semibold text-slate-200">Simple theme</h3>
+                <p class="mt-1 text-xs text-slate-500">Pick the main colors and corner style. Overlord builds the CSS for you.</p>
+              </div>
+              <label class="inline-flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                <input id="simple-theme-enabled" type="checkbox" class="h-4 w-4 rounded border-slate-600 bg-slate-900 text-fuchsia-500 focus:ring-fuchsia-500" />
+                Use simple theme
+              </label>
+            </div>
+
+            <div id="simple-theme-controls" class="grid grid-cols-2 lg:grid-cols-5 gap-3">
+              <label class="block">
+                <span class="text-xs text-slate-400">Accent</span>
+                <input id="simple-theme-accent" type="color" value="#7a5bff" class="mt-1 h-10 w-full px-1 py-1 rounded-lg bg-slate-900 border border-slate-700 cursor-pointer" />
+              </label>
+              <label class="block">
+                <span class="text-xs text-slate-400">Page background</span>
+                <input id="simple-theme-background" type="color" value="#020617" class="mt-1 h-10 w-full px-1 py-1 rounded-lg bg-slate-900 border border-slate-700 cursor-pointer" />
+              </label>
+              <label class="block">
+                <span class="text-xs text-slate-400">Cards &amp; panels</span>
+                <input id="simple-theme-surface" type="color" value="#0f172a" class="mt-1 h-10 w-full px-1 py-1 rounded-lg bg-slate-900 border border-slate-700 cursor-pointer" />
+              </label>
+              <label class="block">
+                <span class="text-xs text-slate-400">Text</span>
+                <input id="simple-theme-text" type="color" value="#f1f5f9" class="mt-1 h-10 w-full px-1 py-1 rounded-lg bg-slate-900 border border-slate-700 cursor-pointer" />
+              </label>
+              <label class="block col-span-2 lg:col-span-1">
+                <span class="text-xs text-slate-400">Corners</span>
+                <select id="simple-theme-corners" class="mt-1 h-10 w-full px-3 rounded-lg bg-slate-900 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500 text-sm">
+                  <option value="sharp">Sharp</option>
+                  <option value="soft" selected>Soft</option>
+                  <option value="round">Round</option>
+                </select>
+              </label>
+            </div>
+
+            <div id="simple-theme-preview" class="overflow-hidden rounded-xl border border-slate-700">
+              <div id="simple-theme-preview-bar" class="flex items-center gap-2 px-3 py-2">
+                <span id="simple-theme-preview-dot" class="h-2.5 w-2.5 rounded-full"></span>
+                <span class="text-xs font-medium">Theme preview</span>
+              </div>
+              <div id="simple-theme-preview-body" class="flex items-center justify-between gap-3 p-3">
+                <div>
+                  <div class="text-sm font-semibold">Cards, text, and buttons</div>
+                  <div id="simple-theme-preview-muted" class="mt-0.5 text-xs">Your custom palette is shown here.</div>
+                </div>
+                <button id="simple-theme-preview-button" type="button" tabindex="-1" class="px-3 py-1.5 text-xs font-medium text-white">Primary</button>
+              </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+              <button id="simple-theme-reset" type="button" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-200 transition-colors">
+                <i class="fa-solid fa-rotate-left"></i>Reset colors
+              </button>
+              <p class="text-xs text-slate-500">Changes are added to the managed block below. Your handwritten CSS is preserved.</p>
+            </div>
+          </fieldset>
+
           <label class="block">
             <span class="text-sm text-slate-300">Custom CSS</span>
             <textarea

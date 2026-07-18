@@ -138,6 +138,23 @@ describe("clients:disconnect gates", () => {
   });
 });
 
+describe("remote desktop alternate command gates", () => {
+  test("operator with remote_desktop feature OFF cannot start the desktop stream", async () => {
+    const auth = await makeUserWithToken("operator");
+    const clientId = registerTestClient();
+    setUserFeaturePermission(auth.user.id, "remote_desktop", false);
+    const res = await command(auth.token, clientId, "desktop_start");
+    expect(res!.status).toBe(403);
+  });
+
+  test("operator with remote_desktop feature ON can start the desktop stream", async () => {
+    const auth = await makeUserWithToken("operator");
+    const clientId = registerTestClient();
+    const res = await command(auth.token, clientId, "desktop_start");
+    expect(res!.status).toBe(200);
+  });
+});
+
 describe("clients:reconnect gates", () => {
   test("operator (default) can reconnect", async () => {
     const auth = await makeUserWithToken("operator");

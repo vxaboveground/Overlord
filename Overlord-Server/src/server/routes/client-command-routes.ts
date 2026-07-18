@@ -135,6 +135,12 @@ export async function handleClientCommandRoute(
       metrics.recordCommand("screenshot");
       logAudit({ timestamp: Date.now(), username: user.username, ip, action: AuditAction.SCREENSHOT, targetClientId: targetId, success: true });
     } else if (action === "desktop_start") {
+      try {
+        requireFeatureAccess(user, "remote_desktop");
+      } catch (error) {
+        if (error instanceof Response) return error;
+        return new Response("Forbidden", { status: 403 });
+      }
       target.ws.send(encodeMessage({ type: "command", commandType: "desktop_start", id: uuidv4() }));
       metrics.recordCommand("desktop_start");
     } else if (action === "darwin_request_permissions") {

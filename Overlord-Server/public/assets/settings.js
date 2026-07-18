@@ -108,6 +108,20 @@ const appearanceForm = document.getElementById("appearance-form");
 const appearancePermissionNote = document.getElementById("appearance-permission-note");
 const appearanceSaveBtn = document.getElementById("appearance-save-btn");
 const appearanceCustomCssInput = document.getElementById("appearance-custom-css");
+const simpleThemeEnabledInput = document.getElementById("simple-theme-enabled");
+const simpleThemeControls = document.getElementById("simple-theme-controls");
+const simpleThemeAccentInput = document.getElementById("simple-theme-accent");
+const simpleThemeBackgroundInput = document.getElementById("simple-theme-background");
+const simpleThemeSurfaceInput = document.getElementById("simple-theme-surface");
+const simpleThemeTextInput = document.getElementById("simple-theme-text");
+const simpleThemeCornersInput = document.getElementById("simple-theme-corners");
+const simpleThemeResetBtn = document.getElementById("simple-theme-reset");
+const simpleThemePreview = document.getElementById("simple-theme-preview");
+const simpleThemePreviewBar = document.getElementById("simple-theme-preview-bar");
+const simpleThemePreviewBody = document.getElementById("simple-theme-preview-body");
+const simpleThemePreviewDot = document.getElementById("simple-theme-preview-dot");
+const simpleThemePreviewMuted = document.getElementById("simple-theme-preview-muted");
+const simpleThemePreviewButton = document.getElementById("simple-theme-preview-button");
 const brandProductNameInput = document.getElementById("brand-product-name");
 const brandTabNameInput = document.getElementById("brand-tab-name");
 const brandFaviconUrlInput = document.getElementById("brand-favicon-url");
@@ -1409,9 +1423,216 @@ const brandInputs = [
 ];
 
 function setAppearanceFormDisabled(disabled) {
-  for (const input of [...brandInputs, appearanceCustomCssInput, appearanceSaveBtn]) {
+  const simpleThemeInputs = [
+    simpleThemeEnabledInput,
+    simpleThemeAccentInput,
+    simpleThemeBackgroundInput,
+    simpleThemeSurfaceInput,
+    simpleThemeTextInput,
+    simpleThemeCornersInput,
+    simpleThemeResetBtn,
+  ];
+  for (const input of [...brandInputs, ...simpleThemeInputs, appearanceCustomCssInput, appearanceSaveBtn]) {
     if (input) input.disabled = disabled;
   }
+}
+
+const SIMPLE_THEME_START = "/* === OVERLORD SIMPLE THEME START === */";
+const SIMPLE_THEME_END = "/* === OVERLORD SIMPLE THEME END === */";
+const SIMPLE_THEME_BLOCK_RE = /\/\* === OVERLORD SIMPLE THEME START === \*\/[\s\S]*?\/\* === OVERLORD SIMPLE THEME END === \*\/\s*/;
+const SIMPLE_THEME_DEFAULTS = Object.freeze({
+  accent: "#7a5bff",
+  background: "#020617",
+  surface: "#0f172a",
+  text: "#f1f5f9",
+  corners: "soft",
+});
+
+function normalizeThemeColor(value, fallback) {
+  return /^#[0-9a-f]{6}$/i.test(String(value || "")) ? String(value).toLowerCase() : fallback;
+}
+
+function mixThemeColors(colorA, colorB, amount) {
+  const parse = (color) => [1, 3, 5].map((offset) => Number.parseInt(color.slice(offset, offset + 2), 16));
+  const a = parse(colorA);
+  const b = parse(colorB);
+  return `#${a.map((channel, i) => Math.round(channel + ((b[i] - channel) * amount)).toString(16).padStart(2, "0")).join("")}`;
+}
+
+function themeColorRgba(color, alpha) {
+  const channels = [1, 3, 5].map((offset) => Number.parseInt(color.slice(offset, offset + 2), 16));
+  return `rgba(${channels.join(", ")}, ${alpha})`;
+}
+
+function getSimpleThemeSettings() {
+  return {
+    accent: normalizeThemeColor(simpleThemeAccentInput?.value, SIMPLE_THEME_DEFAULTS.accent),
+    background: normalizeThemeColor(simpleThemeBackgroundInput?.value, SIMPLE_THEME_DEFAULTS.background),
+    surface: normalizeThemeColor(simpleThemeSurfaceInput?.value, SIMPLE_THEME_DEFAULTS.surface),
+    text: normalizeThemeColor(simpleThemeTextInput?.value, SIMPLE_THEME_DEFAULTS.text),
+    corners: ["sharp", "soft", "round"].includes(simpleThemeCornersInput?.value)
+      ? simpleThemeCornersInput.value
+      : SIMPLE_THEME_DEFAULTS.corners,
+  };
+}
+
+function applySimpleThemeSettings(settings = SIMPLE_THEME_DEFAULTS) {
+  const normalized = {
+    accent: normalizeThemeColor(settings.accent, SIMPLE_THEME_DEFAULTS.accent),
+    background: normalizeThemeColor(settings.background, SIMPLE_THEME_DEFAULTS.background),
+    surface: normalizeThemeColor(settings.surface, SIMPLE_THEME_DEFAULTS.surface),
+    text: normalizeThemeColor(settings.text, SIMPLE_THEME_DEFAULTS.text),
+    corners: ["sharp", "soft", "round"].includes(settings.corners) ? settings.corners : SIMPLE_THEME_DEFAULTS.corners,
+  };
+  if (simpleThemeAccentInput) simpleThemeAccentInput.value = normalized.accent;
+  if (simpleThemeBackgroundInput) simpleThemeBackgroundInput.value = normalized.background;
+  if (simpleThemeSurfaceInput) simpleThemeSurfaceInput.value = normalized.surface;
+  if (simpleThemeTextInput) simpleThemeTextInput.value = normalized.text;
+  if (simpleThemeCornersInput) simpleThemeCornersInput.value = normalized.corners;
+  updateSimpleThemePreview();
+}
+
+function buildSimpleThemeCss(settings) {
+  const { accent, background, surface, text, corners } = settings;
+  const accentShades = {
+    50: mixThemeColors(accent, "#ffffff", 0.92),
+    100: mixThemeColors(accent, "#ffffff", 0.82),
+    200: mixThemeColors(accent, "#ffffff", 0.68),
+    300: mixThemeColors(accent, "#ffffff", 0.48),
+    400: mixThemeColors(accent, "#ffffff", 0.24),
+    500: accent,
+    600: mixThemeColors(accent, "#000000", 0.15),
+    700: mixThemeColors(accent, "#000000", 0.3),
+    800: mixThemeColors(accent, "#000000", 0.45),
+    900: mixThemeColors(accent, "#000000", 0.58),
+    950: mixThemeColors(accent, "#000000", 0.72),
+  };
+  const neutralShades = {
+    50: mixThemeColors(text, "#ffffff", 0.35),
+    100: text,
+    200: mixThemeColors(surface, text, 0.86),
+    300: mixThemeColors(surface, text, 0.72),
+    400: mixThemeColors(surface, text, 0.55),
+    500: mixThemeColors(surface, text, 0.4),
+    600: mixThemeColors(surface, text, 0.26),
+    700: mixThemeColors(surface, text, 0.16),
+    800: mixThemeColors(surface, text, 0.08),
+    900: surface,
+    950: background,
+  };
+  const radii = {
+    sharp: ["2px", "3px", "4px", "5px"],
+    soft: ["8px", "10px", "14px", "18px"],
+    round: ["14px", "18px", "24px", "30px"],
+  }[corners];
+  const paletteNames = ["sky", "blue", "cyan", "indigo", "violet", "purple", "fuchsia"];
+  const accentVariables = paletteNames.flatMap((name) => (
+    Object.entries(accentShades).map(([shade, value]) => `  --color-${name}-${shade}: ${value};`)
+  ));
+  const neutralVariables = Object.entries(neutralShades).map(([shade, value]) => `  --color-slate-${shade}: ${value};`);
+
+  return [
+    SIMPLE_THEME_START,
+    `/* settings: ${JSON.stringify(settings)} */`,
+    ":root {",
+    ...accentVariables,
+    ...neutralVariables,
+    `  --color-primary: ${accent};`,
+    `  --color-primary-hover: ${accentShades[400]};`,
+    `  --color-text: ${text};`,
+    `  --color-text-bright: ${neutralShades[50]};`,
+    `  --color-text-muted: ${neutralShades[400]};`,
+    `  --color-surface: ${themeColorRgba(surface, 0.72)};`,
+    `  --color-surface-dark: ${themeColorRgba(background, 0.88)};`,
+    `  --color-border: ${themeColorRgba(text, 0.12)};`,
+    `  --ui-border-strong: ${themeColorRgba(accent, 0.45)};`,
+    `  --ui-ring: ${themeColorRgba(accent, 0.28)};`,
+    `  --radius-sm: ${radii[0]};`,
+    `  --radius-md: ${radii[1]};`,
+    `  --radius-lg: ${radii[2]};`,
+    `  --radius-xl: ${radii[3]};`,
+    `  --radius-2xl: ${radii[3]};`,
+    "}",
+    "html, body {",
+    `  background-color: ${background} !important;`,
+    `  color: ${text};`,
+    "}",
+    SIMPLE_THEME_END,
+  ].join("\n");
+}
+
+function replaceSimpleThemeBlock(css, replacement = "") {
+  const withoutManagedBlock = String(css || "").replace(SIMPLE_THEME_BLOCK_RE, "").trim();
+  return [replacement, withoutManagedBlock].filter(Boolean).join("\n\n");
+}
+
+function syncSimpleThemeCss() {
+  if (!appearanceCustomCssInput) return;
+  const enabled = !!simpleThemeEnabledInput?.checked;
+  const settings = getSimpleThemeSettings();
+  const replacement = enabled ? buildSimpleThemeCss(settings) : "";
+  if (enabled && brandAccentColorInput) brandAccentColorInput.value = settings.accent;
+  appearanceCustomCssInput.value = replaceSimpleThemeBlock(appearanceCustomCssInput.value, replacement);
+  if (simpleThemeControls) simpleThemeControls.classList.toggle("opacity-50", !enabled);
+}
+
+function loadSimpleThemeFromCss(css) {
+  const block = String(css || "").match(SIMPLE_THEME_BLOCK_RE)?.[0] || "";
+  if (simpleThemeEnabledInput) simpleThemeEnabledInput.checked = !!block;
+  if (block) {
+    const settingsText = block.match(/\/\* settings: (\{.*\}) \*\//)?.[1];
+    try {
+      applySimpleThemeSettings(settingsText ? JSON.parse(settingsText) : SIMPLE_THEME_DEFAULTS);
+    } catch {
+      applySimpleThemeSettings(SIMPLE_THEME_DEFAULTS);
+    }
+  } else {
+    applySimpleThemeSettings(SIMPLE_THEME_DEFAULTS);
+  }
+  if (simpleThemeControls) simpleThemeControls.classList.toggle("opacity-50", !block);
+}
+
+function updateSimpleThemePreview() {
+  const { accent, background, surface, text, corners } = getSimpleThemeSettings();
+  const radius = { sharp: "4px", soft: "12px", round: "22px" }[corners];
+  if (simpleThemePreview) {
+    simpleThemePreview.style.borderColor = mixThemeColors(surface, text, 0.2);
+    simpleThemePreview.style.borderRadius = radius;
+  }
+  if (simpleThemePreviewBar) {
+    simpleThemePreviewBar.style.backgroundColor = mixThemeColors(surface, background, 0.35);
+    simpleThemePreviewBar.style.color = text;
+  }
+  if (simpleThemePreviewBody) {
+    simpleThemePreviewBody.style.backgroundColor = surface;
+    simpleThemePreviewBody.style.color = text;
+  }
+  if (simpleThemePreviewDot) simpleThemePreviewDot.style.backgroundColor = accent;
+  if (simpleThemePreviewMuted) simpleThemePreviewMuted.style.color = mixThemeColors(surface, text, 0.6);
+  if (simpleThemePreviewButton) {
+    simpleThemePreviewButton.style.backgroundColor = accent;
+    simpleThemePreviewButton.style.borderRadius = radius;
+  }
+}
+
+function initSimpleThemeBuilder() {
+  const inputs = [simpleThemeAccentInput, simpleThemeBackgroundInput, simpleThemeSurfaceInput, simpleThemeTextInput, simpleThemeCornersInput];
+  for (const input of inputs) {
+    input?.addEventListener("input", () => {
+      if (simpleThemeEnabledInput && !simpleThemeEnabledInput.checked) simpleThemeEnabledInput.checked = true;
+      if (input === simpleThemeAccentInput && brandAccentColorInput) brandAccentColorInput.value = simpleThemeAccentInput.value;
+      updateSimpleThemePreview();
+      syncSimpleThemeCss();
+    });
+  }
+  simpleThemeEnabledInput?.addEventListener("change", syncSimpleThemeCss);
+  simpleThemeResetBtn?.addEventListener("click", () => {
+    applySimpleThemeSettings(SIMPLE_THEME_DEFAULTS);
+    if (simpleThemeEnabledInput) simpleThemeEnabledInput.checked = true;
+    if (brandAccentColorInput) brandAccentColorInput.value = SIMPLE_THEME_DEFAULTS.accent;
+    syncSimpleThemeCss();
+  });
+  updateSimpleThemePreview();
 }
 
 function applyBrandingForm(loginBranding = {}) {
@@ -1558,6 +1779,7 @@ async function loadAppearanceSettings() {
     }
     const data = await res.json().catch(() => ({}));
     if (appearanceCustomCssInput) appearanceCustomCssInput.value = data.customCSS || "";
+    loadSimpleThemeFromCss(data.customCSS || "");
     applyBrandingForm(data.loginBranding || {});
     setAppearanceFormDisabled(false);
   } catch {
@@ -1571,6 +1793,7 @@ async function saveAppearanceSettings(event) {
     return;
   }
 
+  syncSimpleThemeCss();
   const customCSS = appearanceCustomCssInput ? appearanceCustomCssInput.value : "";
   if (customCSS.length > 51200) {
     showMessage("CSS exceeds the 50 KB size limit.", "error");
@@ -2720,6 +2943,7 @@ async function init() {
     tlsCertbotAutoBtn.addEventListener("click", runCertbotAutoSetup);
     if (oidcForm) oidcForm.addEventListener("submit", saveOidcSettings);
     if (appearanceForm) appearanceForm.addEventListener("submit", saveAppearanceSettings);
+    initSimpleThemeBuilder();
     initBrandingUploads();
     if (chatSettingsForm) chatSettingsForm.addEventListener("submit", saveChatSettings);
     if (inputArchiveUserForm) inputArchiveUserForm.addEventListener("submit", saveInputArchivePreference);

@@ -226,6 +226,8 @@ async function tryGlobalViewerUpgrade(
   const denied = route.authorize?.(user);
   if (denied) return denied;
 
+  const token = extractTokenFromRequest(req);
+
   return upgradeOrFail(req, server, {
     role: route.role,
     clientId: "",
@@ -233,6 +235,7 @@ async function tryGlobalViewerUpgrade(
     userRole: user.role,
     userId: user.userId,
     username: user.username,
+    ...(token ? { authTokenHash: hashTokenForSession(token) } : {}),
   });
 }
 

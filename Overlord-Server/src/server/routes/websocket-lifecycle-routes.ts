@@ -24,6 +24,12 @@ import { stopAllProxiesForClient } from "../socks5-proxy-manager";
 import { verifyBuildToken, isBuildBanned } from "../build-signing";
 import { clearThumbnail } from "../../thumbnails";
 import { stopRemoteDesktopRecording } from "../rd-recording";
+import {
+  isAuthenticatedViewerRole,
+  registerViewerSocket,
+  unregisterViewerSocket,
+  validateViewerAuthorization,
+} from "../viewer-authorization";
 
 const OFFLINE_GRACE_MS = (() => {
   const raw = process.env.OVERLORD_OFFLINE_GRACE_MS;
@@ -324,6 +330,7 @@ export function handleWebSocketOpen(ws: ServerWebSocket<SocketData>, deps: WsLif
   const role = ws.data.role as string;
   const clientId = ws.data.clientId;
   const ip = ws.data.ip;
+  if (isAuthenticatedViewerRole(ws.data.role) && !registerViewerSocket(ws)) return;
   if (role === "dashboard_viewer") return deps.handleDashboardViewerOpen(ws);
   if (role === "console_viewer") return deps.handleConsoleViewerOpen(ws);
   if (role === "rd_viewer") return deps.handleRemoteDesktopViewerOpen(ws);
@@ -375,6 +382,7 @@ export async function handleWebSocketMessage(
   }
 
   const socketRole = ws.data.role as string;
+  if (isAuthenticatedViewerRole(ws.data.role) && !validateViewerAuthorization(ws)) return;
   if (socketRole === "console_viewer") return deps.handleConsoleViewerMessage(ws, message);
   if (socketRole === "rd_viewer") return deps.handleRemoteDesktopViewerMessage(ws, message);
   if (socketRole === "webcam_viewer") return deps.handleWebcamViewerMessage(ws, message);
@@ -973,6 +981,7 @@ export function handleWebSocketClose(
   reason: unknown,
   deps: WsLifecycleDeps,
 ): void {
+  unregisterViewerSocket(ws);
   const clientId = ws.data.clientId;
   const role = ws.data.role as string;
   const sessionId = ws.data.sessionId;
