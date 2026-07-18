@@ -118,7 +118,7 @@ services:
       - no-new-privileges:true
 
   mediamtx:
-    image: bluenviron/mediamtx:v1.19.2
+    image: bluenviron/mediamtx:1.19.2
     container_name: overlord-mediamtx
     restart: unless-stopped
     command: ["/run/overlord-turn/mediamtx.yml"]
