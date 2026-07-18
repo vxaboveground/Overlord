@@ -532,21 +532,23 @@ type prevImage struct {
 
 func logCodecSupport() {
 	codecLogOnce.Do(func() {
+		h264Status := "disabled"
 		if h264Available() {
-			detail := h264AvailabilityDetail()
-			if detail != "" {
-				log.Printf("capture: codec support h264=enabled (%s) jpeg=enabled", detail)
-				return
-			}
-			log.Printf("capture: codec support h264=enabled jpeg=enabled")
-			return
+			h264Status = "enabled"
 		}
-		detail := h264AvailabilityDetail()
-		if detail != "" {
-			log.Printf("capture: codec support h264=disabled (%s), jpeg=enabled", detail)
-			return
+		if detail := h264AvailabilityDetail(); detail != "" {
+			h264Status += " (" + detail + ")"
 		}
-		log.Printf("capture: codec support h264=disabled, jpeg=enabled")
+
+		hevcStatus := "disabled"
+		if hevcAvailable() {
+			hevcStatus = "enabled"
+		}
+		if detail := hevcAvailabilityDetail(); detail != "" {
+			hevcStatus += " (" + detail + ")"
+		}
+
+		log.Printf("capture: codec support h264=%s hevc=%s jpeg=enabled", h264Status, hevcStatus)
 	})
 }
 
