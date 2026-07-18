@@ -28,6 +28,7 @@ const (
 	WH_MOUSE_LL    = 14
 
 	WM_QUIT       = 0x0012
+	WM_TIMER      = 0x0113
 	WM_KEYDOWN    = 0x0100
 	WM_KEYUP      = 0x0101
 	WM_SYSKEYDOWN = 0x0104
@@ -49,8 +50,13 @@ const (
 	SWP_NOMOVE     = 0x0002
 	SWP_NOACTIVATE = 0x0010
 	SWP_SHOWWINDOW = 0x0040
+	HWND_TOPMOST   = ^uintptr(0)
 
-	LWA_ALPHA = 0x00000002
+	privacyShieldTimerID       = 1
+	privacyShieldIntervalMilli = 15
+
+	LWA_ALPHA      = 0x00000002
+	CURSOR_SHOWING = 0x00000001
 
 	SM_XVIRTUALSCREEN  = 76
 	SM_YVIRTUALSCREEN  = 77
@@ -77,6 +83,9 @@ var (
 	procUpdateWindow               = user32.NewProc("UpdateWindow")
 	procSetWindowPos               = user32.NewProc("SetWindowPos")
 	procSetLayeredWindowAttributes = user32.NewProc("SetLayeredWindowAttributes")
+	procSetTimer                   = user32.NewProc("SetTimer")
+	procKillTimer                  = user32.NewProc("KillTimer")
+	procGetCursorInfo              = user32.NewProc("GetCursorInfo")
 	procEnumDisplayMonitors        = user32.NewProc("EnumDisplayMonitors")
 	procShowCursor                 = user32.NewProc("ShowCursor")
 	procGetSystemMetrics           = user32.NewProc("GetSystemMetrics")
@@ -98,6 +107,7 @@ var (
 	platformMu    sync.Mutex
 	platform      *platformState
 	cursorHideOps int
+	shieldTimerID uintptr
 	ctrlPressed   bool
 )
 
@@ -150,6 +160,13 @@ type msllhookstruct struct {
 	flags       uint32
 	time        uint32
 	dwExtraInfo uintptr
+}
+
+type cursorInfo struct {
+	cbSize      uint32
+	flags       uint32
+	hCursor     windows.Handle
+	screenPoint point
 }
 
 func enablePlatform() error {
@@ -218,6 +235,7 @@ func runPlatformThread(st *platformState) {
 
 	messagePump()
 
+	stopPrivacyShieldTimer()
 	restoreCursor()
 	uninstallInputHooks()
 	destroyPrivacyWindows()
@@ -293,7 +311,7 @@ func createPrivacyWindows() error {
 		procSetLayeredWindowAttributes.Call(hwnd, 0, 255, uintptr(LWA_ALPHA))
 		procSetWindowPos.Call(
 			hwnd,
-			^uintptr(0),
+			HWND_TOPMOST,
 			uintptr(mon.left),
 			uintptr(mon.top),
 			uintptr(mon.right-mon.left),
@@ -322,11 +340,26 @@ func getSystemMetric(index int32) int32 {
 }
 
 func hideCursor() {
-	cursorHideOps = 0
+	hideCursorIfVisible()
+}
+
+// Windows and applications can make the cursor visible again when injected
+// mouse input crosses a window boundary. Keep driving the ShowCursor display
+// count negative while privacy mode is active, and remember every decrement so
+// it can be balanced exactly when privacy mode stops.
+func hideCursorIfVisible() {
+	ci := cursorInfo{cbSize: uint32(unsafe.Sizeof(cursorInfo{}))}
+	visible, _, _ := procGetCursorInfo.Call(uintptr(unsafe.Pointer(&ci)))
+	if visible == 0 || ci.flags&CURSOR_SHOWING == 0 {
+		return
+	}
+
+	attempts := 0
 	for {
 		count := showCursor(false)
 		cursorHideOps++
-		if count < 0 || cursorHideOps > 32 {
+		attempts++
+		if count < 0 || attempts > 32 {
 			break
 		}
 	}
@@ -359,6 +392,41 @@ func destroyPrivacyWindows() {
 		procDestroyWindow.Call(uintptr(hwnd))
 	}
 	log.Printf("privacy: destroyed %d privacy window(s)", len(windows))
+}
+
+func startPrivacyShieldTimer() {
+	timer, _, _ := procSetTimer.Call(0, privacyShieldTimerID, privacyShieldIntervalMilli, 0)
+	shieldTimerID = timer
+	if timer == 0 {
+		log.Printf("privacy: failed to start shield timer: %v", syscall.GetLastError())
+	}
+}
+
+func stopPrivacyShieldTimer() {
+	if shieldTimerID != 0 {
+		procKillTimer.Call(0, shieldTimerID)
+		shieldTimerID = 0
+	}
+}
+
+// Shell surfaces such as Start, search, Alt+Tab, and system flyouts can be
+// placed above an existing topmost window after an injected key is handled.
+// Reasserting the excluded privacy windows keeps those surfaces covered without
+// activating the shield or interfering with the remotely controlled window.
+func reassertPrivacyShield() {
+	privacyWindowsMu.Lock()
+	windows := append([]windows.HWND(nil), privacyWindows...)
+	privacyWindowsMu.Unlock()
+
+	for _, hwnd := range windows {
+		procSetWindowPos.Call(
+			uintptr(hwnd),
+			HWND_TOPMOST,
+			0, 0, 0, 0,
+			uintptr(SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE|SWP_SHOWWINDOW),
+		)
+	}
+	hideCursorIfVisible()
 }
 
 type monitorRect struct {
@@ -514,6 +582,7 @@ func mouseHookProc(nCode int, wParam uintptr, lParam uintptr) uintptr {
 
 func messagePump() {
 	log.Printf("privacy: message pump starting")
+	startPrivacyShieldTimer()
 
 	var m msg
 	for {
@@ -523,6 +592,10 @@ func messagePump() {
 		)
 		if ret == 0 || ret == ^uintptr(0) {
 			break
+		}
+		if m.message == WM_TIMER && m.wParam == shieldTimerID {
+			reassertPrivacyShield()
+			continue
 		}
 		procTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
 		procDispatchMessageW.Call(uintptr(unsafe.Pointer(&m)))
