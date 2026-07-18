@@ -158,6 +158,30 @@ export type CommandResult = {
   message?: string;
 };
 
+export type DesktopCodecCapability = {
+  codec: "hevc" | "h264" | "jpeg" | "raw" | string;
+  encoders?: string[];
+  transports: Array<"websocket" | "webrtc" | string>;
+  hardware?: boolean;
+};
+
+export type DesktopEncoderCapabilities = {
+  type: "desktop_encoder_capabilities";
+  commandId?: string;
+  probed: boolean;
+  display: number;
+  profiles: Array<{
+    maxHeight: number;
+    width: number;
+    height: number;
+    fps: number;
+    label: string;
+    providers: string[];
+  }>;
+  codecs: DesktopCodecCapability[];
+  detail?: string;
+};
+
 export type ClientLogEntry = {
   seq: number;
   at: number;
@@ -190,7 +214,7 @@ export type ScreenshotResult = {
 export type FrameHeader = {
   monitor: number;
   fps: number;
-  format: "jpeg" | "webp" | "raw" | "h264";
+  format: "jpeg" | "webp" | "raw" | "h264" | "hevc";
   width?: number;
   height?: number;
   hash?: string;

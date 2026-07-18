@@ -1,6 +1,18 @@
 import path from "path";
-import { existsSync, mkdirSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
+
+let fallbackTestDataDir = "";
+
+function createFallbackTestDataDir(): string {
+  if (fallbackTestDataDir) return fallbackTestDataDir;
+  const dir = mkdtempSync(path.join(tmpdir(), "overlord-bun-test-"));
+  writeFileSync(path.join(dir, "config.json"), "{}\n", "utf8");
+  process.env.DATA_DIR = dir;
+  process.env.OVERLORD_TEST_DATA_DIR = "1";
+  fallbackTestDataDir = dir;
+  return dir;
+}
 
 function assertSafeTestDataDir(dir: string): void {
   if (String(process.env.NODE_ENV || "").toLowerCase() !== "test") return;
@@ -32,9 +44,7 @@ export function resolveDataDir(): string {
   }
 
   if (String(process.env.NODE_ENV || "").toLowerCase() === "test") {
-    throw new Error(
-      "Refusing to use the default application data directory while NODE_ENV=test. Run tests through `bun test`.",
-    );
+    return createFallbackTestDataDir();
   }
 
   if (process.platform === "win32" && process.env.APPDATA) {

@@ -111,7 +111,7 @@ func CaptureAndSend(ctx context.Context, env *rt.Env) error {
 	if frame, captureDur, encodeDur, used, err := tryBuildDirectH264Frame(display); used {
 		if err != nil {
 			consecutiveCaptureFails.Add(1)
-			log.Printf("capture: direct h264 capture failed: %v (sending black frame, consecutive=%d)", err, consecutiveCaptureFails.Load())
+			log.Printf("capture: direct video capture failed: %v (sending black frame, consecutive=%d)", err, consecutiveCaptureFails.Load())
 			return sendBlackFrame(ctx, env)
 		}
 		if len(frame.Data) == 0 {
@@ -513,6 +513,7 @@ var (
 	overrideCodec       atomic.Value
 	desktopSoftwareH264 atomic.Bool
 	h264WarnOnce        sync.Once
+	hevcWarnOnce        sync.Once
 	codecLogOnce        sync.Once
 
 	prevMu    sync.Mutex
@@ -756,6 +757,33 @@ func buildFrame(img *image.RGBA, display int, quality int) (wire.Frame, time.Dur
 	full := false
 	now := time.Now()
 	codec := blockCodec()
+	if codec == "hevc" {
+		if width%2 != 0 || height%2 != 0 {
+			log.Printf("capture: hevc skipped for odd dimensions (%dx%d), falling back to h264/jpeg", width, height)
+			codec = "h264"
+		} else {
+			if webrtcpub.ConsumeKeyframeRequest() {
+				resetHEVCEncoder()
+			}
+			hevcBytes, err := encodeHEVCFrame(img)
+			if err == nil && len(hevcBytes) > 0 {
+				lastKeyframe.Store(now.UnixNano())
+				statFullFrames.Add(1)
+				return wire.Frame{Type: "frame", Header: wire.FrameHeader{Monitor: display, FPS: 0, Format: "hevc"}, Data: hevcBytes}, time.Since(encStart), nil
+			}
+			hevcWarnOnce.Do(func() {
+				log.Printf("capture: hevc encode unavailable, falling back to h264/jpeg: %v (%s)", err, hevcAvailabilityDetail())
+			})
+			resetHEVCEncoder()
+			if h264Available() {
+				codec = "h264"
+				overrideCodec.Store("h264")
+			} else {
+				codec = "jpeg"
+				overrideCodec.Store("jpeg")
+			}
+		}
+	}
 
 	if codec == "h264" {
 		if width%2 != 0 || height%2 != 0 {
@@ -1567,6 +1595,8 @@ func blockCodec() string {
 		switch codec {
 		case "h264":
 			cachedBlockCodec = "h264"
+		case "hevc", "h265":
+			cachedBlockCodec = "hevc"
 		case "raw", "rgba":
 			cachedBlockCodec = "raw"
 		case "jpeg", "":
@@ -1586,6 +1616,18 @@ func SetQualityAndCodec(quality int, codec string) {
 		overrideQuality.Store(int64(quality))
 	}
 	s := strings.ToLower(strings.TrimSpace(codec))
+	if s == "h265" {
+		s = "hevc"
+	}
+	if s == "hevc" && !hevcAvailable() {
+		detail := hevcAvailabilityDetail()
+		fallback := "jpeg"
+		if h264Available() {
+			fallback = "h264"
+		}
+		log.Printf("capture: requested codec=hevc but unavailable (%s); forcing codec=%s", detail, fallback)
+		s = fallback
+	}
 	if s == "h264" && !h264Available() {
 		detail := h264AvailabilityDetail()
 		if detail != "" {
@@ -1596,12 +1638,16 @@ func SetQualityAndCodec(quality int, codec string) {
 		s = "jpeg"
 	}
 	switch s {
-	case "raw", "rgba", "jpeg", "h264":
+	case "raw", "rgba", "jpeg", "h264", "hevc":
 		overrideCodec.Store(s)
 		h264WarnOnce = sync.Once{}
+		hevcWarnOnce = sync.Once{}
 		if s != "h264" {
 			resetH264Encoder()
 			resetH264Encoderbackstage()
+		}
+		if s != "hevc" {
+			resetHEVCEncoder()
 		}
 	case "":
 
@@ -1609,6 +1655,7 @@ func SetQualityAndCodec(quality int, codec string) {
 		overrideCodec.Store("jpeg")
 		resetH264Encoder()
 		resetH264Encoderbackstage()
+		resetHEVCEncoder()
 	}
 }
 

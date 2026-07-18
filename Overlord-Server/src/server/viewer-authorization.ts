@@ -8,6 +8,7 @@ import {
   getUserById,
   type FeatureName,
 } from "../users";
+import { revokeWebrtcViewerSessions } from "./routes/webrtc-routes";
 
 const VIEWER_FEATURES: Partial<Record<SocketRole, FeatureName>> = {
   console_viewer: "console",
@@ -31,6 +32,9 @@ const activeViewerSockets = new Set<ServerWebSocket<SocketData>>();
 
 function deny(ws: ServerWebSocket<SocketData>, reason: string): false {
   activeViewerSockets.delete(ws);
+  if (ws.data.userId !== undefined && ws.data.clientId) {
+    void revokeWebrtcViewerSessions(ws.data.userId, ws.data.clientId);
+  }
   try {
     ws.close(1008, reason);
   } catch {}

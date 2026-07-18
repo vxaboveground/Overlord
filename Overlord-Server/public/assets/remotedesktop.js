@@ -122,11 +122,14 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   let pendingFrame = null;
   let videoDecoder = null;
   let videoDecoderConfigKey = "";
+  const disabledDecoderCodecs = new Set();
   let h264StreamCodec = "";
   let canvasDecodePressure = false;
   let h264PendingTimings = [];
   let h264TimestampUs = 0;
   let prefersH264 = typeof VideoDecoder === "function";
+  let negotiatedCodec = prefersH264 ? "h264" : "jpeg";
+  let browserDecoderCodecs = ["jpeg", "raw"];
   let h264LowFpsStreak = 0;
   let h264FirstFrameAt = 0;
   let h264FramesSeen = 0;
@@ -1449,7 +1452,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
 
   function pushQuality(val) {
     const q = Number(val) || 90;
-    const codec = q >= 100 ? "raw" : (prefersH264 ? "h264" : "jpeg");
+    const codec = q >= 100 ? "raw" : (negotiatedCodec || (prefersH264 ? "h264" : "jpeg"));
     const softwareH264 = codec === "h264" && useSoftwareH264();
     console.debug("rd: pushQuality val=", val, "q=", q, "codec=", codec, "softwareH264=", softwareH264);
     setCodecModeLabel(codec, "requested");
@@ -1475,6 +1478,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     codecH264.addEventListener("change", function () {
       resetH264SessionState();
       prefersH264 = !!codecH264.checked && typeof VideoDecoder === "function";
+      negotiatedCodec = prefersH264 ? "h264" : "jpeg";
       if (softwareH264Ctrl) {
         softwareH264Ctrl.disabled = !prefersH264;
       }
@@ -1488,6 +1492,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       if (qualitySlider) {
         pushQuality(qualitySlider.value);
       }
+      requestEncoderCapabilities();
       sharedSettingsSaver.scheduleSave();
     });
   }
@@ -1558,15 +1563,80 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     });
   }
 
-  function requestEncoderCapabilities() {
+  async function probeBrowserDecoderCodecs(transport) {
+    const supported = ["jpeg", "raw"];
+    if (transport === "webrtc") {
+      try {
+        const codecs = typeof RTCRtpReceiver !== "undefined" && typeof RTCRtpReceiver.getCapabilities === "function"
+          ? (RTCRtpReceiver.getCapabilities("video")?.codecs || [])
+          : [];
+        for (const capability of codecs) {
+          const mime = String(capability?.mimeType || "").toLowerCase();
+          if (mime === "video/h264") supported.push("h264");
+          if (mime === "video/h265" || mime === "video/hevc") supported.push("hevc");
+        }
+      } catch (err) {
+        console.debug("rd: WebRTC codec capability probe failed", err);
+      }
+      return [...new Set(supported)];
+    }
+
+    if (typeof VideoDecoder !== "function") return supported;
+    if (typeof VideoDecoder.isConfigSupported !== "function") {
+      supported.push("h264");
+      return supported;
+    }
+    const probes = [
+      ["h264", "avc1.42E01E"],
+      ["hevc", "hev1.1.6.L156.B0"],
+    ];
+    await Promise.all(probes.map(async ([name, codec]) => {
+      try {
+        const result = await VideoDecoder.isConfigSupported({ codec, optimizeForLatency: true });
+        if (result?.supported) supported.push(name);
+      } catch (err) {
+        console.debug(`rd: ${name} decoder capability probe failed`, err);
+      }
+    }));
+    return [...new Set(supported)].filter((codec) => !disabledDecoderCodecs.has(codec));
+  }
+
+  async function requestEncoderCapabilities() {
     if (streamProfileDetail) streamProfileDetail.textContent = "Checking hardware encoder profiles…";
+    const mode = getWebrtcMode();
+    const transport = mode === "off" ? "websocket" : "webrtc";
+    const decoderCodecs = await probeBrowserDecoderCodecs(transport);
+    browserDecoderCodecs = decoderCodecs;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
     sendCmd("desktop_encoder_capabilities", {
       display: Number.parseInt(displaySelect?.value || "0", 10) || 0,
+      decoderCodecs,
+      preferredCodecs: prefersH264 ? ["hevc", "h264", "jpeg", "raw"] : ["jpeg", "raw"],
+      transport,
     });
   }
 
   function applyEncoderCapabilities(msg) {
-    if (!msg || !Array.isArray(msg.profiles) || !streamProfileSelect) return;
+    if (!msg) return;
+    const selectedCodec = String(msg.selectedCodec || msg.negotiation?.selectedCodec || "").toLowerCase();
+    if (selectedCodec) {
+      negotiatedCodec = selectedCodec;
+      const fallbacks = Array.isArray(msg.fallbackCodecs) ? msg.fallbackCodecs.join(" → ") : selectedCodec;
+      setCodecModeLabel(selectedCodec, `negotiated; fallback ${fallbacks}`);
+      if (codecH264) {
+        const agentHasH264 = Array.isArray(msg.codecs) && msg.codecs.some((entry) => String(entry?.codec || "").toLowerCase() === "h264");
+        codecH264.disabled = !browserDecoderCodecs.includes("h264") || !agentHasH264;
+      }
+      if (desiredStreaming && qualitySlider) pushQuality(qualitySlider.value);
+    } else if (msg.transport === "webrtc") {
+      console.warn("rd: no mutually supported WebRTC video codec; falling back to WebSocket canvas");
+      if (webrtcMode) webrtcMode.value = "off";
+      negotiatedCodec = browserDecoderCodecs.includes("h264") ? "h264" : "jpeg";
+      setCodecModeLabel(negotiatedCodec, "WebRTC unavailable; WebSocket fallback");
+      stopAllWebrtc();
+      requestEncoderCapabilities();
+    }
+    if (!Array.isArray(msg.profiles) || !streamProfileSelect) return;
     const selectedDisplay = Number.parseInt(displaySelect?.value || "0", 10) || 0;
     if (Number.isFinite(Number(msg.display)) && Number(msg.display) !== selectedDisplay) return;
     const previous = streamProfileSelect.value;
@@ -1637,6 +1707,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   if (webrtcMode) {
     webrtcMode.addEventListener("change", function () {
       updateControls();
+      requestEncoderCapabilities();
       sharedSettingsSaver.scheduleSave();
     });
   }
@@ -1910,11 +1981,12 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
 
   function destroyVideoDecoder() {
     updateCanvasDecodePressure(true);
-    if (!videoDecoder) return;
-    try {
-      videoDecoder.close();
-    } catch {
-      // Ignore close errors when decoder is already shutting down.
+    if (videoDecoder) {
+      try {
+        videoDecoder.close();
+      } catch {
+        // Ignore close errors when decoder is already shutting down.
+      }
     }
     videoDecoder = null;
     videoDecoderConfigKey = "";
@@ -1945,6 +2017,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     if (!prefersH264) return;
     const reasonText = normalizeFallbackReason(reason);
     prefersH264 = false;
+    negotiatedCodec = "jpeg";
     destroyVideoDecoder();
     if (codecH264) codecH264.checked = false;
     if (softwareH264Ctrl) softwareH264Ctrl.disabled = true;
@@ -2037,6 +2110,26 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     return false;
   }
 
+  function isHEVCKeyFrame(data) {
+    for (let i = 0; i + 5 < data.length; i++) {
+      let startCodeLen = 0;
+      if (data[i] === 0x00 && data[i + 1] === 0x00 && data[i + 2] === 0x01) {
+        startCodeLen = 3;
+      } else if (
+        data[i] === 0x00 && data[i + 1] === 0x00 && data[i + 2] === 0x00 && data[i + 3] === 0x01
+      ) {
+        startCodeLen = 4;
+      }
+      if (!startCodeLen) continue;
+      const nalIndex = i + startCodeLen;
+      if (nalIndex >= data.length) break;
+      const nalType = (data[nalIndex] >> 1) & 0x3f;
+      if (nalType >= 16 && nalType <= 21) return true;
+      i = nalIndex;
+    }
+    return false;
+  }
+
   function h264CodecFromAnnexB(data) {
     for (let i = 0; i + 7 < data.length; i++) {
       let startCodeLength = 0;
@@ -2052,9 +2145,11 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     return "";
   }
 
-  function ensureVideoDecoder(h264Bytes, width, height) {
-    const detectedCodec = h264CodecFromAnnexB(h264Bytes);
-    const codec = detectedCodec || h264StreamCodec || "avc1.4d0034";
+  function ensureVideoDecoder(videoBytes, width, height, codecName) {
+    const detectedCodec = codecName === "h264" ? h264CodecFromAnnexB(videoBytes) : "";
+    const codec = codecName === "hevc"
+      ? "hev1.1.6.L156.B0"
+      : (detectedCodec || h264StreamCodec || "avc1.4d0034");
     const codedWidth = Math.max(0, Number(width) || 0);
     const codedHeight = Math.max(0, Number(height) || 0);
     const configKey = `${codec}:${codedWidth}x${codedHeight}`;
@@ -2095,8 +2190,9 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
           updateCanvasDecodePressure();
         },
         error: (err) => {
-          console.warn("rd: h264 decoder error", err);
+          console.warn(`rd: ${codecName} decoder error`, err);
           updateCanvasDecodePressure(true);
+          setTimeout(() => fallbackFromVideoCodec(codecName, err), 0);
         },
       });
       videoDecoder.addEventListener("dequeue", () => {
@@ -2110,11 +2206,11 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       }
       videoDecoder.configure(config);
       videoDecoderConfigKey = configKey;
-      h264StreamCodec = codec;
+      if (codecName === "h264") h264StreamCodec = codec;
       return true;
     } catch (err) {
-      console.warn("rd: h264 decoder unavailable", err);
-      fallbackToJpegCodec(err);
+      console.warn(`rd: ${codecName} decoder unavailable`, err);
+      fallbackFromVideoCodec(codecName, err);
       destroyVideoDecoder();
       return false;
     }
@@ -2130,6 +2226,32 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       diagnostics.wsBytes = 0;
       diagnostics.wsWindowStartedAt = now;
     }
+  }
+
+  function fallbackFromVideoCodec(codec, reason) {
+    if (codec === "hevc" && disabledDecoderCodecs.has("hevc")) return;
+    const reasonText = normalizeFallbackReason(reason);
+    if (codec === "hevc" && browserDecoderCodecs.includes("h264")) {
+      disabledDecoderCodecs.add("hevc");
+      browserDecoderCodecs = browserDecoderCodecs.filter((name) => name !== "hevc");
+      negotiatedCodec = "h264";
+      destroyVideoDecoder();
+      console.warn("rd: falling back from hevc to h264", reasonText);
+      setCodecModeLabel("h264", "HEVC fallback");
+      if (ws.readyState === WebSocket.OPEN) {
+        const q = Number(qualitySlider?.value) || 90;
+        sendCmd("desktop_set_quality", {
+          quality: q,
+          codec: "h264",
+          softwareH264: useSoftwareH264(),
+          source: "viewer_fallback",
+          reason: reasonText,
+        });
+        requestEncoderCapabilities();
+      }
+      return;
+    }
+    fallbackToJpegCodec(reasonText);
   }
 
   function recordCanvasFrameTiming(receivedAt, decodeStartedAt) {
@@ -2240,16 +2362,16 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       return;
     }
 
-    if (format === 4) {
-      setCodecModeLabel("h264", "active");
-      diagnostics.codec = "h264";
-      const h264Bytes = buf.slice(headerLength);
-      if (!h264Bytes.length) {
+    if (format === 4 || format === 5) {
+      const codecName = format === 5 ? "hevc" : "h264";
+      setCodecModeLabel(codecName, "active");
+      diagnostics.codec = codecName;
+      const videoBytes = buf.slice(headerLength);
+      if (!videoBytes.length) {
         updateCanvasDecodePressure(true);
         return;
       }
-      if (!ensureVideoDecoder(h264Bytes, encodedWidth || frameWidth, encodedHeight || frameHeight)) {
-        fallbackToJpegCodec("WebCodecs decoder unavailable");
+      if (!ensureVideoDecoder(videoBytes, encodedWidth || frameWidth, encodedHeight || frameHeight, codecName)) {
         updateCanvasDecodePressure(true);
         return;
       }
@@ -2259,17 +2381,18 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       }
       h264FramesSeen += 1;
 
-      const isKey = isH264KeyFrame(h264Bytes);
+      const isKey = codecName === "hevc" ? isHEVCKeyFrame(videoBytes) : isH264KeyFrame(videoBytes);
 
       // If software H264 encode on the agent cannot keep up, automatically
       // fall back to JPEG blocks for a smoother interactive stream.
       const h264ElapsedMs = performance.now() - h264FirstFrameAt;
-      if ((fps || 0) <= H264_LOW_FPS_THRESHOLD) {
+      if (codecName === "h264" && (fps || 0) <= H264_LOW_FPS_THRESHOLD) {
         h264LowFpsStreak += 1;
       } else {
         h264LowFpsStreak = 0;
       }
       if (
+        codecName === "h264" &&
         h264ElapsedMs >= H264_FALLBACK_WARMUP_MS &&
         h264FramesSeen >= H264_MIN_FRAMES_BEFORE_FALLBACK &&
         h264LowFpsStreak >= H264_LOW_FPS_STREAK_LIMIT
@@ -2283,7 +2406,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       const chunk = new EncodedVideoChunk({
         type: isKey ? "key" : "delta",
         timestamp: h264TimestampUs,
-        data: h264Bytes,
+        data: videoBytes,
       });
       h264TimestampUs += frameIntervalUs;
       try {
@@ -2294,7 +2417,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
         h264KeyframeErrorStreak = 0;
       } catch (err) {
         h264PendingTimings.pop();
-        if (isKeyframeRequiredError(err)) {
+        if (codecName === "h264" && isKeyframeRequiredError(err)) {
           h264KeyframeErrorStreak += 1;
           const now = Date.now();
           if (now - h264LastDecodeWarnAt >= H264_DECODE_WARN_THROTTLE_MS) {
@@ -2313,8 +2436,8 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
           updateCanvasDecodePressure(true);
           return;
         }
-        console.warn("rd: h264 decode failed", err);
-        fallbackToJpegCodec(err);
+        console.warn(`rd: ${codecName} decode failed`, err);
+        fallbackFromVideoCodec(codecName, err);
         updateCanvasDecodePressure(true);
       }
       return;

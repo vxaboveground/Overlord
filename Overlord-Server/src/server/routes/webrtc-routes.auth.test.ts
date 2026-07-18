@@ -7,7 +7,11 @@ import {
   setUserClientAccessScope,
   setUserFeaturePermission,
 } from "../../users";
-import { handleWebrtcRoutes } from "./webrtc-routes";
+import {
+  handleWebrtcRoutes,
+  revokeWebrtcViewerSessions,
+  trackWebrtcViewerSession,
+} from "./webrtc-routes";
 
 const PASSWORD = "Aa1!WebrtcAuthTestPass_2026";
 const createdUserIds: number[] = [];
@@ -56,5 +60,31 @@ describe("WebRTC viewer authorization", () => {
       url,
     );
     expect(response!.status).toBe(403);
+  });
+
+  test("revokes only the matching user's tracked media sessions", async () => {
+    const deleted: string[] = [];
+    trackWebrtcViewerSession({
+      upstreamUrl: "http://mediamtx/session-a",
+      userId: 1001,
+      clientId: "client-a",
+      kind: "desktop",
+      createdAt: Date.now(),
+    });
+    trackWebrtcViewerSession({
+      upstreamUrl: "http://mediamtx/session-b",
+      userId: 1002,
+      clientId: "client-a",
+      kind: "desktop",
+      createdAt: Date.now(),
+    });
+
+    const count = await revokeWebrtcViewerSessions(1001, "client-a", async (url) => {
+      deleted.push(url);
+    });
+    expect(count).toBe(1);
+    expect(deleted).toEqual(["http://mediamtx/session-a"]);
+
+    await revokeWebrtcViewerSessions(1002, "client-a", async () => {});
   });
 });

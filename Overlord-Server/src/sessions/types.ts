@@ -31,6 +31,10 @@ export type SocketData = {
   enrollmentNonce?: string;
   disconnectReason?: string;
   disconnectDetail?: string;
+  rdDecoderCodecs?: string[];
+  rdPreferredCodecs?: string[];
+  rdCodecTransport?: "websocket" | "webrtc";
+  rdSelectedCodec?: string;
 };
 
 export type ConsoleSession = {

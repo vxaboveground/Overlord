@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "fs";
 import path from "path";
 import * as clientManager from "../clientManager";
 import { logger } from "../logger";
+import { negotiateDesktopCodec } from "./desktop-codec-negotiation";
 import { metrics } from "../metrics";
 import { encodeMessage } from "../protocol";
 import { resolveRuntimeRoot } from "./runtime-paths";
@@ -377,6 +378,15 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
   }
   switch (payload.type) {
     case "desktop_encoder_capabilities":
+      ws.data.rdDecoderCodecs = Array.isArray((payload as any).decoderCodecs)
+        ? (payload as any).decoderCodecs.map((codec: unknown) => String(codec || "").trim().toLowerCase()).filter(Boolean).slice(0, 8)
+        : ["h264", "jpeg", "raw"];
+      ws.data.rdPreferredCodecs = Array.isArray((payload as any).preferredCodecs)
+        ? (payload as any).preferredCodecs.map((codec: unknown) => String(codec || "").trim().toLowerCase()).filter(Boolean).slice(0, 8)
+        : ["h264", "jpeg", "raw"];
+      ws.data.rdCodecTransport = ["webrtc", "relayed", "p2p"].includes(String((payload as any).transport || "").toLowerCase())
+        ? "webrtc"
+        : "websocket";
       sendDesktopCommand(target, "desktop_encoder_capabilities", {
         display: Number((payload as any).display) || 0,
       });
@@ -485,6 +495,14 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
           type: "recording_status",
           recording: null,
           error: "Start the remote desktop stream before recording.",
+        });
+        break;
+      }
+      if (String(state.codec || "").toLowerCase() === "hevc") {
+        safeSendViewer(ws, {
+          type: "recording_status",
+          recording: null,
+          error: "HEVC stream recording is not supported yet. Switch the stream codec to H.264 or JPEG first.",
         });
         break;
       }
@@ -1495,8 +1513,43 @@ export function sendbackstageCommand(target: ClientInfo | undefined, commandType
 }
 
 export function handleDesktopEncoderCapabilities(clientId: string, payload: any) {
-  for (const session of sessionManager.getRdSessionsForClient(clientId)) {
-    safeSendViewer(session.viewer, payload);
+  const encoderCodecs = Array.isArray(payload?.codecs) && payload.codecs.length > 0
+    ? payload.codecs
+    : [
+        { codec: "h264", transports: ["websocket", "webrtc"] },
+        { codec: "jpeg", transports: ["websocket"] },
+        { codec: "raw", transports: ["websocket"] },
+      ];
+  const sessions = sessionManager.getRdSessionsForClient(clientId);
+  const negotiations = sessions.map((session) => negotiateDesktopCodec({
+      encoderCodecs,
+      decoderCodecs: session.viewer.data.rdDecoderCodecs || ["h264", "jpeg", "raw"],
+      preferredCodecs: session.viewer.data.rdPreferredCodecs,
+      transport: session.viewer.data.rdCodecTransport,
+    }));
+  const sharedFallbackCodecs = negotiations.length > 0
+    ? negotiations[0].fallbackCodecs.filter((codec) =>
+        negotiations.every((negotiation) => negotiation.fallbackCodecs.includes(codec)),
+      )
+    : [];
+  const selectedCodec = sharedFallbackCodecs[0] || "";
+
+  for (let index = 0; index < sessions.length; index++) {
+    const session = sessions[index];
+    const negotiation = {
+      ...negotiations[index],
+      selectedCodec,
+      fallbackCodecs: sharedFallbackCodecs,
+    };
+    session.viewer.data.rdSelectedCodec = selectedCodec;
+    safeSendViewer(session.viewer, {
+      ...payload,
+      codecs: encoderCodecs,
+      negotiation,
+      selectedCodec,
+      fallbackCodecs: sharedFallbackCodecs,
+      transport: negotiation.transport,
+    });
   }
 }
 

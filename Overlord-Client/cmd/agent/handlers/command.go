@@ -889,9 +889,16 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 					FPS: profile.FPS, Label: profile.Label, Providers: profile.Providers,
 				})
 			}
+			codecs := make([]wire.DesktopCodecCapability, 0, len(caps.Codecs))
+			for _, codec := range caps.Codecs {
+				codecs = append(codecs, wire.DesktopCodecCapability{
+					Codec: codec.Codec, Encoders: codec.Encoders,
+					Transports: codec.Transports, Hardware: codec.Hardware,
+				})
+			}
 			if err := wire.WriteMsg(ctx, env.Conn, wire.DesktopEncoderCapabilities{
 				Type: "desktop_encoder_capabilities", CommandID: cmdID, Probed: caps.Probed,
-				Display: caps.Display, Profiles: profiles, Detail: caps.Detail,
+				Display: caps.Display, Profiles: profiles, Codecs: codecs, Detail: caps.Detail,
 			}); err != nil {
 				log.Printf("desktop: encoder capability result send failed: %v", err)
 			}

@@ -9,11 +9,12 @@ import (
 )
 
 type NVENCD3D11SmokeOptions struct {
-	Width   int `json:"width"`
-	Height  int `json:"height"`
-	FPS     int `json:"fps"`
-	Frames  int `json:"frames"`
-	Bitrate int `json:"bitrate"`
+	Width   int    `json:"width"`
+	Height  int    `json:"height"`
+	FPS     int    `json:"fps"`
+	Frames  int    `json:"frames"`
+	Bitrate int    `json:"bitrate"`
+	Codec   string `json:"codec,omitempty"`
 }
 
 type NVENCD3D11SmokeResult struct {

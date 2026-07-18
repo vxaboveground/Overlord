@@ -44,6 +44,7 @@ func ProbeDesktopEncoderCapabilities(display int) DesktopEncoderCapabilities {
 		return cached.caps
 	}
 	caps := probeDesktopEncoderCapabilities(display, bounds)
+	caps = completeDesktopEncoderCapabilities(caps)
 	desktopCapabilityCache.entries[cacheKey] = desktopCapabilityCacheEntry{at: time.Now(), caps: caps}
 	for key, entry := range desktopCapabilityCache.entries {
 		if time.Since(entry.at) >= desktopCapabilityCacheTTL {

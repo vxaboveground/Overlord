@@ -12,6 +12,50 @@ const PUBLISH_TOKEN_TTL_MS = 60_000;
 type PublishToken = { clientId: string; expiresAt: number };
 const publishTokens = new Map<string, PublishToken>();
 
+export type ViewerMediaSession = {
+  upstreamUrl: string;
+  userId: number;
+  clientId: string;
+  kind: WebrtcKind;
+  createdAt: number;
+};
+const viewerMediaSessions = new Map<string, ViewerMediaSession>();
+
+export function trackWebrtcViewerSession(session: ViewerMediaSession): void {
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  for (const [upstreamUrl, existing] of viewerMediaSessions) {
+    if (existing.createdAt < cutoff) viewerMediaSessions.delete(upstreamUrl);
+  }
+  viewerMediaSessions.set(session.upstreamUrl, session);
+}
+
+export function forgetWebrtcViewerSession(upstreamUrl: string): void {
+  viewerMediaSessions.delete(upstreamUrl);
+}
+
+export async function revokeWebrtcViewerSessions(
+  userId: number,
+  clientId: string,
+  deleteSession: (upstreamUrl: string) => Promise<unknown> = async (upstreamUrl) => {
+    await fetch(upstreamUrl, { method: "DELETE" });
+  },
+): Promise<number> {
+  const revoked: ViewerMediaSession[] = [];
+  for (const [upstreamUrl, session] of viewerMediaSessions) {
+    if (session.userId !== userId || session.clientId !== clientId) continue;
+    viewerMediaSessions.delete(upstreamUrl);
+    revoked.push(session);
+  }
+  await Promise.allSettled(revoked.map(async (session) => {
+    try {
+      await deleteSession(session.upstreamUrl);
+    } catch (error) {
+      logger.warn(`[webrtc] failed to revoke viewer session client=${clientId}: ${(error as Error).message}`);
+    }
+  }));
+  return revoked.length;
+}
+
 function prunePublishTokens(now = Date.now()) {
   for (const [t, entry] of publishTokens) {
     if (entry.expiresAt < now) publishTokens.delete(t);
@@ -66,6 +110,7 @@ export async function handleWebrtcRoutes(req: Request, url: URL): Promise<Respon
 
   const [, streamPath, kind, sessionSuffix] = match;
   const clientId = streamPath.split("/")[1];
+  let viewerUserId: number | undefined;
 
   if (kind === "whip") {
     const authHeader = req.headers.get("authorization") || "";
@@ -87,6 +132,7 @@ export async function handleWebrtcRoutes(req: Request, url: URL): Promise<Respon
       requireClientAccess(user, clientId);
       const streamKind = streamPath.split("/")[2] as WebrtcKind;
       requireFeatureAccess(user, WEBRTC_FEATURES[streamKind]);
+      viewerUserId = user.userId;
     } catch (error) {
       if (error instanceof Response) return error;
       return new Response("Forbidden", { status: 403 });
@@ -123,8 +169,20 @@ export async function handleWebrtcRoutes(req: Request, url: URL): Promise<Respon
   if (loc) {
     try {
       const abs = new URL(loc, MEDIAMTX_URL);
+      if (kind === "whep" && req.method === "POST" && upstreamResp.ok && viewerUserId !== undefined) {
+        trackWebrtcViewerSession({
+          upstreamUrl: abs.toString(),
+          userId: viewerUserId,
+          clientId,
+          kind: streamPath.split("/")[2] as WebrtcKind,
+          createdAt: Date.now(),
+        });
+      }
       respHeaders.set("location", `/api/webrtc${abs.pathname}`);
     } catch { }
+  }
+  if (kind === "whep" && req.method === "DELETE" && upstreamResp.ok) {
+    forgetWebrtcViewerSession(upstreamUrl);
   }
 
   return new Response(upstreamResp.body, {

@@ -120,7 +120,7 @@ services:
       - no-new-privileges:true
 
   mediamtx:
-    image: bluenviron/mediamtx:latest
+    image: bluenviron/mediamtx:v1.18.2
     container_name: overlord-mediamtx
     # Share the host network so WebRTC ICE candidates use the host's real
     # interfaces directly — no extra config needed for local or LAN browsers.

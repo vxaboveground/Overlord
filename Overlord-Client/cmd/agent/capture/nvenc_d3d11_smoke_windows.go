@@ -134,6 +134,16 @@ static void nvenc_configure_h264_stream(NV_ENC_CONFIG *cfg, int fps) {
 	cfg->encodeCodecConfig.h264Config.h264VUIParameters.colourMatrix = NV_ENC_VUI_MATRIX_COEFFS_BT709;
 }
 
+static void nvenc_configure_hevc_stream(NV_ENC_CONFIG *cfg, int fps) {
+	(void)fps;
+	cfg->gopLength = NVENC_INFINITE_GOPLENGTH;
+	cfg->frameIntervalP = 1;
+	cfg->encodeCodecConfig.hevcConfig.idrPeriod = NVENC_INFINITE_GOPLENGTH;
+	cfg->encodeCodecConfig.hevcConfig.repeatSPSPPS = 1;
+	cfg->encodeCodecConfig.hevcConfig.level = NV_ENC_LEVEL_HEVC_52;
+	cfg->encodeCodecConfig.hevcConfig.chromaFormatIDC = 1;
+}
+
 static void nvenc_set_video_processor_color_space(nvenc_d3d11_texture_encoder *enc) {
 	D3D11_VIDEO_PROCESSOR_COLOR_SPACE input_space;
 	memset(&input_space, 0, sizeof(input_space));
@@ -287,7 +297,7 @@ static void nvenc_release_texture_encoder(nvenc_d3d11_texture_encoder *enc) {
 	free(enc);
 }
 
-static nvenc_d3d11_texture_create_result nvenc_create_d3d11_texture_encoder(ID3D11Device *device, int input_width, int input_height, int encode_width, int encode_height, int fps, int bitrate, NV_ENC_BUFFER_FORMAT buffer_format, int dxgi_format, int output_mode) {
+static nvenc_d3d11_texture_create_result nvenc_create_d3d11_texture_encoder(ID3D11Device *device, int input_width, int input_height, int encode_width, int encode_height, int fps, int bitrate, NV_ENC_BUFFER_FORMAT buffer_format, int dxgi_format, int output_mode, int codec) {
 	nvenc_d3d11_texture_create_result out;
 	memset(&out, 0, sizeof(out));
 	if (!device) {
@@ -374,7 +384,8 @@ static nvenc_d3d11_texture_create_result nvenc_create_d3d11_texture_encoder(ID3D
 	memset(&preset, 0, sizeof(preset));
 	preset.version = NV_ENC_PRESET_CONFIG_VER;
 	preset.presetCfg.version = NV_ENC_CONFIG_VER;
-	status = enc->api.nvEncGetEncodePresetConfigEx(enc->encoder, NV_ENC_CODEC_H264_GUID, NV_ENC_PRESET_P1_GUID, NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY, &preset);
+	GUID codec_guid = codec == 1 ? NV_ENC_CODEC_HEVC_GUID : NV_ENC_CODEC_H264_GUID;
+	status = enc->api.nvEncGetEncodePresetConfigEx(enc->encoder, codec_guid, NV_ENC_PRESET_P1_GUID, NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY, &preset);
 	if (status != NV_ENC_SUCCESS) {
 		out.stage = 9;
 		out.nvstatus = status;
@@ -382,18 +393,22 @@ static nvenc_d3d11_texture_create_result nvenc_create_d3d11_texture_encoder(ID3D
 		nvenc_release_texture_encoder(enc);
 		return out;
 	}
-	preset.presetCfg.profileGUID = NV_ENC_H264_PROFILE_HIGH_GUID;
+	preset.presetCfg.profileGUID = codec == 1 ? NV_ENC_HEVC_PROFILE_MAIN_GUID : NV_ENC_H264_PROFILE_HIGH_GUID;
 	preset.presetCfg.rcParams.rateControlMode = NV_ENC_PARAMS_RC_CBR;
 	preset.presetCfg.rcParams.averageBitRate = (uint32_t)bitrate;
 	preset.presetCfg.rcParams.maxBitRate = (uint32_t)bitrate;
 	preset.presetCfg.rcParams.vbvBufferSize = (uint32_t)(bitrate / fps);
 	preset.presetCfg.rcParams.vbvInitialDelay = (uint32_t)(bitrate / fps);
-	nvenc_configure_h264_stream(&preset.presetCfg, fps);
+	if (codec == 1) {
+		nvenc_configure_hevc_stream(&preset.presetCfg, fps);
+	} else {
+		nvenc_configure_h264_stream(&preset.presetCfg, fps);
+	}
 
 	NV_ENC_INITIALIZE_PARAMS init;
 	memset(&init, 0, sizeof(init));
 	init.version = NV_ENC_INITIALIZE_PARAMS_VER;
-	init.encodeGUID = NV_ENC_CODEC_H264_GUID;
+	init.encodeGUID = codec_guid;
 	init.presetGUID = NV_ENC_PRESET_P1_GUID;
 	init.encodeWidth = (uint32_t)encode_width;
 	init.encodeHeight = (uint32_t)encode_height;
@@ -594,13 +609,13 @@ static nvenc_d3d11_texture_create_result nvenc_create_d3d11_texture_encoder(ID3D
 	return out;
 }
 
-static nvenc_d3d11_create_result nvenc_create_d3d11_encoder(int width, int height, int fps, int bitrate) {
+static nvenc_d3d11_create_result nvenc_create_d3d11_encoder(int width, int height, int fps, int bitrate, int codec) {
 	nvenc_d3d11_create_result out;
 	memset(&out, 0, sizeof(out));
-	if (width <= 0 || height <= 0 || (width & 1) || (height & 1) || fps <= 0) {
+	if (width <= 0 || height <= 0 || (width & 1) || (height & 1) || fps <= 0 || (codec != 0 && codec != 1)) {
 		out.stage = 1;
 		out.nvstatus = NV_ENC_ERR_INVALID_PARAM;
-		strncpy(out.message, "width/height/fps must be positive, and width/height must be even", sizeof(out.message)-1);
+		strncpy(out.message, "invalid width/height/fps or codec", sizeof(out.message)-1);
 		return out;
 	}
 
@@ -679,7 +694,8 @@ static nvenc_d3d11_create_result nvenc_create_d3d11_encoder(int width, int heigh
 	memset(&preset, 0, sizeof(preset));
 	preset.version = NV_ENC_PRESET_CONFIG_VER;
 	preset.presetCfg.version = NV_ENC_CONFIG_VER;
-	status = enc->api.nvEncGetEncodePresetConfigEx(enc->encoder, NV_ENC_CODEC_H264_GUID, NV_ENC_PRESET_P1_GUID, NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY, &preset);
+	GUID codec_guid = codec == 1 ? NV_ENC_CODEC_HEVC_GUID : NV_ENC_CODEC_H264_GUID;
+	status = enc->api.nvEncGetEncodePresetConfigEx(enc->encoder, codec_guid, NV_ENC_PRESET_P1_GUID, NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY, &preset);
 	if (status != NV_ENC_SUCCESS) {
 		out.stage = 8;
 		out.nvstatus = status;
@@ -687,18 +703,22 @@ static nvenc_d3d11_create_result nvenc_create_d3d11_encoder(int width, int heigh
 		nvenc_release_encoder(enc);
 		return out;
 	}
-	preset.presetCfg.profileGUID = NV_ENC_H264_PROFILE_HIGH_GUID;
+	preset.presetCfg.profileGUID = codec == 1 ? NV_ENC_HEVC_PROFILE_MAIN_GUID : NV_ENC_H264_PROFILE_HIGH_GUID;
 	preset.presetCfg.rcParams.rateControlMode = NV_ENC_PARAMS_RC_CBR;
 	preset.presetCfg.rcParams.averageBitRate = (uint32_t)bitrate;
 	preset.presetCfg.rcParams.maxBitRate = (uint32_t)bitrate;
 	preset.presetCfg.rcParams.vbvBufferSize = (uint32_t)(bitrate / fps);
 	preset.presetCfg.rcParams.vbvInitialDelay = (uint32_t)(bitrate / fps);
-	nvenc_configure_h264_stream(&preset.presetCfg, fps);
+	if (codec == 1) {
+		nvenc_configure_hevc_stream(&preset.presetCfg, fps);
+	} else {
+		nvenc_configure_h264_stream(&preset.presetCfg, fps);
+	}
 
 	NV_ENC_INITIALIZE_PARAMS init;
 	memset(&init, 0, sizeof(init));
 	init.version = NV_ENC_INITIALIZE_PARAMS_VER;
-	init.encodeGUID = NV_ENC_CODEC_H264_GUID;
+	init.encodeGUID = codec_guid;
 	init.presetGUID = NV_ENC_PRESET_P1_GUID;
 	init.encodeWidth = (uint32_t)width;
 	init.encodeHeight = (uint32_t)height;
@@ -1325,7 +1345,7 @@ static nvenc_d3d11_smoke_result run_nvenc_d3d11_smoke_c(int width, int height, i
 	return out;
 }
 
-static nvenc_d3d11_smoke_result run_nvenc_d3d11_texture_pipeline_smoke_c(int width, int height, int fps, int frames, int bitrate) {
+static nvenc_d3d11_smoke_result run_nvenc_d3d11_texture_pipeline_smoke_c(int width, int height, int fps, int frames, int bitrate, int codec) {
 	nvenc_d3d11_smoke_result out;
 	memset(&out, 0, sizeof(out));
 	out.width = width;
@@ -1391,7 +1411,7 @@ static nvenc_d3d11_smoke_result run_nvenc_d3d11_texture_pipeline_smoke_c(int wid
 		return out;
 	}
 
-	nvenc_d3d11_texture_create_result created = nvenc_create_d3d11_texture_encoder(device, width, height, width, height, fps, bitrate, NV_ENC_BUFFER_FORMAT_ARGB, DXGI_FORMAT_B8G8R8A8_UNORM, 0);
+	nvenc_d3d11_texture_create_result created = nvenc_create_d3d11_texture_encoder(device, width, height, width, height, fps, bitrate, NV_ENC_BUFFER_FORMAT_ARGB, DXGI_FORMAT_B8G8R8A8_UNORM, 0, codec);
 	if (!created.encoder) {
 		out.stage = 5;
 		out.hr = created.hr;
@@ -1467,11 +1487,12 @@ import (
 )
 
 type NVENCD3D11SmokeOptions struct {
-	Width   int `json:"width"`
-	Height  int `json:"height"`
-	FPS     int `json:"fps"`
-	Frames  int `json:"frames"`
-	Bitrate int `json:"bitrate"`
+	Width   int    `json:"width"`
+	Height  int    `json:"height"`
+	FPS     int    `json:"fps"`
+	Frames  int    `json:"frames"`
+	Bitrate int    `json:"bitrate"`
+	Codec   string `json:"codec,omitempty"`
 }
 
 type NVENCD3D11SmokeResult struct {
@@ -1505,8 +1526,15 @@ func RunNVENCD3D11Smoke(opts NVENCD3D11SmokeOptions) NVENCD3D11SmokeResult {
 	}
 	if opts.Bitrate <= 0 {
 		opts.Bitrate = targetH264Bitrate(opts.Width, opts.Height, opts.FPS)
+		if strings.EqualFold(opts.Codec, "hevc") || strings.EqualFold(opts.Codec, "h265") {
+			opts.Bitrate = opts.Bitrate * 7 / 10
+		}
 	}
-	raw := C.run_nvenc_d3d11_texture_pipeline_smoke_c(C.int(opts.Width), C.int(opts.Height), C.int(opts.FPS), C.int(opts.Frames), C.int(opts.Bitrate))
+	codec := 0
+	if strings.EqualFold(opts.Codec, "hevc") || strings.EqualFold(opts.Codec, "h265") {
+		codec = 1
+	}
+	raw := C.run_nvenc_d3d11_texture_pipeline_smoke_c(C.int(opts.Width), C.int(opts.Height), C.int(opts.FPS), C.int(opts.Frames), C.int(opts.Bitrate), C.int(codec))
 	result := NVENCD3D11SmokeResult{
 		OK:         raw.ok != 0,
 		Width:      int(raw.width),
@@ -1545,7 +1573,7 @@ type nativeH264Encoder struct {
 
 func newNativeH264Encoder(stream string, width, height, fps int) (h264FrameEncoder, error) {
 	bitrate := targetH264Bitrate(width, height, fps)
-	raw := C.nvenc_create_d3d11_encoder(C.int(width), C.int(height), C.int(fps), C.int(bitrate))
+	raw := C.nvenc_create_d3d11_encoder(C.int(width), C.int(height), C.int(fps), C.int(bitrate), 0)
 	if raw.encoder == nil {
 		return nil, formatNVENCCreateError(raw)
 	}
@@ -1557,6 +1585,23 @@ func newNativeH264Encoder(stream string, width, height, fps int) (h264FrameEncod
 		fps:          fps,
 	}
 	log.Printf("capture: native NVENC D3D11 h264 encoder active stream=%s provider=NVIDIA NVENC size=%dx%d fps=%d input=NV12(upload) bitrate=%d", stream, width, height, fps, bitrate)
+	return enc, nil
+}
+
+func newNativeHEVCEncoder(stream string, width, height, fps int) (h264FrameEncoder, error) {
+	bitrate := targetH264Bitrate(width, height, fps) * 7 / 10
+	raw := C.nvenc_create_d3d11_encoder(C.int(width), C.int(height), C.int(fps), C.int(bitrate), 1)
+	if raw.encoder == nil {
+		return nil, formatNVENCCreateError(raw)
+	}
+	enc := &nativeH264Encoder{
+		enc:          raw.encoder,
+		width:        width,
+		height:       height,
+		requestedFPS: fps,
+		fps:          fps,
+	}
+	log.Printf("capture: native NVENC D3D11 hevc encoder active stream=%s provider=NVIDIA NVENC size=%dx%d fps=%d input=NV12(upload) bitrate=%d", stream, width, height, fps, bitrate)
 	return enc, nil
 }
 
@@ -1645,15 +1690,26 @@ type nativeD3D11TextureH264Encoder struct {
 	outputName   string
 	frame        uint64
 	slowLogs     int
+	codec        string
 }
 
 func newNativeD3D11TextureH264Encoder(device unsafe.Pointer, inputWidth, inputHeight, encodeWidth, encodeHeight, fps int, dxgiFormat uint32) (*nativeD3D11TextureH264Encoder, error) {
+	return newNativeD3D11TextureEncoder(device, inputWidth, inputHeight, encodeWidth, encodeHeight, fps, dxgiFormat, "h264")
+}
+
+func newNativeD3D11TextureEncoder(device unsafe.Pointer, inputWidth, inputHeight, encodeWidth, encodeHeight, fps int, dxgiFormat uint32, codec string) (*nativeD3D11TextureH264Encoder, error) {
 	bufferFormat, name, ok := nvencBufferFormatForDXGI(dxgiFormat)
 	if !ok {
 		return nil, fmt.Errorf("unsupported DXGI texture format %d", dxgiFormat)
 	}
 	bitrate := targetH264Bitrate(encodeWidth, encodeHeight, fps)
 	modes := preferredNVENCD3D11OutputModes()
+	codecID := 0
+	if codec == "hevc" {
+		codecID = 1
+		bitrate = bitrate * 7 / 10
+		modes = []int{0}
+	}
 	var lastErr error
 	var raw C.nvenc_d3d11_texture_create_result
 	outputMode := 0
@@ -1670,6 +1726,7 @@ func newNativeD3D11TextureH264Encoder(device unsafe.Pointer, inputWidth, inputHe
 			C.NV_ENC_BUFFER_FORMAT(bufferFormat),
 			C.int(dxgiFormat),
 			C.int(mode),
+			C.int(codecID),
 		)
 		if raw.encoder != nil {
 			outputMode = mode
@@ -1703,11 +1760,12 @@ func newNativeD3D11TextureH264Encoder(device unsafe.Pointer, inputWidth, inputHe
 		bufferFormat: uint32(bufferFormat),
 		outputMode:   outputMode,
 		outputName:   outputName,
+		codec:        codec,
 	}
 	if inputWidth != encodeWidth || inputHeight != encodeHeight {
-		log.Printf("capture: native NVENC D3D11 desktop texture encoder active provider=NVIDIA NVENC input=%dx%d output=%dx%d fps=%d source_format=%s(dxgi=%d) nvenc_input=%s pipeline=%s bitrate=%d", inputWidth, inputHeight, encodeWidth, encodeHeight, fps, name, dxgiFormat, outputName, pipeline, bitrate)
+		log.Printf("capture: native NVENC D3D11 desktop texture encoder active codec=%s provider=NVIDIA NVENC input=%dx%d output=%dx%d fps=%d source_format=%s(dxgi=%d) nvenc_input=%s pipeline=%s bitrate=%d", codec, inputWidth, inputHeight, encodeWidth, encodeHeight, fps, name, dxgiFormat, outputName, pipeline, bitrate)
 	} else {
-		log.Printf("capture: native NVENC D3D11 desktop texture encoder active provider=NVIDIA NVENC size=%dx%d fps=%d source_format=%s(dxgi=%d) nvenc_input=%s pipeline=%s bitrate=%d", encodeWidth, encodeHeight, fps, name, dxgiFormat, outputName, pipeline, bitrate)
+		log.Printf("capture: native NVENC D3D11 desktop texture encoder active codec=%s provider=NVIDIA NVENC size=%dx%d fps=%d source_format=%s(dxgi=%d) nvenc_input=%s pipeline=%s bitrate=%d", codec, encodeWidth, encodeHeight, fps, name, dxgiFormat, outputName, pipeline, bitrate)
 	}
 	return enc, nil
 }
@@ -1867,6 +1925,9 @@ var (
 	nativeTextureH264Mu       sync.Mutex
 	nativeTextureH264Enc      *nativeD3D11TextureH264Encoder
 	nativeTextureH264ForceIDR atomic.Bool
+	nativeTextureHEVCMu       sync.Mutex
+	nativeTextureHEVCEnc      *nativeD3D11TextureH264Encoder
+	nativeTextureHEVCForceIDR atomic.Bool
 )
 
 func encodeNativeH264D3D11Texture(device, texture unsafe.Pointer, inputWidth, inputHeight, encodeWidth, encodeHeight, fps int, dxgiFormat uint32, forceIDR bool) ([]byte, error) {
@@ -1902,4 +1963,39 @@ func resetNativeH264D3D11TextureEncoder() {
 		nativeTextureH264Enc = nil
 	}
 	nativeTextureH264ForceIDR.Store(false)
+}
+
+func encodeNativeHEVCD3D11Texture(device, texture unsafe.Pointer, inputWidth, inputHeight, encodeWidth, encodeHeight, fps int, dxgiFormat uint32, forceIDR bool) ([]byte, error) {
+	if device == nil || texture == nil {
+		return nil, fmt.Errorf("nil D3D11 device or texture")
+	}
+	nativeTextureHEVCMu.Lock()
+	defer nativeTextureHEVCMu.Unlock()
+
+	if nativeTextureHEVCEnc == nil || !nativeTextureHEVCEnc.Matches(device, inputWidth, inputHeight, encodeWidth, encodeHeight, fps, dxgiFormat) {
+		if nativeTextureHEVCEnc != nil {
+			nativeTextureHEVCEnc.Close()
+			nativeTextureHEVCEnc = nil
+		}
+		enc, err := newNativeD3D11TextureEncoder(device, inputWidth, inputHeight, encodeWidth, encodeHeight, fps, dxgiFormat, "hevc")
+		if err != nil {
+			return nil, err
+		}
+		nativeTextureHEVCEnc = enc
+	}
+	return nativeTextureHEVCEnc.EncodeTexture(texture, forceIDR || nativeTextureHEVCForceIDR.Swap(false))
+}
+
+func requestNativeHEVCD3D11TextureKeyframe() {
+	nativeTextureHEVCForceIDR.Store(true)
+}
+
+func resetNativeHEVCD3D11TextureEncoder() {
+	nativeTextureHEVCMu.Lock()
+	defer nativeTextureHEVCMu.Unlock()
+	if nativeTextureHEVCEnc != nil {
+		nativeTextureHEVCEnc.Close()
+		nativeTextureHEVCEnc = nil
+	}
+	nativeTextureHEVCForceIDR.Store(false)
 }

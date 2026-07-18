@@ -78,13 +78,21 @@ type DesktopEncoderProfile struct {
 	Providers []string `msgpack:"providers"`
 }
 
+type DesktopCodecCapability struct {
+	Codec      string   `msgpack:"codec"`
+	Encoders   []string `msgpack:"encoders,omitempty"`
+	Transports []string `msgpack:"transports"`
+	Hardware   bool     `msgpack:"hardware,omitempty"`
+}
+
 type DesktopEncoderCapabilities struct {
-	Type      string                  `msgpack:"type"`
-	CommandID string                  `msgpack:"commandId,omitempty"`
-	Probed    bool                    `msgpack:"probed"`
-	Display   int                     `msgpack:"display"`
-	Profiles  []DesktopEncoderProfile `msgpack:"profiles"`
-	Detail    string                  `msgpack:"detail,omitempty"`
+	Type      string                   `msgpack:"type"`
+	CommandID string                   `msgpack:"commandId,omitempty"`
+	Probed    bool                     `msgpack:"probed"`
+	Display   int                      `msgpack:"display"`
+	Profiles  []DesktopEncoderProfile  `msgpack:"profiles"`
+	Codecs    []DesktopCodecCapability `msgpack:"codecs"`
+	Detail    string                   `msgpack:"detail,omitempty"`
 }
 
 type ClientLogEntry struct {

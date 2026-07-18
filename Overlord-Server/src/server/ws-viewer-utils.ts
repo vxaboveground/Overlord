@@ -49,6 +49,8 @@ export function buildViewerFrameBuffer(bytes: Uint8Array, header?: any): Uint8Ar
     ? 3
     : header?.format === "h264"
     ? 4
+    : header?.format === "hevc"
+    ? 5
     : 1;
   meta[6] = fmt;
   meta[7] = 0;

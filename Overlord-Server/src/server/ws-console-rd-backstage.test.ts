@@ -10,6 +10,7 @@ import {
   handleRemoteDesktopViewerMessage,
   handleRemoteDesktopViewerOpen,
   handleDesktopStreamStats,
+  handleDesktopEncoderCapabilities,
   backstageStreamingState,
   rdStreamingState,
 } from "./ws-console-rd-backstage";
@@ -215,6 +216,39 @@ describe("remote desktop viewer control", () => {
     expect(message.captureMs).toBe(2.25);
     expect(message.encodeMs).toBe(4.5);
     expect(message.transport).toBe("webrtc");
+  });
+
+  test("selects one mutually compatible codec across all viewer transports", () => {
+    const clientId = `rd-codecs-${Date.now().toString(36)}`;
+    createClient(clientId);
+    const canvasViewer = createMockWs({ clientId });
+    const webrtcViewer = createMockWs({ clientId });
+    handleRemoteDesktopViewerOpen(canvasViewer as any);
+    handleRemoteDesktopViewerOpen(webrtcViewer as any);
+
+    canvasViewer.data.rdDecoderCodecs = ["hevc", "h264", "jpeg"];
+    canvasViewer.data.rdPreferredCodecs = ["hevc", "h264", "jpeg"];
+    canvasViewer.data.rdCodecTransport = "websocket";
+    webrtcViewer.data.rdDecoderCodecs = ["hevc", "h264"];
+    webrtcViewer.data.rdPreferredCodecs = ["hevc", "h264"];
+    webrtcViewer.data.rdCodecTransport = "webrtc";
+
+    handleDesktopEncoderCapabilities(clientId, {
+      type: "desktop_encoder_capabilities",
+      profiles: [],
+      codecs: [
+        { codec: "hevc", transports: ["websocket"] },
+        { codec: "h264", transports: ["websocket", "webrtc"] },
+        { codec: "jpeg", transports: ["websocket"] },
+      ],
+    });
+
+    const canvasMessage = decodeMessage(canvasViewer.sent.at(-1) as Uint8Array) as any;
+    const webrtcMessage = decodeMessage(webrtcViewer.sent.at(-1) as Uint8Array) as any;
+    expect(canvasMessage.selectedCodec).toBe("h264");
+    expect(canvasMessage.fallbackCodecs).toEqual(["h264"]);
+    expect(webrtcMessage.selectedCodec).toBe("h264");
+    expect(webrtcMessage.fallbackCodecs).toEqual(["h264"]);
   });
 
   test("holds Canvas acknowledgements only while the browser decoder is under pressure", () => {

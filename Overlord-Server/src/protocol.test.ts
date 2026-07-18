@@ -61,4 +61,16 @@ describe("protocol encode/decode", () => {
     expect(decoded.header.fps).toBe(24);
     expect(Array.from(decoded.data)).toEqual(Array.from(frame.data));
   });
+
+  test("round trips HEVC frame metadata", () => {
+    const frame: Frame = {
+      type: "frame",
+      header: { monitor: 0, fps: 60, format: "hevc" },
+      data: new Uint8Array([0, 0, 0, 1, 0x40, 0x01]),
+    };
+
+    const decoded = decodeMessage(encodeMessage(frame)) as Frame;
+    expect(decoded.header.format).toBe("hevc");
+    expect(Array.from(decoded.data)).toEqual(Array.from(frame.data));
+  });
 });
