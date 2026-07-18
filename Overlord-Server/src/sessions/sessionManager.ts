@@ -11,6 +11,7 @@ import type {
   ChatViewer,
   SocketData,
 } from "./types";
+import { canUserAccessClient, type UserRole } from "../users";
 
 export type DashboardViewer = {
   id: string;
@@ -542,6 +543,15 @@ export function notifyDashboardClientEvent(
   });
   for (const [id, session] of dashboardSessions) {
     try {
+      const userId = session.userId ?? session.viewer.data.userId;
+      const userRole = session.userRole ?? session.viewer.data.userRole;
+      if (
+        userId === undefined ||
+        !userRole ||
+        !canUserAccessClient(userId, userRole as UserRole, info.id)
+      ) {
+        continue;
+      }
       if (viewerHasBackpressure(session.viewer)) continue;
       session.viewer.send(msg);
     } catch {

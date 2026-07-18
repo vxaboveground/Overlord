@@ -41,12 +41,20 @@ import {
   addDashboardSession,
   deleteDashboardSession,
   getDashboardSessionCount,
+  notifyDashboardClientEvent,
   safeSendViewerFrame,
   getAllConsoleSessions,
   getAllRdSessions,
 } from "./sessionManager";
 import type { ServerWebSocket } from "bun";
 import type { SocketData } from "./types";
+import {
+  createUser,
+  deleteUser,
+  getUserById,
+  setUserClientAccessRule,
+  setUserClientAccessScope,
+} from "../users";
 
 // Minimal mock ws that records sends
 function mockWs(): ServerWebSocket<SocketData> {
@@ -219,6 +227,47 @@ describe("sessionManager - dashboard sessions", () => {
 
     expect(getDashboardSessionCount()).toBeGreaterThanOrEqual(1);
     expect(deleteDashboardSession("ds-1")).toBe(true);
+  });
+
+  test("only sends client metadata events to dashboard viewers with client access", async () => {
+    const username = `dashboard_scope_${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
+    const created = await createUser(username, "Aa1!DashboardScopeTestPass123", "operator", "test");
+    expect(created.success).toBe(true);
+    const user = getUserById(created.userId!);
+    expect(user).not.toBeNull();
+    expect(setUserClientAccessScope(user!.id, "allowlist").success).toBe(true);
+    expect(setUserClientAccessRule(user!.id, "dashboard-allowed", "allow").success).toBe(true);
+
+    const ws = mockWs() as any;
+    const sessionId = `ds-scope-${user!.id}`;
+    addDashboardSession({
+      id: sessionId,
+      viewer: ws,
+      createdAt: Date.now(),
+      userId: user!.id,
+      userRole: user!.role,
+    });
+
+    try {
+      notifyDashboardClientEvent("client_online", {
+        id: "dashboard-allowed",
+        host: "allowed-host",
+        ip: "192.0.2.10",
+      });
+      notifyDashboardClientEvent("client_online", {
+        id: "dashboard-denied",
+        host: "secret-host",
+        ip: "192.0.2.20",
+      });
+
+      const events = ws._sent.map((message: string) => JSON.parse(message));
+      expect(events).toHaveLength(1);
+      expect(events[0].clientId).toBe("dashboard-allowed");
+      expect(events[0].host).toBe("allowed-host");
+    } finally {
+      deleteDashboardSession(sessionId);
+      deleteUser(user!.id);
+    }
   });
 });
 

@@ -490,6 +490,10 @@ export async function handleClientRoutes(
   if (req.method === "PATCH" && bookmarkMatch) {
     const user = await authenticateRequest(req);
     if (!user) return new Response("Unauthorized", { status: 401 });
+    try { requirePermission(user, "clients:metadata"); requireFeatureAccess(user, "client_metadata"); } catch (error) {
+      if (error instanceof Response) return error;
+      return new Response("Forbidden", { status: 403 });
+    }
     const targetId = bookmarkMatch[1];
     try { requireClientAccess(user, targetId); } catch (error) {
       if (error instanceof Response) return error;

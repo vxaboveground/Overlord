@@ -93,6 +93,20 @@ async function patchNickname(token: string, clientId: string, nickname: string) 
   );
 }
 
+async function patchBookmark(token: string, clientId: string, bookmarked: boolean) {
+  const url = new URL(`https://localhost/api/clients/${encodeURIComponent(clientId)}/bookmark`);
+  return handleClientRoutes(
+    new Request(url, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ bookmarked }),
+    }),
+    url,
+    mockServer,
+    deps,
+  );
+}
+
 afterEach(() => {
   while (createdClientIds.length > 0) {
     const id = createdClientIds.pop();
@@ -226,6 +240,28 @@ describe("clients:metadata gates", () => {
     setUserFeaturePermission(auth.user.id, "disconnect", false);
     const res = await patchNickname(auth.token, clientId, "test-nick");
     expect(res!.status).toBe(200);
+  });
+
+  test("operator (default) can bookmark a client", async () => {
+    const auth = await makeUserWithToken("operator");
+    const clientId = registerTestClient();
+    const res = await patchBookmark(auth.token, clientId, true);
+    expect(res!.status).toBe(200);
+  });
+
+  test("operator with client_metadata feature OFF cannot bookmark a client", async () => {
+    const auth = await makeUserWithToken("operator");
+    const clientId = registerTestClient();
+    setUserFeaturePermission(auth.user.id, "client_metadata", false);
+    const res = await patchBookmark(auth.token, clientId, true);
+    expect(res!.status).toBe(403);
+  });
+
+  test("viewer cannot bookmark a client", async () => {
+    const auth = await makeUserWithToken("viewer");
+    const clientId = registerTestClient();
+    const res = await patchBookmark(auth.token, clientId, true);
+    expect(res!.status).toBe(403);
   });
 });
 

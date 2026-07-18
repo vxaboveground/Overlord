@@ -5,7 +5,7 @@ import AdmZip from "adm-zip";
 import { v4 as uuidv4 } from "uuid";
 import { authenticateRequest } from "../../auth";
 import { requireAnyPermission, requireClientAccess, requirePermission, requirePluginAccess } from "../../rbac";
-import { canUserAccessPlugin } from "../../users";
+import { canUserAccessClient, canUserAccessPlugin } from "../../users";
 import * as clientManager from "../../clientManager";
 import { metrics } from "../../metrics";
 import { encodeMessage, type PluginSignatureInfo } from "../../protocol";
@@ -256,10 +256,13 @@ export async function handlePluginRoutes(
 
     let body: any = {};
     try { body = await req.json(); } catch {}
-    const requestedClientIds = Array.isArray(body.clientIds)
+    const requestedClientIds: string[] = Array.isArray(body.clientIds)
       ? body.clientIds.map((id: unknown) => String(id || "").trim()).filter(Boolean).slice(0, 500)
       : [];
-    const clientIdSet = new Set(requestedClientIds);
+    const authorizedClientIds = requestedClientIds.filter((clientId) =>
+      canUserAccessClient(user.userId, user.role, clientId),
+    );
+    const clientIdSet = new Set(authorizedClientIds);
 
     const manifests = await deps.listPluginManifests();
     const plugins = manifests
@@ -274,13 +277,13 @@ export async function handlePluginRoutes(
         const result: any = await deps.pluginRuntime.rpc(
           plugin.id,
           "dashboardContributions",
-          { clientIds: requestedClientIds },
+          { clientIds: authorizedClientIds },
           { id: user.userId, role: user.role },
         );
         const rows = Array.isArray(result?.contributions) ? result.contributions : Array.isArray(result) ? result : [];
         for (const row of rows) {
           const clientId = String(row?.clientId || "").trim();
-          if (!clientId || (clientIdSet.size && !clientIdSet.has(clientId))) continue;
+          if (!clientId || !clientIdSet.has(clientId)) continue;
           const badges = Array.isArray(row?.badges) ? row.badges.slice(0, 8) : [];
           if (!badges.length) continue;
           contributions.push({ pluginId: plugin.id, clientId, badges });
