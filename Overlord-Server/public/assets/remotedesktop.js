@@ -68,6 +68,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   const streamProfileSelect = document.getElementById("streamProfileSelect");
   const streamProfileDetail = document.getElementById("streamProfileDetail");
   const bitrateSelect = document.getElementById("bitrateSelect");
+  const requestKeyframeBtn = document.getElementById("requestKeyframeBtn");
   const smoothingSlider = document.getElementById("smoothingSlider");
   const smoothingValue = document.getElementById("smoothingValue");
   const qualitySlider = document.getElementById("qualitySlider");
@@ -143,6 +144,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   let h264KeyframeErrorStreak = 0;
   let h264RecoveryAttempts = 0;
   let h264LastDecodeWarnAt = 0;
+  let lastAutomaticKeyframeAt = 0;
   const H264_LOW_FPS_THRESHOLD = 6;
   const H264_FALLBACK_WARMUP_MS = 10000;
   const H264_MIN_FRAMES_BEFORE_FALLBACK = 120;
@@ -150,6 +152,8 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   const H264_KEYFRAME_ERROR_RESTART_THRESHOLD = 24;
   const H264_MAX_RECOVERY_ATTEMPTS = 1;
   const H264_DECODE_WARN_THROTTLE_MS = 2000;
+  const VIDEO_FRAME_GAP_KEYFRAME_MS = 500;
+  const AUTOMATIC_KEYFRAME_COOLDOWN_MS = 2000;
   const inputBackpressureBytes = 256 * 1024;
   const diagnostics = {
     agent: null,
@@ -620,6 +624,9 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     }
     if (stopBtn) {
       stopBtn.disabled = !wsOpen || (!isStarting && !isStreaming && !isStopping && !isStalled);
+    }
+    if (requestKeyframeBtn) {
+      requestKeyframeBtn.disabled = !wsOpen || (!isStreaming && !isStalled);
     }
     if (recordBtn) {
       recordBtn.disabled =
@@ -1733,6 +1740,13 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       sharedSettingsSaver.scheduleSave();
     });
   }
+  if (requestKeyframeBtn) {
+    requestKeyframeBtn.addEventListener("click", function () {
+      if (streamState !== "streaming" && streamState !== "stalled") return;
+      sendCmd("desktop_request_keyframe", { reason: "manual_viewer" });
+    });
+  }
+
 
   function needsWebrtcFirewallWarning(mode) {
     if (firewallWarningAcked) return false;
@@ -2012,8 +2026,32 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     return buf.length >= 8 && buf[0] === 0x46 && buf[1] === 0x52 && buf[2] === 0x4d;
   }
 
+  function requestAutomaticKeyframe(reason, details = {}) {
+    if (!desiredStreaming || getWebrtcMode() !== "off") return false;
+    if (streamState !== "streaming" && streamState !== "stalled" && streamState !== "starting") {
+      return false;
+    }
+    const codec = String(diagnostics.codec || negotiatedCodec || "").toLowerCase();
+    if (codec !== "h264" && codec !== "hevc") return false;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+
+    const now = performance.now();
+    if (lastAutomaticKeyframeAt && now - lastAutomaticKeyframeAt < AUTOMATIC_KEYFRAME_COOLDOWN_MS) {
+      return false;
+    }
+    lastAutomaticKeyframeAt = now;
+    rdDebug("automatic keyframe request", { reason, codec, ...details });
+    sendCmd("desktop_request_keyframe", { reason, codec });
+    return true;
+  }
+
   function markFrameReceived() {
-    lastFrameAt = performance.now();
+    const now = performance.now();
+    const frameGapMs = lastFrameAt ? now - lastFrameAt : 0;
+    lastFrameAt = now;
+    if (frameGapMs >= VIDEO_FRAME_GAP_KEYFRAME_MS) {
+      requestAutomaticKeyframe("viewer_frame_gap", { frameGapMs: Math.round(frameGapMs) });
+    }
     clearOfflineTimer();
     if (!firstFrameLogged) {
       firstFrameLogged = true;
@@ -2512,17 +2550,23 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
         h264KeyframeErrorStreak = 0;
       } catch (err) {
         h264PendingTimings.pop();
-        if (codecName === "h264" && isKeyframeRequiredError(err)) {
+        if (isKeyframeRequiredError(err)) {
           h264KeyframeErrorStreak += 1;
+          requestAutomaticKeyframe(`${codecName}_decoder_keyframe_required`, {
+            streak: h264KeyframeErrorStreak,
+          });
           const now = Date.now();
           if (now - h264LastDecodeWarnAt >= H264_DECODE_WARN_THROTTLE_MS) {
             h264LastDecodeWarnAt = now;
-            console.warn("rd: h264 decode waiting for keyframe", {
+            console.warn(`rd: ${codecName} decode waiting for keyframe`, {
               streak: h264KeyframeErrorStreak,
               recoveries: h264RecoveryAttempts,
             });
           }
-          if (h264KeyframeErrorStreak >= H264_KEYFRAME_ERROR_RESTART_THRESHOLD) {
+          if (
+            codecName === "h264" &&
+            h264KeyframeErrorStreak >= H264_KEYFRAME_ERROR_RESTART_THRESHOLD
+          ) {
             const restarted = tryRecoverH264Stream("h264_keyframe_required");
             if (!restarted) {
               fallbackToJpegCodec("h264_keyframe_required_loop");

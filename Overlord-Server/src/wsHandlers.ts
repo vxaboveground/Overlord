@@ -273,30 +273,49 @@ export function handleScreenshotThumbnailResult(info: ClientInfo, payload: any):
   return true;
 }
 
-export function handleFrame(info: ClientInfo, payload: any): boolean {
-  const bytes = payload.data as unknown as Uint8Array;
-  const header = (payload as any).header;
+export function shouldRelayFrameToViewers(payload: unknown): boolean {
+  if (!payload || typeof payload !== "object" || !("header" in payload)) return false;
+  const header = payload.header;
+  if (!header || typeof header !== "object" || !("fps" in header)) return false;
+  return Number(header.fps) > 0;
+}
+
+export function handleFrame(info: ClientInfo, payload: unknown, relayToViewers = true): boolean {
+  const frame = payload && typeof payload === "object"
+    ? payload as Record<string, unknown>
+    : {};
+  const rawData = frame.data;
+  const bytes = rawData instanceof Uint8Array
+    ? rawData
+    : rawData instanceof ArrayBuffer
+      ? new Uint8Array(rawData)
+      : new Uint8Array();
+  const header = frame.header && typeof frame.header === "object"
+    ? frame.header as Record<string, unknown>
+    : {};
   const allowedFormats = ["jpeg", "jpg", "webp"];
-  const fmt = String(header?.format || "").toLowerCase();
+  const fmt = String(header.format || "").toLowerCase();
   const safeFormat = allowedFormats.includes(fmt) ? fmt : "";
 
   metrics.recordBytesReceived(bytes.length);
 
   let handledByViewerRelay = false;
-  try {
-    const globalAny: any = globalThis as any;
-    if (header?.webcam) {
-      if (globalAny.__webcamBroadcast) {
-        handledByViewerRelay = globalAny.__webcamBroadcast(info.id, bytes, header);
+  if (relayToViewers) {
+    try {
+      const runtime = globalThis as unknown as {
+        __webcamBroadcast?: (clientId: string, data: Uint8Array, frameHeader: Record<string, unknown>) => boolean;
+        __backstageBroadcast?: (clientId: string, data: Uint8Array, frameHeader: Record<string, unknown>) => boolean;
+        __rdBroadcast?: (clientId: string, data: Uint8Array, frameHeader: Record<string, unknown>) => boolean;
+      };
+      if (header.webcam) {
+        handledByViewerRelay = runtime.__webcamBroadcast?.(info.id, bytes, header) ?? false;
+      } else if (header.backstage) {
+        handledByViewerRelay = runtime.__backstageBroadcast?.(info.id, bytes, header) ?? false;
+      } else {
+        handledByViewerRelay = runtime.__rdBroadcast?.(info.id, bytes, header) ?? false;
       }
-    } else if (header?.backstage) {
-      if (globalAny.__backstageBroadcast) {
-        handledByViewerRelay = globalAny.__backstageBroadcast(info.id, bytes, header);
-      }
-    } else if (globalAny.__rdBroadcast) {
-      handledByViewerRelay = globalAny.__rdBroadcast(info.id, bytes, header);
-    }
-  } catch {}
+    } catch {}
+  }
 
   if (safeFormat) {
     const now = Date.now();

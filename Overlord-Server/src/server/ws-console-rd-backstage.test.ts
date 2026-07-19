@@ -14,6 +14,7 @@ import {
   handleDesktopEncoderCapabilities,
   backstageStreamingState,
   rdStreamingState,
+  requestRemoteDesktopKeyframeAfterScreenshot,
 } from "./ws-console-rd-backstage";
 
 type MockWs = {
@@ -116,6 +117,72 @@ describe("remote desktop viewer control", () => {
     expect(commands.filter((msg) => msg.commandType === "desktop_stop")).toHaveLength(1);
     expect(commands.filter((msg) => msg.commandType === "webrtc_stop")).toHaveLength(1);
     expect(rdStreamingState.get(clientId)?.isStreaming).toBe(false);
+  });
+
+  test("forwards keyframe requests only while the desktop stream is active", () => {
+    const clientId = `rd-keyframe-${Date.now().toString(36)}`;
+    const { agentWs } = createClient(clientId);
+    const viewer = createMockWs({ clientId });
+    const viewerSocket = viewer as unknown as Parameters<typeof handleRemoteDesktopViewerMessage>[0];
+
+    handleRemoteDesktopViewerOpen(viewerSocket);
+    handleRemoteDesktopViewerMessage(viewerSocket, JSON.stringify({
+      type: "desktop_request_keyframe",
+      reason: "manual_viewer",
+    }));
+
+    expect(agentCommands(agentWs).filter((msg) => msg.commandType === "desktop_request_keyframe")).toHaveLength(0);
+
+    handleRemoteDesktopViewerMessage(viewerSocket, JSON.stringify({ type: "desktop_start" }));
+    handleRemoteDesktopViewerMessage(viewerSocket, JSON.stringify({
+      type: "desktop_request_keyframe",
+      reason: "manual_viewer",
+    }));
+
+    const keyframeCommands = agentCommands(agentWs)
+      .filter((msg) => msg.commandType === "desktop_request_keyframe");
+    expect(keyframeCommands).toHaveLength(1);
+    expect(keyframeCommands[0]?.payload).toEqual({ reason: "manual_viewer" });
+
+    handleRemoteDesktopViewerMessage(viewerSocket, JSON.stringify({
+      type: "desktop_request_keyframe",
+      reason: "viewer_frame_gap",
+    }));
+    const automaticCommand = agentCommands(agentWs)
+      .filter((msg) => msg.commandType === "desktop_request_keyframe")
+      .at(-1);
+    expect(automaticCommand?.payload).toEqual({ reason: "viewer_frame_gap" });
+  });
+
+  test("requests HEVC recovery after a screenshot only while streaming", () => {
+    const clientId = `rd-screenshot-keyframe-${Date.now().toString(36)}`;
+    const { agentWs } = createClient(clientId);
+    const viewer = createMockWs({ clientId });
+    const viewerSocket = viewer as unknown as Parameters<typeof handleRemoteDesktopViewerMessage>[0];
+
+    handleRemoteDesktopViewerOpen(viewerSocket);
+    expect(requestRemoteDesktopKeyframeAfterScreenshot(clientId)).toBe(false);
+
+    handleRemoteDesktopViewerMessage(viewerSocket, JSON.stringify({ type: "desktop_start" }));
+    const state = rdStreamingState.get(clientId);
+    expect(state).toBeDefined();
+    if (!state) return;
+    state.codec = "hevc";
+    agentWs.sent.length = 0;
+
+    expect(requestRemoteDesktopKeyframeAfterScreenshot(clientId)).toBe(true);
+    expect(agentCommands(agentWs)
+      .filter((msg) => msg.commandType === "desktop_request_keyframe"))
+      .toEqual([
+        expect.objectContaining({
+          payload: { reason: "post_screenshot_hevc_recovery" },
+        }),
+      ]);
+
+    state.codec = "h264";
+    agentWs.sent.length = 0;
+    expect(requestRemoteDesktopKeyframeAfterScreenshot(clientId)).toBe(false);
+    expect(agentWs.sent).toHaveLength(0);
   });
 
   test("does not forward desktop_start when a macOS client is missing required permissions", () => {

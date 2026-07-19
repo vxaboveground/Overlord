@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import type { ClientInfo } from "./types";
 import { decodeMessage } from "./protocol";
 import { metrics } from "./metrics";
-import { handlePing, handlePong, sendPingRequest } from "./wsHandlers";
+import { handleFrame, handlePing, handlePong, sendPingRequest, shouldRelayFrameToViewers } from "./wsHandlers";
 
 type MockWs = { sent: Uint8Array[]; send: (msg: Uint8Array) => void };
 
@@ -176,5 +177,42 @@ describe("wsHandlers ping/pong", () => {
     expect(info.lastSeen).toBeGreaterThan(now - 5_000);
     const snapshot = metrics.getSnapshot();
     expect(snapshot.ping.count).toBe(0);
+  });
+});
+
+describe("wsHandlers frame routing", () => {
+  test("keeps screenshot frames out of remote desktop viewers", () => {
+    const broadcasts: unknown[] = [];
+    const runtime = globalThis as unknown as {
+      __rdBroadcast?: (clientId: string, bytes: Uint8Array, header: unknown) => boolean;
+    };
+    runtime.__rdBroadcast = (clientId, bytes, header) => {
+      broadcasts.push({ clientId, bytes, header });
+      return true;
+    };
+    const client = {
+      id: "screenshot-client",
+      lastSeen: Date.now(),
+      online: true,
+      isAdmin: false,
+    } as unknown as ClientInfo;
+    const screenshotFrame = {
+      type: "frame",
+      header: { fps: 0, format: "h264", width: 1920, height: 1080 },
+      data: new Uint8Array([1, 2, 3]),
+    };
+
+    try {
+      expect(shouldRelayFrameToViewers(screenshotFrame)).toBe(false);
+      handleFrame(client, screenshotFrame, shouldRelayFrameToViewers(screenshotFrame));
+      expect(broadcasts).toHaveLength(0);
+
+      const liveFrame = { ...screenshotFrame, header: { ...screenshotFrame.header, fps: 60 } };
+      expect(shouldRelayFrameToViewers(liveFrame)).toBe(true);
+      handleFrame(client, liveFrame, shouldRelayFrameToViewers(liveFrame));
+      expect(broadcasts).toHaveLength(1);
+    } finally {
+      delete runtime.__rdBroadcast;
+    }
   });
 });

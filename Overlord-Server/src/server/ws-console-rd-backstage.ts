@@ -178,6 +178,11 @@ function broadcastFrameToViewers(
 const rdSendStats = { lastLog: 0, frames: 0, sendMs: 0, bytes: 0 };
 const rdDebugFrameLogAt = new Map<string, number>();
 const rdCanvasFrameAckPending = new Map<string, string>();
+const AUTOMATIC_DESKTOP_KEYFRAME_REASONS: Record<string, true> = {
+  viewer_frame_gap: true,
+  h264_decoder_keyframe_required: true,
+  hevc_decoder_keyframe_required: true,
+};
 export const rdStreamingState = new Map<string, {
   isStreaming: boolean;
   display: number;
@@ -360,6 +365,18 @@ export function notifyRemoteDesktopStatus(clientId: string, status: string, reas
   }
 }
 
+export function requestRemoteDesktopKeyframeAfterScreenshot(clientId: string): boolean {
+  const state = rdStreamingState.get(clientId);
+  if (!state?.isStreaming || String(state.codec || "").toLowerCase() !== "hevc") {
+    return false;
+  }
+  return sendDesktopCommand(
+    clientManager.getClient(clientId),
+    "desktop_request_keyframe",
+    { reason: "post_screenshot_hevc_recovery" },
+  );
+}
+
 export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) {
   const payload = decodeViewerPayload(raw);
   if (!payload) return;
@@ -487,6 +504,15 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
         logger.debug(`[rd] ignoring desktop_stop for client ${clientId} - ${otherViewers.length} other viewer(s) still active`);
       }
       safeSendViewer(ws, { type: "status", status: "stopped" });
+      break;
+    }
+    case "desktop_request_keyframe": {
+      if (state.isStreaming) {
+        const requestedReason = String(payload.reason || "");
+        sendDesktopCommand(target, "desktop_request_keyframe", {
+          reason: AUTOMATIC_DESKTOP_KEYFRAME_REASONS[requestedReason] ? requestedReason : "manual_viewer",
+        });
+      }
       break;
     }
     case "desktop_record_start": {

@@ -11,6 +11,7 @@ import (
 
 	"overlord-client/cmd/agent/config"
 	rt "overlord-client/cmd/agent/runtime"
+	"overlord-client/cmd/agent/webrtcpub"
 	"overlord-client/cmd/agent/wire"
 
 	"github.com/vmihailenco/msgpack/v5"
@@ -474,5 +475,15 @@ func TestSetFrameFlowTargetFPSEnvOverride(t *testing.T) {
 	SetFrameFlowTargetFPS(240)
 	if got := activeFrameSlotLimit(); got != 12 {
 		t.Fatalf("expected env slot limit 12, got %d", got)
+	}
+}
+
+func TestRequestDesktopFullFrameRequestsWebRTCKeyframe(t *testing.T) {
+	_ = webrtcpub.ConsumeKeyframeRequest()
+
+	RequestDesktopFullFrame()
+
+	if !webrtcpub.ConsumeKeyframeRequest() {
+		t.Fatal("expected desktop full-frame request to force the next WebRTC video frame to be a keyframe")
 	}
 }

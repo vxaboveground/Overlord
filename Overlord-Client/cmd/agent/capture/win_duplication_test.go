@@ -90,3 +90,28 @@ func TestCaptureDisplayDXGI(t *testing.T) {
 		t.Fatalf("invalid capture bounds: %dx%d", bounds.Dx(), bounds.Dy())
 	}
 }
+
+func TestDirectVideoKeyframeDue(t *testing.T) {
+	now := (10 * time.Second).Nanoseconds()
+	last := now - keyframeEvery.Nanoseconds()
+
+	tests := []struct {
+		name      string
+		requested bool
+		last      int64
+		want      bool
+	}{
+		{name: "explicit request", requested: true, last: now, want: true},
+		{name: "first frame", last: 0, want: true},
+		{name: "before periodic interval", last: last + 1, want: false},
+		{name: "at periodic interval", last: last, want: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := directVideoKeyframeDue(test.requested, now, test.last); got != test.want {
+				t.Fatalf("directVideoKeyframeDue() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}

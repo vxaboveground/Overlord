@@ -64,6 +64,7 @@ test("WebRTC input stays inactive until start and then forwards mouse and keyboa
   });
   await expect(page.locator("#streamProfileSelect option[value='1440:60']")).toHaveCount(1);
   await expect(page.locator("#streamProfileSelect option[value='2160:60']")).toHaveCount(1);
+  await expect(page.locator("#requestKeyframeBtn")).toBeDisabled();
 
   await page.evaluate(() => {
     const sent = (window as typeof window & { __rdSent: ArrayBuffer[] }).__rdSent;
@@ -198,4 +199,37 @@ test("WebRTC input stays inactive until start and then forwards mouse and keyboa
     expect.objectContaining({ type: "key_down", key: "Enter", code: "Enter" }),
     expect.objectContaining({ type: "key_up", key: "Enter", code: "Enter" }),
   ]));
+
+  await page.evaluate(() => {
+    const socket = (window as typeof window & { __rdSocket: EventTarget }).__rdSocket;
+    const framePacket = Uint8Array.from([0x46, 0x52, 0x4d, 0, 0, 0, 0, 0]).buffer;
+    socket.dispatchEvent(new MessageEvent("message", { data: framePacket }));
+  });
+  await expect(page.locator("#requestKeyframeBtn")).toBeEnabled();
+  await page.waitForTimeout(550);
+  await page.evaluate(() => {
+    const sent = (window as typeof window & { __rdSent: ArrayBuffer[] }).__rdSent;
+    sent.length = 0;
+    const socket = (window as typeof window & { __rdSocket: EventTarget }).__rdSocket;
+    const framePacket = Uint8Array.from([0x46, 0x52, 0x4d, 0, 0, 0, 0, 0]).buffer;
+    socket.dispatchEvent(new MessageEvent("message", { data: framePacket }));
+  });
+  await expect.poll(async () => page.evaluate(async () => {
+    const sent = (window as typeof window & { __rdSent: ArrayBuffer[] }).__rdSent;
+    const { decodeMsgpack } = await import("/assets/msgpack-helpers.js");
+    return sent.map((message) => decodeMsgpack(message))
+      .filter((message) => message.type === "desktop_request_keyframe");
+  })).toEqual([
+    expect.objectContaining({ type: "desktop_request_keyframe", reason: "viewer_frame_gap" }),
+  ]);
+  await page.locator("#rdSettingsBtn").click();
+  await page.locator("#requestKeyframeBtn").click();
+  await expect.poll(async () => page.evaluate(async () => {
+    const sent = (window as typeof window & { __rdSent: ArrayBuffer[] }).__rdSent;
+    const { decodeMsgpack } = await import("/assets/msgpack-helpers.js");
+    return sent.map((message) => decodeMsgpack(message))
+      .filter((message) => message.type === "desktop_request_keyframe" && message.reason === "manual_viewer");
+  })).toEqual([
+    expect.objectContaining({ type: "desktop_request_keyframe", reason: "manual_viewer" }),
+  ]);
 });

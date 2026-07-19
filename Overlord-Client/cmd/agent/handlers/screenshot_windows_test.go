@@ -16,14 +16,17 @@ import (
 
 func TestCaptureScreenshotImageWindows_PrimaryOnly(t *testing.T) {
 	origMonitorCountFn := monitorCountFn
-	origCaptureFn := captureDisplayRGBABitBltFn
+	origBoundsFn := displayBoundsFn
+	origCaptureFn := captureRectFn
 	t.Cleanup(func() {
 		monitorCountFn = origMonitorCountFn
-		captureDisplayRGBABitBltFn = origCaptureFn
+		displayBoundsFn = origBoundsFn
+		captureRectFn = origCaptureFn
 	})
 
 	monitorCountFn = func() int { return 2 }
-	captureDisplayRGBABitBltFn = func(display int) (*image.RGBA, error) {
+	displayBoundsFn = func(int) image.Rectangle { return image.Rect(0, 0, 3, 2) }
+	captureRectFn = func(image.Rectangle) (*image.RGBA, error) {
 		img := image.NewRGBA(image.Rect(0, 0, 3, 2))
 		img.SetRGBA(0, 0, color.RGBA{R: 255, A: 255})
 		return img, nil
@@ -47,11 +50,11 @@ func TestCaptureScreenshotImageWindows_PrimaryOnly(t *testing.T) {
 func TestCaptureScreenshotImageWindows_AllDisplaysStitched(t *testing.T) {
 	origMonitorCountFn := monitorCountFn
 	origBoundsFn := displayBoundsFn
-	origCaptureFn := captureDisplayRGBABitBltFn
+	origCaptureFn := captureRectFn
 	t.Cleanup(func() {
 		monitorCountFn = origMonitorCountFn
 		displayBoundsFn = origBoundsFn
-		captureDisplayRGBABitBltFn = origCaptureFn
+		captureRectFn = origCaptureFn
 	})
 
 	monitorCountFn = func() int { return 2 }
@@ -61,9 +64,9 @@ func TestCaptureScreenshotImageWindows_AllDisplaysStitched(t *testing.T) {
 		}
 		return image.Rect(2, 0, 4, 2)
 	}
-	captureDisplayRGBABitBltFn = func(display int) (*image.RGBA, error) {
+	captureRectFn = func(bounds image.Rectangle) (*image.RGBA, error) {
 		img := image.NewRGBA(image.Rect(0, 0, 2, 2))
-		if display == 0 {
+		if bounds.Min.X == 0 {
 			img.SetRGBA(0, 0, color.RGBA{R: 255, A: 255})
 		} else {
 			img.SetRGBA(0, 0, color.RGBA{G: 255, A: 255})
@@ -112,16 +115,19 @@ func TestCaptureScreenshotImageWindows_NoDisplays(t *testing.T) {
 	}
 }
 
-func TestHandleScreenshot_DoesNotEmitLiveFrame(t *testing.T) {
+func TestHandleScreenshot_RepeatedRequestsDoNotEmitLiveFrames(t *testing.T) {
 	origMonitorCountFn := monitorCountFn
-	origCaptureFn := captureDisplayRGBABitBltFn
+	origBoundsFn := displayBoundsFn
+	origCaptureFn := captureRectFn
 	t.Cleanup(func() {
 		monitorCountFn = origMonitorCountFn
-		captureDisplayRGBABitBltFn = origCaptureFn
+		displayBoundsFn = origBoundsFn
+		captureRectFn = origCaptureFn
 	})
 
 	monitorCountFn = func() int { return 1 }
-	captureDisplayRGBABitBltFn = func(display int) (*image.RGBA, error) {
+	displayBoundsFn = func(int) image.Rectangle { return image.Rect(0, 0, 2, 2) }
+	captureRectFn = func(image.Rectangle) (*image.RGBA, error) {
 		img := image.NewRGBA(image.Rect(0, 0, 2, 2))
 		img.SetRGBA(0, 0, color.RGBA{B: 255, A: 255})
 		return img, nil
@@ -129,26 +135,30 @@ func TestHandleScreenshot_DoesNotEmitLiveFrame(t *testing.T) {
 
 	ctx := context.Background()
 	writer := &testWriter{}
-	if err := HandleScreenshot(ctx, &rt.Env{Conn: writer}, "cmd-1", false); err != nil {
-		t.Fatalf("HandleScreenshot failed: %v", err)
+	for i, commandID := range []string{"cmd-1", "cmd-2"} {
+		if err := HandleScreenshot(ctx, &rt.Env{Conn: writer}, commandID, false); err != nil {
+			t.Fatalf("HandleScreenshot request %d failed: %v", i+1, err)
+		}
 	}
-	if len(writer.msgs) != 2 {
-		t.Fatalf("expected 2 messages without live frame emission, got %d", len(writer.msgs))
-	}
-
-	var first wire.ScreenshotResult
-	if err := msgpack.Unmarshal(writer.msgs[0], &first); err != nil {
-		t.Fatalf("unmarshal screenshot_result: %v", err)
-	}
-	if first.Type != "screenshot_result" {
-		t.Fatalf("expected screenshot_result, got %q", first.Type)
+	if len(writer.msgs) != 4 {
+		t.Fatalf("expected 4 result messages without live frame emission, got %d", len(writer.msgs))
 	}
 
-	var second wire.CommandResult
-	if err := msgpack.Unmarshal(writer.msgs[1], &second); err != nil {
-		t.Fatalf("unmarshal command_result: %v", err)
-	}
-	if second.Type != "command_result" || !second.OK {
-		t.Fatalf("expected successful command_result, got %+v", second)
+	for i := range 2 {
+		var screenshotResult wire.ScreenshotResult
+		if err := msgpack.Unmarshal(writer.msgs[i*2], &screenshotResult); err != nil {
+			t.Fatalf("unmarshal screenshot_result %d: %v", i+1, err)
+		}
+		if screenshotResult.Type != "screenshot_result" {
+			t.Fatalf("expected screenshot_result for request %d, got %q", i+1, screenshotResult.Type)
+		}
+
+		var commandResult wire.CommandResult
+		if err := msgpack.Unmarshal(writer.msgs[i*2+1], &commandResult); err != nil {
+			t.Fatalf("unmarshal command_result %d: %v", i+1, err)
+		}
+		if commandResult.Type != "command_result" || !commandResult.OK {
+			t.Fatalf("expected successful command_result for request %d, got %+v", i+1, commandResult)
+		}
 	}
 }

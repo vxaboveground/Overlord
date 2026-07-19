@@ -9,12 +9,24 @@ import (
 	"overlord-client/cmd/agent/wire"
 )
 
+func directVideoKeyframeDue(requested bool, nowNs, lastKeyframeNs int64) bool {
+	if requested || lastKeyframeNs == 0 {
+		return true
+	}
+	return time.Duration(nowNs-lastKeyframeNs) >= keyframeEvery
+}
+
 func tryBuildDirectH264Frame(display int) (wire.Frame, time.Duration, time.Duration, bool, error) {
 	codec := blockCodec()
 	if (codec != "h264" && codec != "hevc") || (codec == "h264" && useDesktopSoftwareH264()) || !useDesktopDuplication() {
 		return wire.Frame{}, 0, 0, false, nil
 	}
-	forceKeyframe := webrtcpub.ConsumeKeyframeRequest()
+	now := time.Now()
+	forceKeyframe := directVideoKeyframeDue(
+		webrtcpub.ConsumeKeyframeRequest(),
+		now.UnixNano(),
+		lastKeyframe.Load(),
+	)
 	var data []byte
 	var width, height int
 	var captureDur, encodeDur time.Duration
@@ -31,8 +43,9 @@ func tryBuildDirectH264Frame(display int) (wire.Frame, time.Duration, time.Durat
 	if len(data) == 0 {
 		return wire.Frame{}, captureDur, encodeDur, true, nil
 	}
-	now := time.Now()
-	lastKeyframe.Store(now.UnixNano())
+	if forceKeyframe {
+		lastKeyframe.Store(now.UnixNano())
+	}
 	statFullFrames.Add(1)
 	return wire.Frame{Type: "frame", Header: wire.FrameHeader{Monitor: display, FPS: 0, Format: codec, Width: width, Height: height}, Data: data}, captureDur, encodeDur, true, nil
 }
