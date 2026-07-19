@@ -286,7 +286,7 @@
           class="flex-1 rounded-xl border border-slate-800 bg-slate-900/70 shadow-lg overflow-hidden flex flex-col"
           style="min-height: 500px"
         >
-          <div class="p-3 text-sm text-slate-400 flex-shrink-0">
+          <div class="rd-session-header p-3 text-sm text-slate-400 flex-shrink-0">
             Client: <span id="clientLabel" class="text-slate-100">-</span>
           </div>
           <div
@@ -294,6 +294,33 @@
             class="relative flex-1 flex items-center justify-center p-4"
             style="min-height: 0; overflow: hidden"
           >
+            <button id="fullscreenExitBtn" type="button" class="rd-fullscreen-exit" aria-hidden="true" title="Exit fullscreen">
+              <i class="fa-solid fa-compress"></i><span>Exit fullscreen</span>
+            </button>
+            <div id="fullscreenHud" class="rd-fullscreen-hud" aria-hidden="true">
+              <div class="rd-hud-status">
+                <span id="fsHudStateDot" class="rd-hud-state-dot" aria-hidden="true"></span>
+                <span id="fsHudStatus">Connecting</span>
+              </div>
+              <div class="rd-hud-metrics" aria-label="Stream metrics">
+                <span id="fsHudResolution">--</span>
+                <span id="fsHudCodec">--</span>
+                <span id="fsHudFps">-- → -- FPS</span>
+                <span id="fsHudLatency">-- ms input</span>
+                <span id="fsHudNetwork">--</span>
+              </div>
+              <div class="rd-hud-actions">
+                <button id="fsHudTuckBtn" type="button" title="Tuck away fullscreen stats">
+                  <i class="fa-solid fa-chevron-down"></i><span>Hide</span>
+                </button>
+                <button id="fsHudStatsBtn" type="button" title="Show streaming diagnostics">
+                  <i class="fa-solid fa-gauge-high"></i><span>Stats</span>
+                </button>
+                <button id="fsHudExitBtn" type="button" title="Exit fullscreen">
+                  <i class="fa-solid fa-compress"></i><span>Exit</span>
+                </button>
+              </div>
+            </div>
             <canvas
               id="frameCanvas"
               class="bg-slate-950"
@@ -324,6 +351,20 @@
             <div id="remoteCursor" hidden aria-hidden="true" class="absolute pointer-events-none" style="left: 0; top: 0; z-index: 30; will-change: transform">
               <img id="remoteCursorImage" alt="" draggable="false" style="display: block; width: 100%; height: 100%" />
             </div>
+            <section id="rdStateOverlay" class="rd-state-overlay" hidden aria-live="polite">
+              <div class="rd-state-card">
+                <i id="rdStateIcon" class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i>
+                <div>
+                  <div id="rdStateTitle" class="rd-state-title">Connecting</div>
+                  <div id="rdStateDetail" class="rd-state-detail">Waiting for stream status…</div>
+                </div>
+                <div class="rd-state-actions">
+                  <button id="rdStateKeyframeBtn" type="button">Request keyframe</button>
+                  <button id="rdStateRestartBtn" type="button">Restart stream</button>
+                  <button id="rdStateTransportBtn" type="button">Switch transport</button>
+                </div>
+              </div>
+            </section>
             <section id="diagnosticsHud" class="rd-diagnostics-hud hidden" aria-label="Streaming diagnostics">
               <div class="rd-diagnostics-header">
                 <div>
@@ -392,12 +433,222 @@
             display: flex;
             flex-direction: column;
             background: #000;
+            border: 0 !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            outline: none;
           }
-          #canvasContainer:fullscreen #frameCanvas {
+          #canvasContainer:fullscreen .rd-session-header {
+            display: none;
+          }
+          #canvasContainer:fullscreen #renderSurface {
+            flex: 1 1 auto;
             width: 100%;
             height: 100%;
+            padding: 0 !important;
+          }
+          #canvasContainer:fullscreen #frameCanvas,
+          #canvasContainer:fullscreen #webrtcVideo {
+            width: 100% !important;
+            height: 100% !important;
+            max-width: none !important;
+            max-height: none !important;
             object-fit: contain;
             margin: auto;
+          }
+          .rd-fullscreen-exit {
+            display: none;
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            z-index: 40;
+            align-items: center;
+            gap: 0.45rem;
+            padding: 0.55rem 0.75rem;
+            border: 1px solid rgba(148, 163, 184, 0.45);
+            border-radius: 999px;
+            color: #e2e8f0;
+            background: rgba(2, 6, 23, 0.72);
+            box-shadow: 0 14px 32px rgba(0, 0, 0, 0.35);
+            backdrop-filter: blur(10px);
+          }
+          .rd-fullscreen-exit:hover,
+          .rd-fullscreen-exit:focus-visible {
+            border-color: rgba(226, 232, 240, 0.7);
+            background: rgba(15, 23, 42, 0.9);
+          }
+          #canvasContainer:fullscreen .rd-fullscreen-exit {
+            display: inline-flex;
+          }
+          .rd-fullscreen-hud {
+            display: none;
+            position: absolute;
+            left: 50%;
+            bottom: 1rem;
+            z-index: 35;
+            width: min(920px, calc(100% - 2rem));
+            transform: translateX(-50%) translateY(10px);
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            padding: 0.7rem 0.85rem;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            border-radius: 999px;
+            color: #e2e8f0;
+            background: rgba(2, 6, 23, 0.76);
+            box-shadow: 0 20px 48px rgba(0, 0, 0, 0.45);
+            backdrop-filter: blur(14px);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 160ms ease, transform 160ms ease;
+          }
+          #canvasContainer:fullscreen .rd-fullscreen-hud {
+            display: flex;
+          }
+          #canvasContainer:fullscreen .rd-fullscreen-hud.is-visible {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateX(-50%) translateY(0);
+          }
+          #canvasContainer:fullscreen .rd-fullscreen-hud.is-tucked {
+            left: 1rem;
+            right: auto;
+            bottom: 1rem;
+            width: auto;
+            transform: translateY(0);
+            padding: 0.55rem 0.65rem;
+          }
+          #canvasContainer:fullscreen .rd-fullscreen-hud.is-tucked .rd-hud-metrics,
+          #canvasContainer:fullscreen .rd-fullscreen-hud.is-tucked .rd-hud-actions button:not(#fsHudTuckBtn) {
+            display: none;
+          }
+          .rd-hud-status,
+          .rd-hud-metrics,
+          .rd-hud-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.55rem;
+          }
+          .rd-hud-status {
+            min-width: max-content;
+            font-weight: 700;
+          }
+          .rd-hud-state-dot {
+            width: 0.6rem;
+            height: 0.6rem;
+            border-radius: 999px;
+            background: #94a3b8;
+            box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.14);
+          }
+          .rd-hud-state-dot[data-state="streaming"] {
+            background: #22c55e;
+            box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.14);
+          }
+          .rd-hud-state-dot[data-state="stalled"],
+          .rd-hud-state-dot[data-state="starting"],
+          .rd-hud-state-dot[data-state="stopping"],
+          .rd-hud-state-dot[data-state="connecting"] {
+            background: #f59e0b;
+            box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.16);
+          }
+          .rd-hud-state-dot[data-state="offline"],
+          .rd-hud-state-dot[data-state="disconnected"],
+          .rd-hud-state-dot[data-state="error"] {
+            background: #fb7185;
+            box-shadow: 0 0 0 4px rgba(251, 113, 133, 0.16);
+          }
+          .rd-hud-metrics {
+            min-width: 0;
+            justify-content: center;
+            flex: 1;
+            color: #cbd5e1;
+            font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+          }
+          .rd-hud-metrics span {
+            padding: 0.22rem 0.45rem;
+            border-radius: 999px;
+            background: rgba(15, 23, 42, 0.72);
+            white-space: nowrap;
+          }
+          .rd-hud-actions button,
+          .rd-state-actions button {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            border-radius: 999px;
+            color: #e2e8f0;
+            background: rgba(15, 23, 42, 0.8);
+            padding: 0.42rem 0.62rem;
+            font-size: 0.78rem;
+          }
+          .rd-hud-actions button:hover,
+          .rd-hud-actions button:focus-visible,
+          .rd-state-actions button:hover,
+          .rd-state-actions button:focus-visible {
+            border-color: rgba(226, 232, 240, 0.68);
+            background: rgba(30, 41, 59, 0.95);
+          }
+          .rd-state-overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 22;
+            display: grid;
+            place-items: center;
+            padding: 1rem;
+            pointer-events: none;
+          }
+          .rd-state-overlay[hidden] {
+            display: none;
+          }
+          .rd-state-card {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr);
+            gap: 0.8rem 1rem;
+            align-items: center;
+            width: min(460px, 100%);
+            padding: 1rem;
+            border: 1px solid rgba(71, 85, 105, 0.72);
+            border-radius: 1rem;
+            color: #e2e8f0;
+            background: rgba(2, 6, 23, 0.82);
+            box-shadow: 0 22px 60px rgba(0, 0, 0, 0.48);
+            backdrop-filter: blur(12px);
+            pointer-events: auto;
+          }
+          .rd-state-card > i {
+            width: 2.25rem;
+            height: 2.25rem;
+            display: grid;
+            place-items: center;
+            border-radius: 999px;
+            color: #67e8f9;
+            background: rgba(14, 165, 233, 0.14);
+          }
+          .rd-state-title {
+            font-weight: 800;
+            color: #f8fafc;
+          }
+          .rd-state-detail {
+            margin-top: 0.18rem;
+            color: #94a3b8;
+            font-size: 0.86rem;
+          }
+          .rd-state-actions {
+            grid-column: 1 / -1;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+          }
+          @media (max-width: 760px) {
+            .rd-fullscreen-hud {
+              align-items: stretch;
+              border-radius: 1rem;
+              flex-direction: column;
+            }
+            .rd-hud-metrics {
+              flex-wrap: wrap;
+            }
           }
           .rd-diagnostics-hud {
             position: absolute;

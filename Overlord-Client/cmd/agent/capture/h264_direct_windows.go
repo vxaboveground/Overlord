@@ -13,7 +13,7 @@ func directVideoKeyframeDue(requested bool, nowNs, lastKeyframeNs int64) bool {
 	if requested || lastKeyframeNs == 0 {
 		return true
 	}
-	return time.Duration(nowNs-lastKeyframeNs) >= keyframeEvery
+	return keyframeEvery > 0 && time.Duration(nowNs-lastKeyframeNs) >= keyframeEvery
 }
 
 func tryBuildDirectH264Frame(display int) (wire.Frame, time.Duration, time.Duration, bool, error) {

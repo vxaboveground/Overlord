@@ -741,7 +741,7 @@ func avgBytes(b int64, frames int64) float64 {
 const (
 	blockSize       = 64
 	maxBlockRatio   = 0.40
-	keyframeEvery   = 5 * time.Second
+	keyframeEvery   = 0 * time.Second
 	enableBlocks    = true
 	samplingRate    = 3
 	minBlockSize    = 32
@@ -926,7 +926,7 @@ func buildFramebackstage(img *image.RGBA, display int, quality int) (wire.Frame,
 	pf := backstagePrevFrame
 	backstagePrevMu.Unlock()
 
-	if pf == nil || pf.w != width || pf.h != height || now.Sub(time.Unix(0, backstageLastKeyframe.Load())) > keyframeEvery {
+	if pf == nil || pf.w != width || pf.h != height || (keyframeEvery > 0 && now.Sub(time.Unix(0, backstageLastKeyframe.Load())) > keyframeEvery) {
 		jpegBytes, err := encodeJPEG(img, quality)
 		backstagePrevMu.Lock()
 		copyPrevbackstage(img)

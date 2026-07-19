@@ -60,6 +60,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   const recordMode = document.getElementById("recordMode");
   const recordFps = document.getElementById("recordFps");
   const fullscreenBtn = document.getElementById("fullscreenBtn");
+  const fullscreenExitBtn = document.getElementById("fullscreenExitBtn");
   const mouseCtrl = document.getElementById("mouseCtrl");
   const kbdCtrl = document.getElementById("kbdCtrl");
   const cursorCtrl = document.getElementById("cursorCtrl");
@@ -89,6 +90,24 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   const diagnosticsBtn = document.getElementById("diagnosticsBtn");
   const diagnosticsHud = document.getElementById("diagnosticsHud");
   const diagnosticsClose = document.getElementById("diagnosticsClose");
+  const fullscreenHud = document.getElementById("fullscreenHud");
+  const fsHudStateDot = document.getElementById("fsHudStateDot");
+  const fsHudStatus = document.getElementById("fsHudStatus");
+  const fsHudResolution = document.getElementById("fsHudResolution");
+  const fsHudCodec = document.getElementById("fsHudCodec");
+  const fsHudFps = document.getElementById("fsHudFps");
+  const fsHudLatency = document.getElementById("fsHudLatency");
+  const fsHudNetwork = document.getElementById("fsHudNetwork");
+  const fsHudStatsBtn = document.getElementById("fsHudStatsBtn");
+  const fsHudTuckBtn = document.getElementById("fsHudTuckBtn");
+  const fsHudExitBtn = document.getElementById("fsHudExitBtn");
+  const rdStateOverlay = document.getElementById("rdStateOverlay");
+  const rdStateIcon = document.getElementById("rdStateIcon");
+  const rdStateTitle = document.getElementById("rdStateTitle");
+  const rdStateDetail = document.getElementById("rdStateDetail");
+  const rdStateKeyframeBtn = document.getElementById("rdStateKeyframeBtn");
+  const rdStateRestartBtn = document.getElementById("rdStateRestartBtn");
+  const rdStateTransportBtn = document.getElementById("rdStateTransportBtn");
   const diagnosticEls = Object.fromEntries([
     "Summary", "Transport", "Codec", "Resolution", "Capture", "Encode", "Send", "AgentTotal",
     "Bitrate", "Rtt", "LossJitter", "JitterBuffer", "Decode", "Render", "Queue", "Dropped", "Fps", "Input",
@@ -117,6 +136,9 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   let lastFrameAt = 0;
   let desiredStreaming = false;
   let streamState = "connecting";
+  let streamStatusLabel = "Connecting";
+  let fullscreenHudTimer = null;
+  let fullscreenHudTucked = false;
   let frameWatchTimer = null;
   let offlineTimer = null;
   let frameWidth = 0;
@@ -144,7 +166,6 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   let h264KeyframeErrorStreak = 0;
   let h264RecoveryAttempts = 0;
   let h264LastDecodeWarnAt = 0;
-  let lastAutomaticKeyframeAt = 0;
   const H264_LOW_FPS_THRESHOLD = 6;
   const H264_FALLBACK_WARMUP_MS = 10000;
   const H264_MIN_FRAMES_BEFORE_FALLBACK = 120;
@@ -152,8 +173,6 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   const H264_KEYFRAME_ERROR_RESTART_THRESHOLD = 24;
   const H264_MAX_RECOVERY_ATTEMPTS = 1;
   const H264_DECODE_WARN_THROTTLE_MS = 2000;
-  const VIDEO_FRAME_GAP_KEYFRAME_MS = 500;
-  const AUTOMATIC_KEYFRAME_COOLDOWN_MS = 2000;
   const inputBackpressureBytes = 256 * 1024;
   const diagnostics = {
     agent: null,
@@ -553,6 +572,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
 
   function setStreamState(state, text) {
     streamState = state;
+    streamStatusLabel = text || defaultStreamLabel(state);
     if (state !== "streaming" && state !== "stalled") {
       lastRemoteCursor = null;
       renderRemoteCursor();
@@ -569,16 +589,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
         disconnected: '<i class="fa-solid fa-link-slash text-slate-400"></i>',
         error: '<i class="fa-solid fa-circle-exclamation text-rose-400"></i>',
       };
-      const label = text ||
-        (state === "streaming" ? "Streaming" :
-          state === "starting" ? "Starting" :
-            state === "stopping" ? "Stopping" :
-              state === "offline" ? "Client offline" :
-                state === "disconnected" ? "Disconnected" :
-                  state === "stalled" ? "No frames" :
-                    state === "idle" ? "Stopped" :
-                      "Connecting");
-
+      const label = streamStatusLabel;
       statusEl.innerHTML = `${icons[state] || icons.idle} <span>${label}</span>`;
       const base = "inline-flex items-center gap-2 px-3 py-2 rounded-full border text-sm";
       const styles = {
@@ -608,6 +619,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
 
     updateControls();
     checkClipboardSync();
+    renderRemoteDesktopOverlays();
   }
 
   function updateControls() {
@@ -919,11 +931,171 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     return number == null ? "-- ms" : `${number < 10 ? number.toFixed(1) : Math.round(number)} ms`;
   }
 
+  function defaultStreamLabel(state) {
+    return state === "streaming" ? "Streaming" :
+      state === "starting" ? "Starting" :
+        state === "stopping" ? "Stopping" :
+          state === "offline" ? "Client offline" :
+            state === "disconnected" ? "Disconnected" :
+              state === "stalled" ? "No frames" :
+                state === "idle" ? "Stopped" :
+                  "Connecting";
+  }
+
+  function currentDiagnosticSnapshot() {
+    const agent = diagnostics.agent || {};
+    const network = diagnostics.network || {};
+    const media = network.video || network.audio || {};
+    const mode = getWebrtcMode();
+    const transport = mode === "p2p" ? "WebRTC P2P" : mode === "relayed" ? "WebRTC server" : "Canvas WebSocket";
+    const bitrate = finite(media.bitrateMbps) ?? finite(diagnostics.wsBitrateMbps);
+    const fps = finite(agent.fps) ?? diagnostics.currentAgentFps;
+    const viewerRate = finite(media.framesPerSecond) ?? diagnostics.currentViewerFps;
+    const width = finite(media.width) ?? diagnostics.width;
+    const height = finite(media.height) ?? diagnostics.height;
+    return {
+      agent,
+      network,
+      media,
+      transport,
+      bitrate,
+      decodeMs: finite(media.decodeMs) ?? finite(diagnostics.decodeMs),
+      renderMs: finite(media.processingDelayMs) ?? finite(diagnostics.renderMs),
+      dropped: finite(media.framesDropped) ?? 0,
+      queue: mode === "off" ? diagnostics.decodeQueue : null,
+      fps,
+      viewerRate,
+      width,
+      height,
+      codec: String(media.codec || agent.format || diagnostics.codec || "--").toUpperCase(),
+      resolution: width && height ? `${width}×${height}` : "--",
+    };
+  }
+
+  function nextTransportValue() {
+    const mode = getWebrtcMode();
+    return mode === "off" ? "p2p" : mode === "p2p" ? "relayed" : "off";
+  }
+
+  function transportLabel(value) {
+    return value === "p2p" ? "WebRTC P2P" : value === "relayed" ? "WebRTC Relayed" : "Canvas";
+  }
+
+  function setFullscreenHudTucked(tucked, persist = true) {
+    fullscreenHudTucked = !!tucked;
+    fullscreenHud?.classList.toggle("is-tucked", fullscreenHudTucked);
+    fsHudTuckBtn?.setAttribute("aria-pressed", fullscreenHudTucked ? "true" : "false");
+    fsHudTuckBtn?.setAttribute("title", fullscreenHudTucked ? "Show fullscreen stats" : "Tuck away fullscreen stats");
+    const icon = fsHudTuckBtn?.querySelector("i");
+    const label = fsHudTuckBtn?.querySelector("span");
+    if (icon) {
+      icon.classList.toggle("fa-chevron-down", !fullscreenHudTucked);
+      icon.classList.toggle("fa-chevron-up", fullscreenHudTucked);
+    }
+    if (label) label.textContent = fullscreenHudTucked ? "Show" : "Hide";
+    if (persist) {
+      try { localStorage.setItem("overlord.rd.fullscreenHudTucked", fullscreenHudTucked ? "1" : "0"); } catch {}
+    }
+    renderFullscreenHud();
+  }
+
+  function showFullscreenHud(pinned = false) {
+    if (!fullscreenHud) return;
+    const active = isCanvasFullscreen();
+    fullscreenHud.setAttribute("aria-hidden", active ? "false" : "true");
+    fullscreenHud.classList.toggle("is-visible", active);
+    if (fullscreenHudTimer) {
+      clearTimeout(fullscreenHudTimer);
+      fullscreenHudTimer = null;
+    }
+    if (active && !fullscreenHudTucked && !pinned && streamState === "streaming" && diagnosticsHud?.classList.contains("hidden")) {
+      fullscreenHudTimer = setTimeout(() => {
+        fullscreenHud.classList.remove("is-visible");
+      }, 2400);
+    }
+  }
+
+  function renderFullscreenHud() {
+    if (!fullscreenHud) return;
+    const snapshot = currentDiagnosticSnapshot();
+    if (fsHudStateDot) fsHudStateDot.dataset.state = streamState;
+    if (fsHudStatus) fsHudStatus.textContent = streamStatusLabel;
+    if (fsHudResolution) fsHudResolution.textContent = snapshot.resolution;
+    if (fsHudCodec) fsHudCodec.textContent = snapshot.codec;
+    if (fsHudFps) {
+      fsHudFps.textContent = `${snapshot.fps == null ? "--" : Math.round(snapshot.fps)} → ${snapshot.viewerRate == null ? "--" : Math.round(snapshot.viewerRate)} FPS`;
+    }
+    if (fsHudLatency) fsHudLatency.textContent = `${msText(latencyAvg)} input`;
+    if (fsHudNetwork) {
+      const networkParts = [];
+      if (snapshot.bitrate != null) networkParts.push(`${snapshot.bitrate.toFixed(1)} Mbps`);
+      if (Number.isFinite(snapshot.network.rttMs)) networkParts.push(`${Math.round(snapshot.network.rttMs)} ms`);
+      if (Number.isFinite(snapshot.media.lossPercent)) networkParts.push(`${snapshot.media.lossPercent.toFixed(1)}% loss`);
+      fsHudNetwork.textContent = networkParts.join(" · ") || snapshot.transport;
+    }
+    if (isCanvasFullscreen()) {
+      fullscreenHud.setAttribute("aria-hidden", "false");
+      if (fullscreenHudTucked || streamState !== "streaming" || !diagnosticsHud?.classList.contains("hidden")) {
+        showFullscreenHud(true);
+      }
+    } else {
+      fullscreenHud.classList.remove("is-visible");
+      fullscreenHud.setAttribute("aria-hidden", "true");
+    }
+  }
+
+  function renderStateOverlay() {
+    if (!rdStateOverlay) return;
+    const show = streamState !== "streaming" && streamState !== "idle";
+    rdStateOverlay.hidden = !show;
+    if (!show) return;
+
+    const iconClasses = {
+      connecting: "fa-solid fa-circle-notch fa-spin",
+      starting: "fa-solid fa-circle-notch fa-spin",
+      stopping: "fa-solid fa-circle-notch fa-spin",
+      stalled: "fa-solid fa-triangle-exclamation",
+      offline: "fa-solid fa-plug-circle-xmark",
+      disconnected: "fa-solid fa-link-slash",
+      error: "fa-solid fa-circle-exclamation",
+    };
+    const details = {
+      connecting: "Waiting for the control connection to recover.",
+      starting: "Starting capture and waiting for the first frame.",
+      stopping: "Stopping the remote desktop stream.",
+      stalled: "The viewer has not received a frame recently. Request a keyframe or restart the stream.",
+      offline: "The client is not currently reachable.",
+      disconnected: "The viewer WebSocket is disconnected.",
+      error: "The remote desktop stream hit an error.",
+    };
+    if (rdStateIcon) rdStateIcon.className = iconClasses[streamState] || iconClasses.connecting;
+    if (rdStateTitle) rdStateTitle.textContent = streamStatusLabel;
+    if (rdStateDetail) rdStateDetail.textContent = details[streamState] || details.connecting;
+
+    const canKeyframe = streamState === "stalled";
+    const wsOpen = ws && ws.readyState === WebSocket.OPEN;
+    if (rdStateKeyframeBtn) rdStateKeyframeBtn.hidden = !canKeyframe;
+    if (rdStateRestartBtn) {
+      rdStateRestartBtn.hidden = !wsOpen || streamState === "offline" || streamState === "disconnected";
+      rdStateRestartBtn.textContent = "Restart stream";
+    }
+    if (rdStateTransportBtn) {
+      rdStateTransportBtn.hidden = !wsOpen || streamState !== "stalled";
+      rdStateTransportBtn.textContent = `Switch to ${transportLabel(nextTransportValue())}`;
+    }
+  }
+
+  function renderRemoteDesktopOverlays() {
+    renderFullscreenHud();
+    renderStateOverlay();
+  }
+
   function setDiagnosticsVisible(visible) {
     if (!diagnosticsHud) return;
     diagnosticsHud.classList.toggle("hidden", !visible);
     diagnosticsBtn?.setAttribute("aria-pressed", visible ? "true" : "false");
     try { localStorage.setItem("overlord.rd.statsHud", visible ? "1" : "0"); } catch {}
+    renderFullscreenHud();
   }
 
   function renderDiagnostics() {
@@ -991,6 +1163,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     diagnosticEls.Dropped.textContent = `${Math.round(dropped)} / ${diagnostics.coalescedFrames}`;
     diagnosticEls.Fps.textContent = `${fps == null ? "--" : Math.round(fps)} → ${viewerRate == null ? "--" : Math.round(viewerRate)}`;
     diagnosticEls.Input.textContent = msText(latencyAvg);
+    renderFullscreenHud();
   }
 
   diagnosticsBtn?.addEventListener("click", () => setDiagnosticsVisible(diagnosticsHud?.classList.contains("hidden")));
@@ -1740,12 +1913,12 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       sharedSettingsSaver.scheduleSave();
     });
   }
-  if (requestKeyframeBtn) {
-    requestKeyframeBtn.addEventListener("click", function () {
-      if (streamState !== "streaming" && streamState !== "stalled") return;
-      sendCmd("desktop_request_keyframe", { reason: "manual_viewer" });
-    });
+  function requestManualKeyframe() {
+    if (streamState !== "streaming" && streamState !== "stalled") return;
+    sendCmd("desktop_request_keyframe", { reason: "manual_viewer" });
+    showFullscreenHud(true);
   }
+  requestKeyframeBtn?.addEventListener("click", requestManualKeyframe);
 
 
   function needsWebrtcFirewallWarning(mode) {
@@ -1755,7 +1928,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     return isWindows && !clientIsAdmin;
   }
 
-  startBtn.addEventListener("click", function () {
+  function startDesktopStream() {
     const mode = getWebrtcMode();
     rdDebug("start click", {
       mode,
@@ -1807,8 +1980,9 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     if (audioCtrl && audioCtrl.checked) {
       connectAudio();
     }
-  });
-  stopBtn.addEventListener("click", function () {
+  }
+
+  function stopDesktopStream() {
     if (isRecording()) stopRecording();
     desiredStreaming = false;
     adaptiveProfileRunning = false;
@@ -1820,7 +1994,48 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     disconnectAudio();
     stopAllWebrtc();
     setStreamState("idle", "Stopped");
-  });
+  }
+
+  function restartDesktopStream() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (streamState === "idle") {
+      startDesktopStream();
+      return;
+    }
+    if (isRecording()) stopRecording();
+    desiredStreaming = false;
+    adaptiveProfileRunning = false;
+    adaptiveQuality.stop();
+    lastFrameAt = 0;
+    setStreamState("starting", "Restarting stream");
+    disablePrivacyIfActive();
+    sendCmd("desktop_stop", {});
+    disconnectAudio();
+    stopAllWebrtc();
+    setTimeout(startDesktopStream, 150);
+  }
+
+  function switchFullscreenTransport() {
+    if (!webrtcMode) return;
+    webrtcMode.value = nextTransportValue();
+    webrtcMode.dispatchEvent(new Event("change"));
+    if (streamState === "streaming" || streamState === "stalled") {
+      restartDesktopStream();
+    } else {
+      renderRemoteDesktopOverlays();
+    }
+  }
+
+  startBtn.addEventListener("click", startDesktopStream);
+  stopBtn.addEventListener("click", stopDesktopStream);
+  rdStateKeyframeBtn?.addEventListener("click", requestManualKeyframe);
+  rdStateRestartBtn?.addEventListener("click", restartDesktopStream);
+  rdStateTransportBtn?.addEventListener("click", switchFullscreenTransport);
+  fsHudStatsBtn?.addEventListener("click", () => setDiagnosticsVisible(true));
+  fsHudTuckBtn?.addEventListener("click", () => setFullscreenHudTucked(!fullscreenHudTucked));
+  try { setFullscreenHudTucked(localStorage.getItem("overlord.rd.fullscreenHudTucked") === "1", false); }
+  catch { setFullscreenHudTucked(false, false); }
+  fsHudExitBtn?.addEventListener("click", exitCanvasFullscreen);
   if (recordBtn) {
     recordBtn.addEventListener("click", function () {
       if (isRecording()) stopRecording();
@@ -1837,15 +2052,78 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       sharedSettingsSaver.scheduleSave();
     });
   }
-  fullscreenBtn.addEventListener("click", function () {
-    if (canvasContainer.requestFullscreen) {
-      canvasContainer.requestFullscreen();
-    } else if (canvasContainer.webkitRequestFullscreen) {
-      canvasContainer.webkitRequestFullscreen();
-    } else if (canvasContainer.mozRequestFullScreen) {
-      canvasContainer.mozRequestFullScreen();
+  function isCanvasFullscreen() {
+    return document.fullscreenElement === canvasContainer ||
+      document.webkitFullscreenElement === canvasContainer ||
+      document.mozFullScreenElement === canvasContainer;
+  }
+
+  function updateFullscreenButton() {
+    const active = isCanvasFullscreen();
+    fullscreenBtn.setAttribute("aria-pressed", active ? "true" : "false");
+    fullscreenBtn.title = active ? "Exit fullscreen" : "Enter fullscreen";
+    const icon = fullscreenBtn.querySelector("i");
+    const label = fullscreenBtn.querySelector("span");
+    if (icon) {
+      icon.classList.toggle("fa-expand", !active);
+      icon.classList.toggle("fa-compress", active);
     }
+    if (label) label.textContent = active ? "Exit Fullscreen" : "Fullscreen";
+    if (fullscreenExitBtn) fullscreenExitBtn.setAttribute("aria-hidden", active ? "false" : "true");
+  }
+
+  function applyCanvasFullscreenState() {
+    if (isCanvasFullscreen()) {
+      canvasContainer.focus({ preventScroll: true });
+      if (kbdCtrl && !kbdCtrl.checked) {
+        kbdCtrl.checked = true;
+        kbdCtrl.dispatchEvent(new Event("change"));
+      }
+    }
+    updateFullscreenButton();
+    renderRemoteCursor();
+    renderRemoteDesktopOverlays();
+    if (isCanvasFullscreen()) {
+      showFullscreenHud(fullscreenHudTucked || streamState !== "streaming" || !diagnosticsHud?.classList.contains("hidden"));
+    }
+  }
+
+  function requestCanvasFullscreen() {
+    const request = canvasContainer.requestFullscreen ||
+      canvasContainer.webkitRequestFullscreen ||
+      canvasContainer.mozRequestFullScreen;
+    if (!request) return;
+    const result = request.call(canvasContainer);
+    if (result && typeof result.then === "function") {
+      result.then(applyCanvasFullscreenState).catch((err) => console.warn("rd: fullscreen request failed", err));
+    } else {
+      applyCanvasFullscreenState();
+    }
+  }
+
+  function exitCanvasFullscreen() {
+    const exit = document.exitFullscreen ||
+      document.webkitExitFullscreen ||
+      document.mozCancelFullScreen;
+    if (!exit) return;
+    const result = exit.call(document);
+    if (result && typeof result.then === "function") {
+      result.then(applyCanvasFullscreenState).catch((err) => console.warn("rd: fullscreen exit failed", err));
+    } else {
+      applyCanvasFullscreenState();
+    }
+  }
+
+  fullscreenBtn.addEventListener("click", function () {
+    if (isCanvasFullscreen()) exitCanvasFullscreen();
+    else requestCanvasFullscreen();
   });
+  if (fullscreenExitBtn) {
+    fullscreenExitBtn.addEventListener("click", exitCanvasFullscreen);
+  }
+  renderSurface?.addEventListener("mousemove", () => showFullscreenHud());
+  fullscreenHud?.addEventListener("mouseenter", () => showFullscreenHud(true));
+  fullscreenHud?.addEventListener("focusin", () => showFullscreenHud(true));
   function pushInputToggles() {
     if (mouseCtrl) {
       sendCmd("desktop_enable_mouse", { enabled: !!mouseCtrl.checked });
@@ -1960,12 +2238,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     sharedSettingsSaver.scheduleSave();
   });
   if (kbdCtrl.checked) kbdCapture.enable();
-  document.addEventListener("fullscreenchange", function () {
-    if (document.fullscreenElement === canvasContainer && kbdCtrl && !kbdCtrl.checked) {
-      kbdCtrl.checked = true;
-      kbdCtrl.dispatchEvent(new Event("change"));
-    }
-  });
+  document.addEventListener("fullscreenchange", applyCanvasFullscreenState);
+  document.addEventListener("webkitfullscreenchange", applyCanvasFullscreenState);
+  document.addEventListener("mozfullscreenchange", applyCanvasFullscreenState);
+  updateFullscreenButton();
   cursorCtrl.addEventListener("change", function () {
     pushCaptureToggles();
     sharedSettingsSaver.scheduleSave();
@@ -2026,32 +2302,9 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     return buf.length >= 8 && buf[0] === 0x46 && buf[1] === 0x52 && buf[2] === 0x4d;
   }
 
-  function requestAutomaticKeyframe(reason, details = {}) {
-    if (!desiredStreaming || getWebrtcMode() !== "off") return false;
-    if (streamState !== "streaming" && streamState !== "stalled" && streamState !== "starting") {
-      return false;
-    }
-    const codec = String(diagnostics.codec || negotiatedCodec || "").toLowerCase();
-    if (codec !== "h264" && codec !== "hevc") return false;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
-
-    const now = performance.now();
-    if (lastAutomaticKeyframeAt && now - lastAutomaticKeyframeAt < AUTOMATIC_KEYFRAME_COOLDOWN_MS) {
-      return false;
-    }
-    lastAutomaticKeyframeAt = now;
-    rdDebug("automatic keyframe request", { reason, codec, ...details });
-    sendCmd("desktop_request_keyframe", { reason, codec });
-    return true;
-  }
 
   function markFrameReceived() {
-    const now = performance.now();
-    const frameGapMs = lastFrameAt ? now - lastFrameAt : 0;
-    lastFrameAt = now;
-    if (frameGapMs >= VIDEO_FRAME_GAP_KEYFRAME_MS) {
-      requestAutomaticKeyframe("viewer_frame_gap", { frameGapMs: Math.round(frameGapMs) });
-    }
+    lastFrameAt = performance.now();
     clearOfflineTimer();
     if (!firstFrameLogged) {
       firstFrameLogged = true;
@@ -2552,9 +2805,6 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
         h264PendingTimings.pop();
         if (isKeyframeRequiredError(err)) {
           h264KeyframeErrorStreak += 1;
-          requestAutomaticKeyframe(`${codecName}_decoder_keyframe_required`, {
-            streak: h264KeyframeErrorStreak,
-          });
           const now = Date.now();
           if (now - h264LastDecodeWarnAt >= H264_DECODE_WARN_THROTTLE_MS) {
             h264LastDecodeWarnAt = now;
