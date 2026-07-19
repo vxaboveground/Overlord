@@ -569,20 +569,41 @@ Override with:
 
 ### Reverse proxy TLS offload
 
-If your platform terminates TLS before traffic reaches Overlord (Render, Caddy, nginx, etc.), set:
+Overlord can serve HTTP only on loopback while nginx, Caddy, Traefik, IIS, or
+another trusted reverse proxy owns the public HTTPS certificate. Browsers and
+agents must still use the public `https://` / `wss://` address.
 
-```
+For a native install or Linux Docker with host networking, add this to `.env`:
+
+```env
+HOST=127.0.0.1
 OVERLORD_TLS_OFFLOAD=true
-OVERLORD_HEALTHCHECK_URL=http://localhost:5173/health
-OVERLORD_PUBLISH_HOST=127.0.0.1
+OVERLORD_HEALTHCHECK_URL=http://127.0.0.1:5173/health
 ```
+
+For Docker Desktop (`docker-compose.windows.yml`), the container must listen on
+all of its own interfaces while Docker publishes the port on host loopback:
+
+```env
+HOST=0.0.0.0
+OVERLORD_PUBLISH_HOST=127.0.0.1
+OVERLORD_TLS_OFFLOAD=true
+OVERLORD_HEALTHCHECK_URL=http://127.0.0.1:5173/health
+```
+
+Restart Overlord after changing `.env`. The reverse proxy upstream is then
+`http://127.0.0.1:5173`. It must preserve `Host`, set
+`X-Forwarded-Proto: https` and `X-Forwarded-For`, support WebSocket upgrades,
+and use timeouts/body limits suitable for long sessions and file uploads.
+
+Ready-to-copy Caddy and nginx configurations are in `deploy/reverse-proxy/`.
 
 When enabled:
 
-- Container serves internal HTTP on `0.0.0.0:$PORT`
-- External URL stays `https://...` through your platform proxy
-- Health checks should use `http://localhost:$PORT/health` inside the container
-- Don't expose the internal container HTTP port directly to the internet
+- Overlord skips certificate generation and serves internal HTTP.
+- Authentication cookies remain `Secure` because public TLS terminates at the proxy.
+- Proxy source-IP headers are trusted for auditing, bans, and rate limiting.
+- The internal HTTP listener must never be exposed directly to the internet.
 
 ### Source IP behind a domain / reverse proxy
 

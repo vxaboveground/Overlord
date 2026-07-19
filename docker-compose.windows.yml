@@ -10,7 +10,7 @@ services:
         - type=local,dest=.docker-cache/buildx,mode=max
     container_name: overlord-server
     ports:
-      - "${PORT:-5173}:5173"
+      - "${OVERLORD_PUBLISH_HOST:-0.0.0.0}:${PORT:-5173}:5173"
     environment:
       PORT: 5173
       HOST: 0.0.0.0

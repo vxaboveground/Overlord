@@ -1,0 +1,9 @@
+# Replace overlord.example.com with the public DNS name. Caddy obtains and
+# renews the public certificate automatically.
+overlord.example.com {
+	reverse_proxy 127.0.0.1:5173 {
+		header_up Host {host}
+		header_up X-Forwarded-Proto https
+		header_up X-Real-IP {remote_host}
+	}
+}
