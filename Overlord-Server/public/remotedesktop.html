@@ -187,6 +187,10 @@
                     <option value="720:60">60 FPS - 720p</option>
                     <option value="1080:30">30 FPS - 1080p</option>
                     <option value="1080:60">60 FPS - 1080p</option>
+                    <option value="1440:30">30 FPS - 1440p</option>
+                    <option value="1440:60">60 FPS - 1440p</option>
+                    <option value="2160:30">30 FPS - 2160p (4K)</option>
+                    <option value="2160:60">60 FPS - 2160p (4K)</option>
                   </select>
                 </div>
                 <div id="streamProfileDetail" class="mb-2 text-xs text-slate-500">Checking hardware encoder profiles…</div>
@@ -244,8 +248,11 @@
                   <label class="flex items-center gap-2 text-sm text-slate-200">
                     <input type="checkbox" id="kbdCtrl" /> Keyboard
                   </label>
-                  <label class="flex items-center gap-2 text-sm text-slate-200" title="Show mouse cursor in captured frames">
+                  <label class="flex items-center gap-2 text-sm text-slate-200" title="Show the remote cursor without compositing it into captured frames">
                     <input type="checkbox" id="cursorCtrl" /> Cursor
+                  </label>
+                  <label class="flex items-center gap-2 text-sm text-slate-200" title="Hide your browser cursor over the remote desktop">
+                    <input type="checkbox" id="hideLocalCursorCtrl" /> Hide Local Cursor
                   </label>
                   <label class="flex items-center gap-2 text-sm text-slate-200 col-span-2" title="Sync clipboard between your browser and the remote machine">
                     <input type="checkbox" id="clipboardSyncCtrl" /> Clipboard Sync
@@ -274,6 +281,7 @@
             Client: <span id="clientLabel" class="text-slate-100">-</span>
           </div>
           <div
+            id="renderSurface"
             class="relative flex-1 flex items-center justify-center p-4"
             style="min-height: 0; overflow: hidden"
           >
@@ -304,6 +312,9 @@
                 height: auto;
               "
             ></video>
+            <div id="remoteCursor" hidden aria-hidden="true" class="absolute pointer-events-none" style="left: 0; top: 0; z-index: 30; will-change: transform">
+              <img id="remoteCursorImage" alt="" draggable="false" style="display: block; width: 100%; height: 100%" />
+            </div>
             <section id="diagnosticsHud" class="rd-diagnostics-hud hidden" aria-label="Streaming diagnostics">
               <div class="rd-diagnostics-header">
                 <div>

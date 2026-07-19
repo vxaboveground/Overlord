@@ -93,6 +93,7 @@ import {
   handleConsoleOutput,
   handleDesktopEncoderCapabilities,
   handleDesktopStreamStats,
+  handleDesktopCursor,
   handleConsoleViewerMessage,
   handleConsoleViewerOpen,
   handlebackstageViewerMessage,
@@ -658,6 +659,7 @@ async function startServer() {
     handleConsoleOutput: (clientId: string, payload: any) => handleConsoleOutput(clientId, payload),
     handleDesktopEncoderCapabilities: (clientId: string, payload: any) => handleDesktopEncoderCapabilities(clientId, payload),
     handleDesktopStreamStats: (clientId: string, payload: any) => handleDesktopStreamStats(clientId, payload),
+    handleDesktopCursor: (clientId: string, payload: unknown) => handleDesktopCursor(clientId, payload),
     handleFileBrowserMessage: (clientId: string, payload: any) =>
       forwardFileBrowserMessage(clientId, payload, {
         pendingHttpDownloads,

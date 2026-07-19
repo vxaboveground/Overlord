@@ -22,6 +22,7 @@ test("WebRTC input stays inactive until start and then forwards mouse and keyboa
 
       constructor(_url: string | URL) {
         super();
+        Object.defineProperty(window, "__rdSocket", { value: this, configurable: true });
         queueMicrotask(() => this.dispatchEvent(new Event("open")));
       }
 
@@ -43,16 +44,39 @@ test("WebRTC input stays inactive until start and then forwards mouse and keyboa
 
   await page.goto("/remotedesktop?clientId=webrtc-input-test");
   await expect(page.locator("#canvasContainer")).toHaveAttribute("tabindex", "0");
+  await page.evaluate(async () => {
+    const { encodeMsgpack } = await import("/assets/msgpack-helpers.js");
+    const encoded = encodeMsgpack({
+      type: "desktop_encoder_capabilities",
+      display: 0,
+      profiles: [
+        { maxHeight: 720, width: 1280, height: 720, fps: 60, label: "60 FPS - 720p" },
+        { maxHeight: 1080, width: 1920, height: 1080, fps: 60, label: "60 FPS - 1080p" },
+      ],
+      codecs: [{ codec: "h264", transports: ["websocket", "webrtc"] }],
+      selectedCodec: "h264",
+      fallbackCodecs: ["h264"],
+      transport: "websocket",
+    });
+    const data = encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength);
+    const socket = (window as typeof window & { __rdSocket: EventTarget }).__rdSocket;
+    socket.dispatchEvent(new MessageEvent("message", { data }));
+  });
+  await expect(page.locator("#streamProfileSelect option[value='1440:60']")).toHaveCount(1);
+  await expect(page.locator("#streamProfileSelect option[value='2160:60']")).toHaveCount(1);
 
   await page.evaluate(() => {
+    const sent = (window as typeof window & { __rdSent: ArrayBuffer[] }).__rdSent;
+    sent.length = 0;
     const mouseCtrl = document.querySelector<HTMLInputElement>("#mouseCtrl")!;
     const kbdCtrl = document.querySelector<HTMLInputElement>("#kbdCtrl")!;
+    const cursorCtrl = document.querySelector<HTMLInputElement>("#cursorCtrl")!;
     mouseCtrl.checked = true;
     mouseCtrl.dispatchEvent(new Event("change"));
     kbdCtrl.checked = true;
     kbdCtrl.dispatchEvent(new Event("change"));
-    const sent = (window as typeof window & { __rdSent: ArrayBuffer[] }).__rdSent;
-    sent.length = 0;
+    cursorCtrl.checked = true;
+    cursorCtrl.dispatchEvent(new Event("change"));
     const canvas = document.querySelector<HTMLCanvasElement>("#frameCanvas")!;
     const video = document.querySelector<HTMLVideoElement>("#webrtcVideo")!;
     canvas.style.display = "none";
@@ -70,10 +94,77 @@ test("WebRTC input stays inactive until start and then forwards mouse and keyboa
       height: 540,
       toJSON() { return this; },
     });
+    const renderSurface = document.querySelector<HTMLElement>("#renderSurface")!;
+    renderSurface.getBoundingClientRect = video.getBoundingClientRect;
+    canvas.getBoundingClientRect = video.getBoundingClientRect;
 
     video.dispatchEvent(new MouseEvent("mousedown", { clientX: 480, clientY: 270, button: 0, bubbles: true }));
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
   });
+
+  await page.evaluate(async () => {
+    const { encodeMsgpack } = await import("/assets/msgpack-helpers.js");
+    const encoded = encodeMsgpack({
+      type: "desktop_cursor",
+      x: 960,
+      y: 540,
+      width: 1920,
+      height: 1080,
+      visible: true,
+      cursorWidth: 32,
+      cursorHeight: 32,
+      hotspotX: 4,
+      hotspotY: 6,
+      image: Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="), (char) => char.charCodeAt(0)),
+    });
+    const data = encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength);
+    const socket = (window as typeof window & { __rdSocket: EventTarget }).__rdSocket;
+    socket.dispatchEvent(new MessageEvent("message", { data }));
+  });
+
+  await expect(page.locator("#frameCanvas")).toHaveCSS("cursor", "default");
+  await expect(page.locator("#webrtcVideo")).toHaveCSS("cursor", "default");
+  await expect(page.locator("#remoteCursor")).toBeHidden();
+
+  await page.evaluate(() => {
+    const mouseCtrl = document.querySelector<HTMLInputElement>("#mouseCtrl")!;
+    mouseCtrl.checked = false;
+    mouseCtrl.dispatchEvent(new Event("change"));
+  });
+  await expect(page.locator("#remoteCursor")).toBeVisible();
+  await expect(page.locator("#remoteCursor")).toHaveCSS("transform", "matrix(1, 0, 0, 1, 478, 267)");
+  await expect(page.locator("#frameCanvas")).toHaveCSS("cursor", "default");
+  await expect(page.locator("#remoteCursor")).toHaveCSS("width", "16px");
+  await expect(page.locator("#remoteCursor")).toHaveCSS("height", "16px");
+
+  await page.evaluate(() => {
+    const mouseCtrl = document.querySelector<HTMLInputElement>("#mouseCtrl")!;
+    const hideLocalCursorCtrl = document.querySelector<HTMLInputElement>("#hideLocalCursorCtrl")!;
+    mouseCtrl.checked = true;
+    mouseCtrl.dispatchEvent(new Event("change"));
+    hideLocalCursorCtrl.checked = true;
+    hideLocalCursorCtrl.dispatchEvent(new Event("change"));
+  });
+  await expect(page.locator("#frameCanvas")).toHaveCSS("cursor", "none");
+  await expect(page.locator("#webrtcVideo")).toHaveCSS("cursor", "none");
+  await expect(page.locator("#remoteCursor")).toBeVisible();
+
+  await page.evaluate(() => {
+    const hideLocalCursorCtrl = document.querySelector<HTMLInputElement>("#hideLocalCursorCtrl")!;
+    hideLocalCursorCtrl.checked = false;
+    hideLocalCursorCtrl.dispatchEvent(new Event("change"));
+  });
+  await expect(page.locator("#frameCanvas")).toHaveCSS("cursor", "default");
+  await expect(page.locator("#remoteCursor")).toBeHidden();
+  await expect.poll(async () => page.evaluate(async () => {
+    const sent = (window as typeof window & { __rdSent: ArrayBuffer[] }).__rdSent;
+    const { decodeMsgpack } = await import("/assets/msgpack-helpers.js");
+    return sent.map((message) => decodeMsgpack(message))
+      .filter((message) => message.type === "desktop_enable_cursor");
+  })).toContainEqual(expect.objectContaining({
+    type: "desktop_enable_cursor",
+    enabled: true,
+  }));
 
   await expect.poll(async () => page.evaluate(async () => {
     const sent = (window as typeof window & { __rdSent: ArrayBuffer[] }).__rdSent;

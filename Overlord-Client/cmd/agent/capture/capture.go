@@ -114,6 +114,7 @@ func CaptureAndSend(ctx context.Context, env *rt.Env) error {
 			log.Printf("capture: direct video capture failed: %v (sending black frame, consecutive=%d)", err, consecutiveCaptureFails.Load())
 			return sendBlackFrame(ctx, env)
 		}
+		emitDesktopCursor(ctx, env, display, frame.Header.Width, frame.Header.Height)
 		if len(frame.Data) == 0 {
 			consecutiveCaptureFails.Store(0)
 			return nil
@@ -168,6 +169,7 @@ func CaptureAndSend(ctx context.Context, env *rt.Env) error {
 	}
 	frame.Header.Width = frameWidth
 	frame.Header.Height = frameHeight
+	emitDesktopCursor(ctx, env, display, frameWidth, frameHeight)
 	now := time.Now()
 	fps := frameFPS(now)
 	if fps <= 0 {

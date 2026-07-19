@@ -10,6 +10,7 @@ import {
   handleRemoteDesktopViewerMessage,
   handleRemoteDesktopViewerOpen,
   handleDesktopStreamStats,
+  handleDesktopCursor,
   handleDesktopEncoderCapabilities,
   backstageStreamingState,
   rdStreamingState,
@@ -216,6 +217,41 @@ describe("remote desktop viewer control", () => {
     expect(message.captureMs).toBe(2.25);
     expect(message.encodeMs).toBe(4.5);
     expect(message.transport).toBe("webrtc");
+  });
+
+  test("forwards cursor metadata without modifying video frames", () => {
+    const clientId = `rd-cursor-${Date.now().toString(36)}`;
+    createClient(clientId);
+    const viewer = createMockWs({ clientId });
+    handleRemoteDesktopViewerOpen(viewer as unknown as Parameters<typeof handleRemoteDesktopViewerOpen>[0]);
+
+    handleDesktopCursor(clientId, {
+      type: "desktop_cursor",
+      x: 640,
+      y: 360,
+      width: 1280,
+      height: 720,
+      visible: true,
+      cursorWidth: 32,
+      cursorHeight: 32,
+      hotspotX: 3,
+      hotspotY: 4,
+      image: new Uint8Array([137, 80, 78, 71]),
+    });
+
+    expect(decodeMessage(viewer.sent.at(-1) as Uint8Array)).toEqual({
+      type: "desktop_cursor",
+      x: 640,
+      y: 360,
+      width: 1280,
+      height: 720,
+      visible: true,
+      cursorWidth: 32,
+      cursorHeight: 32,
+      hotspotX: 3,
+      hotspotY: 4,
+      image: new Uint8Array([137, 80, 78, 71]),
+    });
   });
 
   test("selects one mutually compatible codec across all viewer transports", () => {

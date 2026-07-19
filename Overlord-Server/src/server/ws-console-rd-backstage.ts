@@ -1568,6 +1568,33 @@ function releaseCanvasFrameAck(clientId: string, sessionId?: string): boolean {
   }
 }
 
+export function handleDesktopCursor(clientId: string, payload: unknown) {
+  const data = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  const image = data.image instanceof Uint8Array && data.image.byteLength <= 256 * 1024
+    ? data.image
+    : undefined;
+  const cursor = {
+    type: "desktop_cursor",
+    x: Math.max(0, Math.floor(Number(data.x) || 0)),
+    y: Math.max(0, Math.floor(Number(data.y) || 0)),
+    width: Math.max(0, Math.floor(Number(data.width) || 0)),
+    height: Math.max(0, Math.floor(Number(data.height) || 0)),
+    visible: data.visible === true,
+    ...(image
+      ? {
+          cursorWidth: Math.max(1, Math.floor(Number(data.cursorWidth) || 1)),
+          cursorHeight: Math.max(1, Math.floor(Number(data.cursorHeight) || 1)),
+          hotspotX: Math.max(0, Math.floor(Number(data.hotspotX) || 0)),
+          hotspotY: Math.max(0, Math.floor(Number(data.hotspotY) || 0)),
+          image,
+        }
+      : {}),
+  };
+  for (const session of sessionManager.getRdSessionsForClient(clientId)) {
+    safeSendViewer(session.viewer, cursor, "rd-cursor");
+  }
+}
+
 export function handleDesktopStreamStats(clientId: string, payload: any) {
   const stats = {
     type: "desktop_stream_stats",

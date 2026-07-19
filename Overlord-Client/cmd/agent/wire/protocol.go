@@ -130,6 +130,20 @@ type Frame struct {
 	Data   []byte      `msgpack:"data"`
 }
 
+type DesktopCursor struct {
+	Type         string `msgpack:"type"`
+	X            int    `msgpack:"x"`
+	Y            int    `msgpack:"y"`
+	Width        int    `msgpack:"width"`
+	Height       int    `msgpack:"height"`
+	Visible      bool   `msgpack:"visible"`
+	CursorWidth  int    `msgpack:"cursorWidth,omitempty"`
+	CursorHeight int    `msgpack:"cursorHeight,omitempty"`
+	HotspotX     int    `msgpack:"hotspotX,omitempty"`
+	HotspotY     int    `msgpack:"hotspotY,omitempty"`
+	Image        []byte `msgpack:"image,omitempty"`
+}
+
 type DesktopStreamStats struct {
 	Type      string  `msgpack:"type"`
 	FPS       int     `msgpack:"fps"`

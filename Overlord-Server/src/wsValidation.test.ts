@@ -11,6 +11,7 @@ describe("wsValidation", () => {
     expect(ALLOWED_CLIENT_MESSAGE_TYPES.has("hello")).toBe(true);
     expect(ALLOWED_CLIENT_MESSAGE_TYPES.has("ping")).toBe(true);
     expect(ALLOWED_CLIENT_MESSAGE_TYPES.has("frame")).toBe(true);
+    expect(ALLOWED_CLIENT_MESSAGE_TYPES.has("desktop_cursor")).toBe(true);
   });
 
   test("unknown client message types are rejected", () => {

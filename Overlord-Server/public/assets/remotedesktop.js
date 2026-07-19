@@ -63,6 +63,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   const mouseCtrl = document.getElementById("mouseCtrl");
   const kbdCtrl = document.getElementById("kbdCtrl");
   const cursorCtrl = document.getElementById("cursorCtrl");
+  const hideLocalCursorCtrl = document.getElementById("hideLocalCursorCtrl");
   const duplicationCtrl = document.getElementById("duplicationCtrl");
   const streamProfileSelect = document.getElementById("streamProfileSelect");
   const streamProfileDetail = document.getElementById("streamProfileDetail");
@@ -76,6 +77,9 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   const codecMode = document.getElementById("codecMode");
   const canvas = document.getElementById("frameCanvas");
   const canvasContainer = document.getElementById("canvasContainer");
+  const renderSurface = document.getElementById("renderSurface");
+  const remoteCursor = document.getElementById("remoteCursor");
+  const remoteCursorImage = document.getElementById("remoteCursorImage");
   const ctx = canvas.getContext("2d");
   const agentFps = document.getElementById("agentFps");
   const viewerFps = document.getElementById("viewerFps");
@@ -97,6 +101,9 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   let whepClient = null;
   let p2pClient = null;
   let webrtcActive = false;
+  let lastRemoteCursor = null;
+  let remoteCursorShape = null;
+  let remoteCursorImageUrl = "";
   function getWebrtcMode() {
     return webrtcMode ? String(webrtcMode.value || "off") : "off";
   }
@@ -462,6 +469,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     if (mouseCtrl && typeof settings.mouse === "boolean") mouseCtrl.checked = settings.mouse;
     if (kbdCtrl && typeof settings.keyboard === "boolean") kbdCtrl.checked = settings.keyboard;
     if (cursorCtrl && typeof settings.cursor === "boolean") cursorCtrl.checked = settings.cursor;
+    if (hideLocalCursorCtrl && typeof settings.hideLocalCursor === "boolean") hideLocalCursorCtrl.checked = settings.hideLocalCursor;
     if (duplicationCtrl && typeof settings.duplication === "boolean") duplicationCtrl.checked = settings.duplication;
     if (softwareH264Ctrl && typeof settings.softwareH264 === "boolean") softwareH264Ctrl.checked = settings.softwareH264;
     if (clipboardSyncCtrl && typeof settings.clipboardSync === "boolean") clipboardSyncCtrl.checked = settings.clipboardSync;
@@ -488,6 +496,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       mouse: !!mouseCtrl?.checked,
       keyboard: !!kbdCtrl?.checked,
       cursor: !!cursorCtrl?.checked,
+      hideLocalCursor: !!hideLocalCursorCtrl?.checked,
       duplication: !!duplicationCtrl?.checked,
       softwareH264: !!softwareH264Ctrl?.checked,
       clipboardSync: !!clipboardSyncCtrl?.checked,
@@ -540,6 +549,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
 
   function setStreamState(state, text) {
     streamState = state;
+    if (state !== "streaming" && state !== "stalled") {
+      lastRemoteCursor = null;
+      renderRemoteCursor();
+    }
     if (statusEl) {
       const icons = {
         connecting: '<i class="fa-solid fa-circle-notch fa-spin"></i>',
@@ -1259,6 +1272,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     webrtcActive = !!active;
     if (canvas) canvas.style.display = active ? "none" : "block";
     if (webrtcVideo) webrtcVideo.style.display = active ? "block" : "none";
+    renderRemoteCursor();
     if (!active && networkStats) {
       networkStats.textContent = "--";
       networkStats.title = "";
@@ -1659,10 +1673,20 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       }
       streamProfileSelect.appendChild(option);
     }
-    if (streamProfileSelect.options.length === 1) {
+    const manualHighResolutionProfiles = [
+      { maxHeight: 1440, fps: 30, label: "30 FPS - 1440p" },
+      { maxHeight: 1440, fps: 60, label: "60 FPS - 1440p" },
+      { maxHeight: 2160, fps: 30, label: "30 FPS - 2160p (4K)" },
+      { maxHeight: 2160, fps: 60, label: "60 FPS - 2160p (4K)" },
+    ];
+    const existingProfiles = new Set(Array.from(streamProfileSelect.options, (option) => option.value));
+    for (const profile of manualHighResolutionProfiles) {
+      const value = `${profile.maxHeight}:${profile.fps}`;
+      if (existingProfiles.has(value)) continue;
       const option = document.createElement("option");
-      option.value = "1080:60";
-      option.textContent = "60 FPS - 1080p";
+      option.value = value;
+      option.textContent = profile.label;
+      option.title = "Manual high-resolution profile";
       streamProfileSelect.appendChild(option);
     }
     if (!setSelectValue(streamProfileSelect, savedStreamProfile || "auto") &&
@@ -1817,13 +1841,68 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     }
   }
 
+
+  function renderRemoteCursor(message = lastRemoteCursor) {
+    lastRemoteCursor = message;
+    const image = message?.image;
+    if (remoteCursorImage && image instanceof Uint8Array && image.byteLength > 0) {
+      if (remoteCursorImageUrl) URL.revokeObjectURL(remoteCursorImageUrl);
+      remoteCursorImageUrl = URL.createObjectURL(new Blob([image], { type: "image/png" }));
+      remoteCursorImage.src = remoteCursorImageUrl;
+      remoteCursorShape = {
+        width: Math.max(1, Number(message.cursorWidth) || 1),
+        height: Math.max(1, Number(message.cursorHeight) || 1),
+        hotspotX: Math.max(0, Number(message.hotspotX) || 0),
+        hotspotY: Math.max(0, Number(message.hotspotY) || 0),
+      };
+    }
+    const hideLocalCursor = !!hideLocalCursorCtrl?.checked;
+    const showRemoteCursor = !!cursorCtrl?.checked && !!message?.visible && !!remoteCursorShape &&
+      (!mouseCtrl?.checked || hideLocalCursor);
+    const localCursor = hideLocalCursor ? "none" : "default";
+    canvas.style.cursor = localCursor;
+    if (webrtcVideo) webrtcVideo.style.cursor = localCursor;
+    if (!remoteCursor || !renderSurface || !showRemoteCursor) {
+      if (remoteCursor) remoteCursor.hidden = true;
+      return;
+    }
+    const surface = webrtcActive ? webrtcVideo : canvas;
+    const sourceWidth = Number(message.width) || (surface === webrtcVideo ? webrtcVideo.videoWidth : canvas.width);
+    const sourceHeight = Number(message.height) || (surface === webrtcVideo ? webrtcVideo.videoHeight : canvas.height);
+    if (!sourceWidth || !sourceHeight) {
+      remoteCursor.hidden = true;
+      return;
+    }
+    const surfaceRect = surface.getBoundingClientRect();
+    const containerRect = renderSurface.getBoundingClientRect();
+    const scaleX = surfaceRect.width / sourceWidth;
+    const scaleY = surfaceRect.height / sourceHeight;
+    const x = surfaceRect.left - containerRect.left + (Number(message.x) || 0) * scaleX -
+      remoteCursorShape.hotspotX * scaleX;
+    const y = surfaceRect.top - containerRect.top + (Number(message.y) || 0) * scaleY -
+      remoteCursorShape.hotspotY * scaleY;
+    remoteCursor.style.width = `${remoteCursorShape.width * scaleX}px`;
+    remoteCursor.style.height = `${remoteCursorShape.height * scaleY}px`;
+    remoteCursor.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+    remoteCursor.hidden = false;
+  }
+
+  function updateCursorPresentation() {
+    renderRemoteCursor();
+  }
+
   function pushCaptureToggles() {
     if (cursorCtrl) {
-      sendCmd("desktop_enable_cursor", { enabled: cursorCtrl.checked });
+      updateCursorPresentation();
+      sendCmd("desktop_enable_cursor", { enabled: !!cursorCtrl.checked });
     }
     if (duplicationCtrl && !duplicationCtrl.disabled) {
       sendCmd("desktop_set_duplication", { enabled: !!duplicationCtrl.checked });
     }
+  }
+  updateCursorPresentation();
+  if (renderSurface && typeof ResizeObserver === "function") {
+    new ResizeObserver(() => renderRemoteCursor()).observe(renderSurface);
   }
 
   function pushPrivacyToggle() {
@@ -1844,6 +1923,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
 
   mouseCtrl.addEventListener("change", function () {
     pushInputToggles();
+    updateCursorPresentation();
     sharedSettingsSaver.scheduleSave();
   });
   canvasContainer.setAttribute("tabindex", "0");
@@ -1876,6 +1956,12 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     pushCaptureToggles();
     sharedSettingsSaver.scheduleSave();
   });
+  if (hideLocalCursorCtrl) {
+    hideLocalCursorCtrl.addEventListener("change", function () {
+      updateCursorPresentation();
+      sharedSettingsSaver.scheduleSave();
+    });
+  }
   if (duplicationCtrl) {
     duplicationCtrl.addEventListener("change", function () {
       pushCaptureToggles();
@@ -2483,6 +2569,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       }
 
       const msg = decodeMsgpack(buf);
+      if (msg && msg.type === "desktop_cursor") {
+        renderRemoteCursor(msg);
+        return;
+      }
       if (msg && msg.type === "desktop_encoder_capabilities") {
         applyEncoderCapabilities(msg);
         return;
@@ -2526,6 +2616,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     }
 
     const msg = decodeMsgpack(ev.data);
+    if (msg && msg.type === "desktop_cursor") {
+      renderRemoteCursor(msg);
+      return;
+    }
     if (msg && msg.type === "desktop_encoder_capabilities") {
       applyEncoderCapabilities(msg);
       return;

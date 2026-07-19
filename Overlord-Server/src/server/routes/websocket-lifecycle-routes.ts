@@ -229,6 +229,7 @@ type WsLifecycleDeps = {
   handleConsoleOutput: (clientId: string, payload: any) => void;
   handleDesktopEncoderCapabilities: (clientId: string, payload: any) => void;
   handleDesktopStreamStats: (clientId: string, payload: any) => void;
+  handleDesktopCursor: (clientId: string, payload: unknown) => void;
   handleFileBrowserMessage: (clientId: string, payload: any) => void;
   handleProxyTunnelData: (clientId: string, connectionId: string, data: Uint8Array) => void;
   handleProxyTunnelClose: (clientId: string, connectionId: string) => void;
@@ -807,6 +808,9 @@ export async function handleWebSocketMessage(
         break;
       case "desktop_encoder_capabilities":
         deps.handleDesktopEncoderCapabilities(client.id, payload);
+        break;
+      case "desktop_cursor":
+        deps.handleDesktopCursor(client.id, payload);
         break;
       case "desktop_stream_stats":
         deps.handleDesktopStreamStats(client.id, payload);
