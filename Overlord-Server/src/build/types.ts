@@ -60,6 +60,7 @@ export type BuildConfig = {
   criticalProcess?: boolean;
   disableKeylogger?: boolean;
   enableWebrtc?: boolean;
+  promptWebrtcFirewallOnStart?: boolean;
   enableWinRE?: boolean;
   fetchPublicIP?: boolean;
   uploadToFileShare?: boolean;

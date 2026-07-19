@@ -174,6 +174,9 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   const H264_MAX_RECOVERY_ATTEMPTS = 1;
   const H264_DECODE_WARN_THROTTLE_MS = 2000;
   const inputBackpressureBytes = 256 * 1024;
+  const VIEWER_FRAME_GAP_KEYFRAME_MS = 500;
+  const VIEWER_FRAME_GAP_KEYFRAME_THROTTLE_MS = 1000;
+  let lastViewerFrameGapKeyframeAt = 0;
   const diagnostics = {
     agent: null,
     network: null,
@@ -1964,6 +1967,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     pushBitrate();
     desiredStreaming = true;
     lastFrameAt = 0;
+    lastViewerFrameGapKeyframeAt = 0;
     firstFrameLogged = false;
     resetH264SessionState();
     setStreamState("starting", "Starting stream");
@@ -2134,19 +2138,30 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   }
 
 
+  function cursorImageBytes(image) {
+    if (image instanceof Uint8Array) return image;
+    if (image instanceof ArrayBuffer) return new Uint8Array(image);
+    if (ArrayBuffer.isView(image)) {
+      return new Uint8Array(image.buffer, image.byteOffset, image.byteLength);
+    }
+    return null;
+  }
+
   function renderRemoteCursor(message = lastRemoteCursor) {
     lastRemoteCursor = message;
-    const image = message?.image;
-    if (remoteCursorImage && image instanceof Uint8Array && image.byteLength > 0) {
-      if (remoteCursorImageUrl) URL.revokeObjectURL(remoteCursorImageUrl);
-      remoteCursorImageUrl = URL.createObjectURL(new Blob([image], { type: "image/png" }));
-      remoteCursorImage.src = remoteCursorImageUrl;
+    const imageBytes = cursorImageBytes(message?.image);
+    if (message && Number(message.cursorWidth) > 0 && Number(message.cursorHeight) > 0) {
       remoteCursorShape = {
         width: Math.max(1, Number(message.cursorWidth) || 1),
         height: Math.max(1, Number(message.cursorHeight) || 1),
         hotspotX: Math.max(0, Number(message.hotspotX) || 0),
         hotspotY: Math.max(0, Number(message.hotspotY) || 0),
       };
+    }
+    if (remoteCursorImage && imageBytes && imageBytes.byteLength > 0) {
+      if (remoteCursorImageUrl) URL.revokeObjectURL(remoteCursorImageUrl);
+      remoteCursorImageUrl = URL.createObjectURL(new Blob([imageBytes], { type: "image/png" }));
+      remoteCursorImage.src = remoteCursorImageUrl;
     }
     const hideLocalCursor = !!hideLocalCursorCtrl?.checked;
     const showRemoteCursor = !!cursorCtrl?.checked && !!message?.visible && !!remoteCursorShape &&
@@ -2158,7 +2173,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       if (remoteCursor) remoteCursor.hidden = true;
       return;
     }
-    const surface = webrtcActive ? webrtcVideo : canvas;
+    const surface = (webrtcActive || (webrtcVideo && getComputedStyle(webrtcVideo).display !== "none")) ? webrtcVideo : canvas;
     const sourceWidth = Number(message.width) || (surface === webrtcVideo ? webrtcVideo.videoWidth : canvas.width);
     const sourceHeight = Number(message.height) || (surface === webrtcVideo ? webrtcVideo.videoHeight : canvas.height);
     if (!sourceWidth || !sourceHeight) {
@@ -2304,8 +2319,18 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
 
 
   function markFrameReceived() {
-    lastFrameAt = performance.now();
+    const now = performance.now();
+    const frameGapMs = lastFrameAt ? now - lastFrameAt : 0;
+    lastFrameAt = now;
     clearOfflineTimer();
+    if (
+      desiredStreaming &&
+      frameGapMs >= VIEWER_FRAME_GAP_KEYFRAME_MS &&
+      (!lastViewerFrameGapKeyframeAt || now - lastViewerFrameGapKeyframeAt >= VIEWER_FRAME_GAP_KEYFRAME_THROTTLE_MS)
+    ) {
+      lastViewerFrameGapKeyframeAt = now;
+      sendCmd("desktop_request_keyframe", { reason: "viewer_frame_gap" });
+    }
     if (!firstFrameLogged) {
       firstFrameLogged = true;
       rdDebug("first frame received", {

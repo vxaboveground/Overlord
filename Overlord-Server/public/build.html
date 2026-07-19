@@ -861,6 +861,16 @@
                       </div>
                     </label>
 
+                    <label class="flex items-start gap-2 ml-6 px-3 py-2 bg-slate-900/50 border border-slate-800 rounded-lg cursor-pointer hover:border-amber-500/60 transition-colors">
+                      <input type="checkbox" name="prompt-webrtc-firewall-on-start" class="w-4 h-4 mt-0.5" disabled />
+                      <div class="flex flex-col">
+                        <span class="flex items-center gap-2 text-sm text-slate-200">
+                          <i class="fa-solid fa-shield-halved text-amber-300"></i> Ask for WebRTC firewall access on launch
+                        </span>
+                        <span class="text-xs text-slate-500">Windows-only. Starts a one-time firewall permission probe as soon as the agent launches instead of waiting for the first WebRTC stream.</span>
+                      </div>
+                    </label>
+
                     <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-green-500 transition-colors">
                       <input type="checkbox" name="enable-nvenc" class="w-4 h-4" checked />
                       <div class="flex flex-col">
