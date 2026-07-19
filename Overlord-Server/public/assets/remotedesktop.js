@@ -117,7 +117,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   let smoothingPct = 20;
   let smoothPoint = null;
   let pendingMove = null;
-  let moveTimer = null;
+  let moveFrame = 0;
   let frameDecodeBusy = false;
   let pendingFrame = null;
   let videoDecoder = null;
@@ -143,9 +143,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   const H264_KEYFRAME_ERROR_RESTART_THRESHOLD = 24;
   const H264_MAX_RECOVERY_ATTEMPTS = 1;
   const H264_DECODE_WARN_THROTTLE_MS = 2000;
-  const mouseMoveIntervalMs = 33;
   const inputBackpressureBytes = 256 * 1024;
-  let lastMoveSentAt = 0;
   const diagnostics = {
     agent: null,
     network: null,
@@ -1840,6 +1838,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     }
   }
 
+  function isInputActive() {
+    return desiredStreaming;
+  }
+
   mouseCtrl.addEventListener("change", function () {
     pushInputToggles();
     sharedSettingsSaver.scheduleSave();
@@ -1847,9 +1849,15 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   canvasContainer.setAttribute("tabindex", "0");
   const kbdCapture = createKeyboardCapture({
     container: canvasContainer,
-    sendKeyDown: (e) => sendCmd("key_down", { key: e.key, code: e.code }),
-    sendKeyUp: (e) => sendCmd("key_up", { key: e.key, code: e.code }),
-    onTextInput: (e) => sendCmd("text_input", { text: e.key }),
+    sendKeyDown: (e) => {
+      if (isInputActive()) sendCmd("key_down", { key: e.key, code: e.code });
+    },
+    sendKeyUp: (e) => {
+      if (isInputActive()) sendCmd("key_up", { key: e.key, code: e.code });
+    },
+    onTextInput: (e) => {
+      if (isInputActive()) sendCmd("text_input", { text: e.key });
+    },
   });
   kbdCtrl.addEventListener("change", function () {
     if (kbdCtrl.checked) kbdCapture.enable();
@@ -2666,50 +2674,54 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     return { x, y };
   }
 
+  function scheduleMouseMove() {
+    if (!moveFrame) {
+      moveFrame = requestAnimationFrame(flushMouseMove);
+    }
+  }
+
   function flushMouseMove() {
-    moveTimer = null;
-    if (!pendingMove || !mouseCtrl.checked) return;
-    const now = performance.now();
+    moveFrame = 0;
+    if (!isInputActive() || !pendingMove || !mouseCtrl.checked) {
+      smoothPoint = null;
+      return;
+    }
     if (!smoothPoint) {
       smoothPoint = { x: pendingMove.x, y: pendingMove.y };
     }
-    const factor = Math.max(0, Math.min(0.8, smoothingPct / 100));
-    const alpha = 1 - factor;
-    smoothPoint.x += (pendingMove.x - smoothPoint.x) * alpha;
-    smoothPoint.y += (pendingMove.y - smoothPoint.y) * alpha;
 
+    const factor = Math.max(0, Math.min(0.4, smoothingPct / 200));
+    smoothPoint.x += (pendingMove.x - smoothPoint.x) * (1 - factor);
+    smoothPoint.y += (pendingMove.y - smoothPoint.y) * (1 - factor);
     const sendPoint = {
       x: Math.round(smoothPoint.x),
       y: Math.round(smoothPoint.y),
     };
 
-    if (now - lastMoveSentAt < mouseMoveIntervalMs) {
-      if (!moveTimer) {
-        moveTimer = setTimeout(flushMouseMove, mouseMoveIntervalMs);
-      }
-      return;
-    }
-
-    lastMoveSentAt = now;
     if (ws && ws.bufferedAmount <= inputBackpressureBytes) {
       sendCmd("mouse_move", sendPoint);
+    }
+
+    if (Math.abs(pendingMove.x - smoothPoint.x) > 0.5 ||
+        Math.abs(pendingMove.y - smoothPoint.y) > 0.5) {
+      scheduleMouseMove();
+    } else {
+      smoothPoint = { x: pendingMove.x, y: pendingMove.y };
     }
   }
 
   for (const inputSurface of [canvas, webrtcVideo]) {
     if (!inputSurface) continue;
     inputSurface.addEventListener("mousemove", function (e) {
-      if (!mouseCtrl.checked) return;
+      if (!isInputActive() || !mouseCtrl.checked) return;
       const pt = getRenderPoint(e);
       if (!pt) return;
       pendingMove = pt;
-      if (!moveTimer) {
-        flushMouseMove();
-      }
+      scheduleMouseMove();
     });
     inputSurface.addEventListener("mousedown", function (e) {
       canvasContainer.focus({ preventScroll: true });
-      if (!mouseCtrl.checked) return;
+      if (!isInputActive() || !mouseCtrl.checked) return;
       const pt = getRenderPoint(e);
       if (pt) {
         pendingMove = pt;
@@ -2720,7 +2732,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       e.preventDefault();
     });
     inputSurface.addEventListener("mouseup", function (e) {
-      if (!mouseCtrl.checked) return;
+      if (!isInputActive() || !mouseCtrl.checked) return;
       const pt = getRenderPoint(e);
       if (pt) {
         pendingMove = pt;
@@ -2731,10 +2743,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       e.preventDefault();
     });
     inputSurface.addEventListener("contextmenu", function (e) {
-      e.preventDefault();
+      if (isInputActive() && mouseCtrl.checked) e.preventDefault();
     });
     inputSurface.addEventListener("wheel", function (e) {
-      if (!mouseCtrl.checked) return;
+      if (!isInputActive() || !mouseCtrl.checked) return;
       const pt = getRenderPoint(e);
       if (!pt) return;
       const delta = Math.max(-120, Math.min(120, Math.round(-e.deltaY)));

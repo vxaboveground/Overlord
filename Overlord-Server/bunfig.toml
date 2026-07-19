@@ -1,2 +1,3 @@
 [test]
 preload = ["./test/preload.ts"]
+pathIgnorePatterns = ["test/e2e/**"]

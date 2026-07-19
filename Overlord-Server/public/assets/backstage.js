@@ -145,12 +145,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   let pendingFrame = null;
   let hasCanvasBase = false;
   let pendingMove = null;
-  let moveTimer = null;
+  let moveFrame = 0;
   let videoDecoder = null;
   let h264TimestampUs = 0;
   let prefersH264 = typeof VideoDecoder === "function";
-  let lastMoveSentAt = 0;
-  const mouseMoveIntervalMs = 33;
   const inputBackpressureBytes = 256 * 1024;
   let h264ErrorCount = 0;
   let h264RetryTimer = null;
@@ -1534,17 +1532,15 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     return { x, y };
   }
 
-  function flushMouseMove() {
-    moveTimer = null;
-    if (!pendingMove || !mouseCtrl.checked) return;
-    const now = performance.now();
-    if (now - lastMoveSentAt < mouseMoveIntervalMs) {
-      if (!moveTimer) {
-        moveTimer = setTimeout(flushMouseMove, mouseMoveIntervalMs);
-      }
-      return;
+  function scheduleMouseMove() {
+    if (!moveFrame) {
+      moveFrame = requestAnimationFrame(flushMouseMove);
     }
-    lastMoveSentAt = now;
+  }
+
+  function flushMouseMove() {
+    moveFrame = 0;
+    if (!desiredStreaming || !pendingMove || !mouseCtrl.checked) return;
     if (ws.bufferedAmount <= inputBackpressureBytes) {
       sendCmd("backstage_mouse_move", pendingMove);
     }
@@ -1553,17 +1549,15 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   for (const inputSurface of [canvas, webrtcVideo]) {
     if (!inputSurface) continue;
     inputSurface.addEventListener("mousemove", function (e) {
-      if (!mouseCtrl.checked) return;
+      if (!desiredStreaming || !mouseCtrl.checked) return;
       const pt = getRenderPoint(e);
       if (!pt) return;
       pendingMove = pt;
-      if (!moveTimer) {
-        flushMouseMove();
-      }
+      scheduleMouseMove();
     });
     inputSurface.addEventListener("mousedown", function (e) {
       canvasContainer.focus({ preventScroll: true });
-      if (!mouseCtrl.checked) return;
+      if (!desiredStreaming || !mouseCtrl.checked) return;
       const pt = getRenderPoint(e);
       if (pt) {
         pendingMove = pt;
@@ -1575,7 +1569,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       e.preventDefault();
     });
     inputSurface.addEventListener("mouseup", function (e) {
-      if (!mouseCtrl.checked) return;
+      if (!desiredStreaming || !mouseCtrl.checked) return;
       const pt = getRenderPoint(e);
       if (pt) {
         pendingMove = pt;
@@ -1587,10 +1581,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       e.preventDefault();
     });
     inputSurface.addEventListener("contextmenu", function (e) {
-      e.preventDefault();
+      if (desiredStreaming && mouseCtrl.checked) e.preventDefault();
     });
     inputSurface.addEventListener("wheel", function (e) {
-      if (!mouseCtrl.checked) return;
+      if (!desiredStreaming || !mouseCtrl.checked) return;
       const pt = getRenderPoint(e);
       if (!pt) return;
       const delta = Math.max(-120, Math.min(120, Math.round(-e.deltaY)));
@@ -1604,8 +1598,12 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   canvasContainer.setAttribute("tabindex", "0");
   const kbdCapture = createKeyboardCapture({
     container: canvasContainer,
-    sendKeyDown: (e) => sendCmd("backstage_key_down", { key: e.key, code: e.code }),
-    sendKeyUp: (e) => sendCmd("backstage_key_up", { key: e.key, code: e.code }),
+    sendKeyDown: (e) => {
+      if (desiredStreaming) sendCmd("backstage_key_down", { key: e.key, code: e.code });
+    },
+    sendKeyUp: (e) => {
+      if (desiredStreaming) sendCmd("backstage_key_up", { key: e.key, code: e.code });
+    },
   });
   if (kbdCtrl) {
     kbdCtrl.addEventListener("change", function () {

@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { login } from "./helpers";
 
-test("WebRTC video forwards mouse and keyboard input", async ({ page }) => {
+test("WebRTC input stays inactive until start and then forwards mouse and keyboard", async ({ page }) => {
   await login(page);
   await page.addInitScript(() => {
     const sent: ArrayBuffer[] = [];
@@ -71,6 +71,22 @@ test("WebRTC video forwards mouse and keyboard input", async ({ page }) => {
       toJSON() { return this; },
     });
 
+    video.dispatchEvent(new MouseEvent("mousedown", { clientX: 480, clientY: 270, button: 0, bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
+  });
+
+  await expect.poll(async () => page.evaluate(async () => {
+    const sent = (window as typeof window & { __rdSent: ArrayBuffer[] }).__rdSent;
+    const { decodeMsgpack } = await import("/assets/msgpack-helpers.js");
+    return sent.map((message) => decodeMsgpack(message))
+      .filter((message) => /^(mouse_|key_|text_input)/.test(message.type));
+  })).toEqual([]);
+
+  await page.locator("#startBtn").click();
+  await page.evaluate(() => {
+    const sent = (window as typeof window & { __rdSent: ArrayBuffer[] }).__rdSent;
+    sent.length = 0;
+    const video = document.querySelector<HTMLVideoElement>("#webrtcVideo")!;
     video.dispatchEvent(new MouseEvent("mousemove", { clientX: 480, clientY: 270, bubbles: true }));
     video.dispatchEvent(new MouseEvent("mousedown", { clientX: 480, clientY: 270, button: 0, bubbles: true }));
     video.dispatchEvent(new MouseEvent("mouseup", { clientX: 480, clientY: 270, button: 0, bubbles: true }));

@@ -5,6 +5,7 @@ const baseURL = `http://127.0.0.1:${port}`;
 
 export default defineConfig({
   testDir: "./test/e2e",
+  testMatch: "**/*.e2e.ts",
   globalSetup: "./test/e2e/global-setup.ts",
   fullyParallel: false,
   workers: 1,
