@@ -37,6 +37,7 @@ let metricsPageActive = true;
 const GEOJSON_URL = "/vendor/geo-countries/countries.geojson";
 const MAX_CHART_POINTS = 240;
 const METRICS_POLL_INTERVAL_MS = 5000;
+const CHART_ANIMATION_MS = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 480;
 const SESSION_LABELS = ["Console", "Remote Desktop", "Files", "Processes"];
 const SESSION_COLORS = ["#34d399", "#c084fc", "#60a5fa", "#fb923c"];
 const SESSION_EMPTY_COLOR = "rgba(100, 116, 139, 0.35)";
@@ -81,34 +82,55 @@ function chartTooltip() {
     bodyColor: "#cbd5e1",
     borderColor: "#334155",
     borderWidth: 1,
+    padding: 10,
+    displayColors: true,
+    callbacks: {
+      title: (items) => {
+        const timestamp = Number(items?.[0]?.parsed?.x);
+        return Number.isFinite(timestamp) ? formatChartTime(timestamp, true) : "";
+      },
+    },
   };
 }
 
+
 function lineChartOptions(extra = {}) {
-  const extraPlugins = extra.plugins || {};
+  const {
+    plugins: extraPlugins = {},
+    scales: extraScales = {},
+    ...extraOptions
+  } = extra;
   return {
     responsive: true,
     maintainAspectRatio: false,
-    animation: false,
+    normalized: true,
+    parsing: false,
+    animation: {
+      duration: CHART_ANIMATION_MS,
+      easing: "easeOutQuart",
+    },
     interaction: { mode: "index", intersect: false },
     scales: {
       y: {
         beginAtZero: true,
+        grace: "8%",
         ticks: { color: "#94a3b8" },
         grid: { color: "rgba(100, 116, 139, 0.1)" },
       },
       x: {
+        type: "linear",
+        bounds: "data",
         ticks: {
           color: "#94a3b8",
-          maxTicksLimit: 6,
-          autoSkip: true,
+          count: 6,
           maxRotation: 0,
+          callback: (value) => formatChartTime(Number(value), true),
         },
         grid: { color: "rgba(100, 116, 139, 0.1)" },
       },
-      ...(extra.scales || {}),
+      ...extraScales,
     },
-    ...extra,
+    ...extraOptions,
     plugins: {
       legend:
         extraPlugins.legend ?? { display: true, labels: { boxWidth: 10, boxHeight: 10 } },
@@ -166,107 +188,59 @@ function initCharts() {
   const sessionsCtx = document.getElementById("sessions-chart");
   const osCtx = document.getElementById("os-chart");
 
-  clientsChart = new Chart(clientsCtx, {
-    type: "line",
-    data: {
-      labels: [],
-      datasets: [
-        {
-          label: "Clients Online",
-          data: [],
-          borderColor: "rgb(96, 165, 250)",
-          backgroundColor: "rgba(96, 165, 250, 0.1)",
-          fill: true,
-          tension: 0.4,
-          pointRadius: 0,
-          pointHoverRadius: 4,
-          borderWidth: 2,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: "#0f172a",
-          titleColor: "#e2e8f0",
-          bodyColor: "#cbd5e1",
-          borderColor: "#334155",
-          borderWidth: 1,
-        },
-      },
+  clientsChart = makeLineChart(
+    clientsCtx,
+    [{
+      label: "Clients Online",
+      data: [],
+      borderColor: "rgb(96, 165, 250)",
+      backgroundColor: "rgba(96, 165, 250, 0.12)",
+      fill: true,
+      tension: 0.35,
+      cubicInterpolationMode: "monotone",
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      borderWidth: 2,
+    }],
+    {
+      plugins: { legend: { display: false } },
       scales: {
         y: {
           beginAtZero: true,
-          ticks: { color: "#94a3b8", stepSize: 1 },
-          grid: { color: "rgba(100, 116, 139, 0.1)" },
-        },
-        x: {
-          ticks: {
-            color: "#94a3b8",
-            maxTicksLimit: 6,
-            autoSkip: true,
-            maxRotation: 0,
-          },
+          grace: "10%",
+          ticks: { color: "#94a3b8", precision: 0 },
           grid: { color: "rgba(100, 116, 139, 0.1)" },
         },
       },
     },
-  });
+  );
 
-  commandsChart = new Chart(commandsCtx, {
-    type: "line",
-    data: {
-      labels: [],
-      datasets: [
-        {
-          label: "Commands/Min",
-          data: [],
-          borderColor: "rgb(192, 132, 252)",
-          backgroundColor: "rgba(192, 132, 252, 0.1)",
-          fill: true,
-          tension: 0.4,
-          pointRadius: 0,
-          pointHoverRadius: 4,
-          borderWidth: 2,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: "#0f172a",
-          titleColor: "#e2e8f0",
-          bodyColor: "#cbd5e1",
-          borderColor: "#334155",
-          borderWidth: 1,
-        },
-      },
+  commandsChart = makeLineChart(
+    commandsCtx,
+    [{
+      label: "Commands/Min",
+      data: [],
+      borderColor: "rgb(192, 132, 252)",
+      backgroundColor: "rgba(192, 132, 252, 0.12)",
+      fill: true,
+      tension: 0.35,
+      cubicInterpolationMode: "monotone",
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      borderWidth: 2,
+    }],
+    {
+      plugins: { legend: { display: false } },
       scales: {
         y: {
           beginAtZero: true,
-          ticks: { color: "#94a3b8" },
-          grid: { color: "rgba(100, 116, 139, 0.1)" },
-        },
-        x: {
-          ticks: {
-            color: "#94a3b8",
-            maxTicksLimit: 6,
-            autoSkip: true,
-            maxRotation: 0,
-          },
+          grace: "10%",
+          ticks: { color: "#94a3b8", precision: 0 },
           grid: { color: "rgba(100, 116, 139, 0.1)" },
         },
       },
     },
-  });
+  );
 
   bandwidthChart = makeLineChart(
     bandwidthCtx,
@@ -579,11 +553,13 @@ function formatMs(value) {
   return `${Math.round(value)} ms`;
 }
 
-function formatTime(timestamp) {
+function formatChartTime(timestamp, includeSeconds = false) {
   const date = new Date(timestamp);
-  return date.toLocaleTimeString("en-US", {
+  if (!Number.isFinite(date.getTime())) return "";
+  return date.toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
+    ...(includeSeconds ? { second: "2-digit" } : {}),
   });
 }
 
@@ -1702,111 +1678,90 @@ async function initCountryMap() {
   await loadCountryLocations();
 }
 
+function updateLineChart(chart, points, selectors) {
+  if (!chart) return;
+  const previousLengths = chart.data.datasets.map((dataset) => dataset.data.length);
+  const targetData = selectors.map((selector) => points.map((point) => ({
+    x: point.timestamp,
+    y: Number(selector(point)) || 0,
+  })));
+  const needsEndpointSeed = previousLengths.some((length, index) =>
+    length > 0 && targetData[index].length > length);
+
+  if (needsEndpointSeed) {
+    for (let index = 0; index < targetData.length; index += 1) {
+      const previousLength = previousLengths[index];
+      if (previousLength === 0 || targetData[index].length <= previousLength) continue;
+      const seeded = targetData[index].map((point, pointIndex, series) => {
+        if (pointIndex < previousLength) return point;
+        const previous = series[Math.max(0, pointIndex - 1)];
+        return { x: previous.x, y: previous.y };
+      });
+      chart.data.datasets[index].data = seeded;
+    }
+    // Materialize new Chart.js elements at the prior endpoint so they never
+    // render for one frame at the zero baseline.
+    chart.update("none");
+  }
+
+  for (let index = 0; index < targetData.length; index += 1) {
+    chart.data.datasets[index].data = targetData[index];
+  }
+  chart.update();
+}
+
 function updateCharts(history, snapshot) {
-  const points = Array.isArray(history) && history.length > 0
-    ? history.slice(-MAX_CHART_POINTS)
+  let points = Array.isArray(history)
+    ? history
+      .slice(-MAX_CHART_POINTS)
+      .filter((point) => Number.isFinite(Number(point?.timestamp)))
+      .map((point) => ({ ...point, timestamp: Number(point.timestamp) }))
     : [];
 
   if (points.length === 0) {
-    const now = new Date();
-    const label = formatTime(now.getTime());
-
-    clientsChart.data.labels = [label];
-    clientsChart.data.datasets[0].data = [snapshot.clients.online];
-    clientsChart.update("none");
-
-    commandsChart.data.labels = [label];
-    commandsChart.data.datasets[0].data = [snapshot.commands.lastMinute];
-    commandsChart.update("none");
-
-    if (bandwidthChart) {
-      bandwidthChart.data.labels = [label];
-      bandwidthChart.data.datasets[0].data = [snapshot.bandwidth.sentPerSecond || 0];
-      bandwidthChart.data.datasets[1].data = [snapshot.bandwidth.receivedPerSecond || 0];
-      bandwidthChart.update("none");
-    }
-
-    if (httpChart) {
-      httpChart.data.labels = [label];
-      httpChart.data.datasets[0].data = [snapshot.http.latencyP99 || 0];
-      httpChart.data.datasets[1].data = [snapshot.http.latencyP95 || 0];
-      httpChart.data.datasets[2].data = [snapshot.http.latencyAvg || 0];
-      httpChart.update("none");
-    }
-
-    if (httpRequestsChart) {
-      httpRequestsChart.data.labels = [label];
-      httpRequestsChart.data.datasets[0].data = [snapshot.http.lastMinute || 0];
-      httpRequestsChart.data.datasets[1].data = [snapshot.http.lastMinuteErrors || 0];
-      httpRequestsChart.update("none");
-    }
-
-    if (memoryChart) {
-      memoryChart.data.labels = [label];
-      memoryChart.data.datasets[0].data = [snapshot.server.memoryUsage.heapUsed || 0];
-      memoryChart.data.datasets[1].data = [snapshot.server.memoryUsage.rss || 0];
-      memoryChart.data.datasets[2].data = [snapshot.server.systemMemory.usedPercent || 0];
-      memoryChart.update("none");
-    }
-
-    if (eventLoopChart) {
-      eventLoopChart.data.labels = [label];
-      eventLoopChart.data.datasets[0].data = [snapshot.eventLoop.p95 || 0];
-      eventLoopChart.data.datasets[1].data = [snapshot.eventLoop.avg || 0];
-      eventLoopChart.update("none");
-    }
-    return;
+    points = [{
+      timestamp: Date.now(),
+      clientsOnline: snapshot.clients.online,
+      commandsPerMinute: snapshot.commands.lastMinute,
+      bandwidthSent: snapshot.bandwidth.sentPerSecond,
+      bandwidthReceived: snapshot.bandwidth.receivedPerSecond,
+      httpLatencyP99: snapshot.http.latencyP99,
+      httpLatencyP95: snapshot.http.latencyP95,
+      httpLatencyAvg: snapshot.http.latencyAvg,
+      httpRequestsPerMinute: snapshot.http.lastMinute,
+      httpErrorsPerMinute: snapshot.http.lastMinuteErrors,
+      heapUsed: snapshot.server.memoryUsage.heapUsed,
+      rss: snapshot.server.memoryUsage.rss,
+      systemMemoryUsedPercent: snapshot.server.systemMemory.usedPercent,
+      eventLoopP95: snapshot.eventLoop.p95,
+      eventLoopAvg: snapshot.eventLoop.avg,
+    }];
   }
 
-  const labels = points.map((h) => formatTime(h.timestamp));
-  const clientsData = points.map((h) => h.clientsOnline || 0);
-
-  clientsChart.data.labels = labels;
-  clientsChart.data.datasets[0].data = clientsData;
-  clientsChart.update("none");
-
-  const commandsData = points.map((h) => h.commandsPerMinute || 0);
-
-  commandsChart.data.labels = labels;
-  commandsChart.data.datasets[0].data = commandsData;
-  commandsChart.update("none");
-
-  if (bandwidthChart) {
-    bandwidthChart.data.labels = labels;
-    bandwidthChart.data.datasets[0].data = points.map((h) => h.bandwidthSent || 0);
-    bandwidthChart.data.datasets[1].data = points.map((h) => h.bandwidthReceived || 0);
-    bandwidthChart.update("none");
-  }
-
-  if (httpChart) {
-    httpChart.data.labels = labels;
-    httpChart.data.datasets[0].data = points.map((h) => h.httpLatencyP99 || 0);
-    httpChart.data.datasets[1].data = points.map((h) => h.httpLatencyP95 || 0);
-    httpChart.data.datasets[2].data = points.map((h) => h.httpLatencyAvg || 0);
-    httpChart.update("none");
-  }
-
-  if (httpRequestsChart) {
-    httpRequestsChart.data.labels = labels;
-    httpRequestsChart.data.datasets[0].data = points.map((h) => h.httpRequestsPerMinute || 0);
-    httpRequestsChart.data.datasets[1].data = points.map((h) => h.httpErrorsPerMinute || 0);
-    httpRequestsChart.update("none");
-  }
-
-  if (memoryChart) {
-    memoryChart.data.labels = labels;
-    memoryChart.data.datasets[0].data = points.map((h) => h.heapUsed || 0);
-    memoryChart.data.datasets[1].data = points.map((h) => h.rss || 0);
-    memoryChart.data.datasets[2].data = points.map((h) => h.systemMemoryUsedPercent || 0);
-    memoryChart.update("none");
-  }
-
-  if (eventLoopChart) {
-    eventLoopChart.data.labels = labels;
-    eventLoopChart.data.datasets[0].data = points.map((h) => h.eventLoopP95 || 0);
-    eventLoopChart.data.datasets[1].data = points.map((h) => h.eventLoopAvg || 0);
-    eventLoopChart.update("none");
-  }
+  updateLineChart(clientsChart, points, [(point) => point.clientsOnline]);
+  updateLineChart(commandsChart, points, [(point) => point.commandsPerMinute]);
+  updateLineChart(bandwidthChart, points, [
+    (point) => point.bandwidthSent,
+    (point) => point.bandwidthReceived,
+  ]);
+  updateLineChart(httpChart, points, [
+    (point) => point.httpLatencyP99,
+    (point) => point.httpLatencyP95,
+    (point) => point.httpLatencyAvg,
+  ]);
+  updateLineChart(httpRequestsChart, points, [
+    (point) => point.httpRequestsPerMinute,
+    (point) => point.httpErrorsPerMinute,
+  ]);
+  updateLineChart(memoryChart, points, [
+    (point) => point.heapUsed,
+    (point) => point.rss,
+    (point) => point.systemMemoryUsedPercent,
+  ]);
+  updateLineChart(eventLoopChart, points, [
+    (point) => point.eventLoopP95,
+    (point) => point.eventLoopAvg,
+  ]);
 }
 
 async function fetchMetrics() {
