@@ -1513,17 +1513,24 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     }, 1000);
   }
 
-  function getCanvasPoint(e) {
-    let rect = canvas.getBoundingClientRect();
+  function getRenderPoint(e) {
+    const surface = e.currentTarget;
+    let rect = surface.getBoundingClientRect();
     if (!rect.width || !rect.height) {
       rect = canvasContainer?.getBoundingClientRect() || rect;
     }
-    if (!rect.width || !rect.height || !canvas.width || !canvas.height) return null;
-    let x = ((e.clientX - rect.left) / rect.width) * canvas.width;
-    let y = ((e.clientY - rect.top) / rect.height) * canvas.height;
+    const targetW = surface === webrtcVideo
+      ? webrtcVideo.videoWidth
+      : canvas.width;
+    const targetH = surface === webrtcVideo
+      ? webrtcVideo.videoHeight
+      : canvas.height;
+    if (!rect.width || !rect.height || !targetW || !targetH) return null;
+    let x = ((e.clientX - rect.left) / rect.width) * targetW;
+    let y = ((e.clientY - rect.top) / rect.height) * targetH;
     if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-    x = Math.max(0, Math.min(canvas.width - 1, Math.floor(x)));
-    y = Math.max(0, Math.min(canvas.height - 1, Math.floor(y)));
+    x = Math.max(0, Math.min(targetW - 1, Math.floor(x)));
+    y = Math.max(0, Math.min(targetH - 1, Math.floor(y)));
     return { x, y };
   }
 
@@ -1543,59 +1550,60 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     }
   }
 
-  canvas.addEventListener("mousemove", function (e) {
-    if (!mouseCtrl.checked) return;
-    const pt = getCanvasPoint(e);
-    if (!pt) return;
-    pendingMove = pt;
-    if (!moveTimer) {
-      flushMouseMove();
-    }
-  });
-  canvas.addEventListener("mousedown", function (e) {
-    if (!mouseCtrl.checked) return;
-    canvas.focus({ preventScroll: true });
-    const pt = getCanvasPoint(e);
-    if (pt) {
+  for (const inputSurface of [canvas, webrtcVideo]) {
+    if (!inputSurface) continue;
+    inputSurface.addEventListener("mousemove", function (e) {
+      if (!mouseCtrl.checked) return;
+      const pt = getRenderPoint(e);
+      if (!pt) return;
       pendingMove = pt;
-      if (ws.bufferedAmount <= inputBackpressureBytes) {
-        sendCmd("backstage_mouse_move", pt);
+      if (!moveTimer) {
+        flushMouseMove();
       }
-    }
-    sendCmd("backstage_mouse_down", { button: e.button, ...(pt || {}) });
-    e.preventDefault();
-  });
-  canvas.addEventListener("mouseup", function (e) {
-    if (!mouseCtrl.checked) return;
-    const pt = getCanvasPoint(e);
-    if (pt) {
-      pendingMove = pt;
-      if (ws.bufferedAmount <= inputBackpressureBytes) {
-        sendCmd("backstage_mouse_move", pt);
+    });
+    inputSurface.addEventListener("mousedown", function (e) {
+      canvasContainer.focus({ preventScroll: true });
+      if (!mouseCtrl.checked) return;
+      const pt = getRenderPoint(e);
+      if (pt) {
+        pendingMove = pt;
+        if (ws.bufferedAmount <= inputBackpressureBytes) {
+          sendCmd("backstage_mouse_move", pt);
+        }
       }
-    }
-    sendCmd("backstage_mouse_up", { button: e.button, ...(pt || {}) });
-    e.preventDefault();
-  });
-  canvas.addEventListener("contextmenu", function (e) {
-    e.preventDefault();
-  });
-
-  canvas.addEventListener("wheel", function (e) {
-    if (!mouseCtrl.checked) return;
-    const pt = getCanvasPoint(e);
-    if (!pt) return;
-    const delta = Math.max(-120, Math.min(120, Math.round(-e.deltaY)));
-    sendCmd("backstage_mouse_wheel", { delta, x: pt.x, y: pt.y });
-    e.preventDefault();
-  }, { passive: false });
-
-  canvas.setAttribute("tabindex", "0");
-  canvas.addEventListener("click", function () {
-    canvas.focus({ preventScroll: true });
-  });
+      sendCmd("backstage_mouse_down", { button: e.button, ...(pt || {}) });
+      e.preventDefault();
+    });
+    inputSurface.addEventListener("mouseup", function (e) {
+      if (!mouseCtrl.checked) return;
+      const pt = getRenderPoint(e);
+      if (pt) {
+        pendingMove = pt;
+        if (ws.bufferedAmount <= inputBackpressureBytes) {
+          sendCmd("backstage_mouse_move", pt);
+        }
+      }
+      sendCmd("backstage_mouse_up", { button: e.button, ...(pt || {}) });
+      e.preventDefault();
+    });
+    inputSurface.addEventListener("contextmenu", function (e) {
+      e.preventDefault();
+    });
+    inputSurface.addEventListener("wheel", function (e) {
+      if (!mouseCtrl.checked) return;
+      const pt = getRenderPoint(e);
+      if (!pt) return;
+      const delta = Math.max(-120, Math.min(120, Math.round(-e.deltaY)));
+      sendCmd("backstage_mouse_wheel", { delta, x: pt.x, y: pt.y });
+      e.preventDefault();
+    }, { passive: false });
+    inputSurface.addEventListener("click", function () {
+      canvasContainer.focus({ preventScroll: true });
+    });
+  }
+  canvasContainer.setAttribute("tabindex", "0");
   const kbdCapture = createKeyboardCapture({
-    container: canvas,
+    container: canvasContainer,
     sendKeyDown: (e) => sendCmd("backstage_key_down", { key: e.key, code: e.code }),
     sendKeyUp: (e) => sendCmd("backstage_key_up", { key: e.key, code: e.code }),
   });

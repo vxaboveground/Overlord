@@ -1844,8 +1844,9 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     pushInputToggles();
     sharedSettingsSaver.scheduleSave();
   });
+  canvasContainer.setAttribute("tabindex", "0");
   const kbdCapture = createKeyboardCapture({
-    container: canvas,
+    container: canvasContainer,
     sendKeyDown: (e) => sendCmd("key_down", { key: e.key, code: e.code }),
     sendKeyUp: (e) => sendCmd("key_up", { key: e.key, code: e.code }),
     onTextInput: (e) => sendCmd("text_input", { text: e.key }),
@@ -2644,13 +2645,18 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     }, 1000);
   }
 
-  function getCanvasPoint(e) {
-    let rect = canvas.getBoundingClientRect();
+  function getRenderPoint(e) {
+    const surface = e.currentTarget;
+    let rect = surface.getBoundingClientRect();
     if (!rect.width || !rect.height) {
       rect = canvasContainer?.getBoundingClientRect() || rect;
     }
-    const targetW = canvas.width || frameWidth;
-    const targetH = canvas.height || frameHeight;
+    const targetW = surface === webrtcVideo
+      ? (webrtcVideo.videoWidth || frameWidth)
+      : (canvas.width || frameWidth);
+    const targetH = surface === webrtcVideo
+      ? (webrtcVideo.videoHeight || frameHeight)
+      : (canvas.height || frameHeight);
     if (!rect.width || !rect.height || !targetW || !targetH) return null;
     let x = ((e.clientX - rect.left) / rect.width) * targetW;
     let y = ((e.clientY - rect.top) / rect.height) * targetH;
@@ -2690,54 +2696,55 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     }
   }
 
-  canvas.addEventListener("mousemove", function (e) {
-    if (!mouseCtrl.checked) return;
-    const pt = getCanvasPoint(e);
-    if (!pt) return;
-    pendingMove = pt;
-    if (!moveTimer) {
-      flushMouseMove();
-    }
-  });
-  canvas.addEventListener("mousedown", function (e) {
-    if (!mouseCtrl.checked) return;
-    canvas.focus({ preventScroll: true });
-    const pt = getCanvasPoint(e);
-    if (pt) {
+  for (const inputSurface of [canvas, webrtcVideo]) {
+    if (!inputSurface) continue;
+    inputSurface.addEventListener("mousemove", function (e) {
+      if (!mouseCtrl.checked) return;
+      const pt = getRenderPoint(e);
+      if (!pt) return;
       pendingMove = pt;
-      smoothPoint = { x: pt.x, y: pt.y };
-      sendCmd("mouse_move", pt);
-    }
-    sendCmd("mouse_down", { button: e.button, ...(pt || {}) });
-    e.preventDefault();
-  });
-  canvas.addEventListener("mouseup", function (e) {
-    if (!mouseCtrl.checked) return;
-    const pt = getCanvasPoint(e);
-    if (pt) {
-      pendingMove = pt;
-      smoothPoint = { x: pt.x, y: pt.y };
-      sendCmd("mouse_move", pt);
-    }
-    sendCmd("mouse_up", { button: e.button, ...(pt || {}) });
-    e.preventDefault();
-  });
-  canvas.addEventListener("contextmenu", function (e) {
-    e.preventDefault();
-  });
-  canvas.addEventListener("wheel", function (e) {
-    if (!mouseCtrl.checked) return;
-    const pt = getCanvasPoint(e);
-    if (!pt) return;
-    const delta = Math.max(-120, Math.min(120, Math.round(-e.deltaY)));
-    sendCmd("mouse_wheel", { delta, x: pt.x, y: pt.y });
-    e.preventDefault();
-  }, { passive: false });
-
-  canvas.setAttribute("tabindex", "0");
-  canvas.addEventListener("click", function () {
-    canvas.focus({ preventScroll: true });
-  });
+      if (!moveTimer) {
+        flushMouseMove();
+      }
+    });
+    inputSurface.addEventListener("mousedown", function (e) {
+      canvasContainer.focus({ preventScroll: true });
+      if (!mouseCtrl.checked) return;
+      const pt = getRenderPoint(e);
+      if (pt) {
+        pendingMove = pt;
+        smoothPoint = { x: pt.x, y: pt.y };
+        sendCmd("mouse_move", pt);
+      }
+      sendCmd("mouse_down", { button: e.button, ...(pt || {}) });
+      e.preventDefault();
+    });
+    inputSurface.addEventListener("mouseup", function (e) {
+      if (!mouseCtrl.checked) return;
+      const pt = getRenderPoint(e);
+      if (pt) {
+        pendingMove = pt;
+        smoothPoint = { x: pt.x, y: pt.y };
+        sendCmd("mouse_move", pt);
+      }
+      sendCmd("mouse_up", { button: e.button, ...(pt || {}) });
+      e.preventDefault();
+    });
+    inputSurface.addEventListener("contextmenu", function (e) {
+      e.preventDefault();
+    });
+    inputSurface.addEventListener("wheel", function (e) {
+      if (!mouseCtrl.checked) return;
+      const pt = getRenderPoint(e);
+      if (!pt) return;
+      const delta = Math.max(-120, Math.min(120, Math.round(-e.deltaY)));
+      sendCmd("mouse_wheel", { delta, x: pt.x, y: pt.y });
+      e.preventDefault();
+    }, { passive: false });
+    inputSurface.addEventListener("click", function () {
+      canvasContainer.focus({ preventScroll: true });
+    });
+  }
 
   function stopOnExit() {
     sharedSettingsSaver.saveNow();
