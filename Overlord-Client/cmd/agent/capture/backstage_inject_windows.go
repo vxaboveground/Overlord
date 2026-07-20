@@ -637,20 +637,52 @@ func cloneBrowserProfile(browserName string, srcUserData string, lite bool, onPr
 
 	// Calculate total size for progress reporting
 	var totalBytes int64
+	var progressMu sync.Mutex
+	progress := func(percent int, copiedBytes, totalBytes int64, status string) {
+		if onProgress == nil {
+			return
+		}
+		progressMu.Lock()
+		defer progressMu.Unlock()
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[panic] backstage %s clone progress callback: %v", browserName, r)
+			}
+		}()
+		onProgress(percent, copiedBytes, totalBytes, status)
+	}
 	if onProgress != nil {
-		onProgress(0, 0, 0, "scanning")
+		progress(0, 0, 0, "scanning")
 		totalBytes = calcCloneSize(srcUserData, skipDirs)
-		onProgress(0, 0, totalBytes, "cloning")
+		progress(0, 0, totalBytes, "cloning")
 	}
 
 	type copyJob struct {
-		src string
-		dst string
+		src  string
+		dst  string
+		rel  string
+		size int64
 	}
 	var jobs []copyJob
 
 	collectFile := func(src, dst string) {
-		jobs = append(jobs, copyJob{src: src, dst: dst})
+		if isCloneLockFileName(filepath.Base(src)) {
+			return
+		}
+		info, err := os.Lstat(src)
+		if err != nil {
+			log.Printf("backstage %s: warning: could not stat %s: %v", browserName, src, err)
+			return
+		}
+		if !isCloneableFile(info) {
+			log.Printf("backstage %s: skipping non-regular file %s", browserName, src)
+			return
+		}
+		rel, err := filepath.Rel(srcUserData, src)
+		if err != nil {
+			rel = src
+		}
+		jobs = append(jobs, copyJob{src: src, dst: dst, rel: rel, size: info.Size()})
 	}
 
 	// Get browser info to check profile structure
@@ -708,37 +740,95 @@ func cloneBrowserProfile(browserName string, srcUserData string, lite bool, onPr
 	jobCh := make(chan copyJob, 256)
 	var wg sync.WaitGroup
 	var copiedBytes atomic.Int64
+	var failedCopies atomic.Int64
 	var lastPercent atomic.Int32
 	lastPercent.Store(-1)
+
+	copyProgress := func(status string) {
+		if onProgress == nil {
+			return
+		}
+		cur := copiedBytes.Load()
+		if totalBytes > 0 && cur > totalBytes {
+			cur = totalBytes
+		}
+		pct := 0
+		if totalBytes > 0 {
+			pct = int(cur * 100 / totalBytes)
+			if pct > 100 {
+				pct = 100
+			}
+		}
+		progress(pct, cur, totalBytes, status)
+	}
 
 	reportProgress := func(n int64) {
 		if onProgress == nil || totalBytes <= 0 || n <= 0 {
 			return
 		}
 		cur := copiedBytes.Add(n)
+		if cur > totalBytes {
+			cur = totalBytes
+		}
 		pct := int32(cur * 100 / totalBytes)
 		if pct > 100 {
 			pct = 100
 		}
 		prev := lastPercent.Load()
 		if pct > prev && lastPercent.CompareAndSwap(prev, pct) {
-			onProgress(int(pct), cur, totalBytes, "cloning")
+			progress(int(pct), cur, totalBytes, "cloning")
 		}
 	}
 
-	for i := 0; i < numWorkers; i++ {
+	copyAttempt := func(job copyJob) (n int64, err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic while copying %s: %v", job.src, r)
+			}
+		}()
+		return forceCopyFile(job.src, job.dst)
+	}
+
+	const (
+		cloneCopyMaxAttempts = 3
+		cloneCopyRetryDelay  = 750 * time.Millisecond
+	)
+
+	copyOne := func(job copyJob) (int64, error) {
+		var lastErr error
+		for attempt := range cloneCopyMaxAttempts {
+			if attempt == 0 {
+				copyProgress("copying|" + job.rel)
+			} else {
+				copyProgress(fmt.Sprintf("retrying|%d|%d|%s|%v", attempt+1, cloneCopyMaxAttempts, job.rel, lastErr))
+			}
+
+			n, err := copyAttempt(job)
+			if err == nil {
+				return n, nil
+			}
+			lastErr = err
+			log.Printf("backstage %s: copy attempt %d/%d failed for %s: %v", browserName, attempt+1, cloneCopyMaxAttempts, job.src, err)
+			if attempt+1 < cloneCopyMaxAttempts {
+				time.Sleep(cloneCopyRetryDelay)
+			}
+		}
+		return 0, lastErr
+	}
+
+	for range numWorkers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("[panic] backstage file copy worker: %v", r)
-				}
-			}()
 			for job := range jobCh {
-				n, err := forceCopyFile(job.src, job.dst)
+				n, err := copyOne(job)
 				if err != nil {
-					log.Printf("backstage %s: warning: could not copy %s: %v", browserName, job.src, err)
+					failedCopies.Add(1)
+					copyProgress(fmt.Sprintf("skipped|%s|%v", job.rel, err))
+					log.Printf("backstage %s: error: could not copy %s after retries; continuing: %v", browserName, job.src, err)
+					if job.size > 0 {
+						reportProgress(job.size)
+					}
 				} else {
 					reportProgress(n)
 				}
@@ -753,10 +843,30 @@ func cloneBrowserProfile(browserName string, srcUserData string, lite bool, onPr
 	wg.Wait()
 
 	if onProgress != nil {
-		onProgress(100, totalBytes, totalBytes, "done")
+		if failed := failedCopies.Load(); failed > 0 {
+			progress(100, totalBytes, totalBytes, fmt.Sprintf("done_with_errors|%d", failed))
+		} else {
+			progress(100, totalBytes, totalBytes, "done")
+		}
 	}
 
 	return cloneBase, nil
+}
+
+func isCloneableFile(info os.FileInfo) bool {
+	if info == nil {
+		return false
+	}
+	mode := info.Mode()
+	return mode.IsRegular() && mode&os.ModeSymlink == 0
+}
+
+func isCloneLockFileName(name string) bool {
+	return strings.EqualFold(name, "LOCK") || strings.EqualFold(name, "lockfile")
+}
+
+func isCloneableDirEntry(entry os.DirEntry) bool {
+	return entry != nil && entry.IsDir() && entry.Type()&os.ModeSymlink == 0
 }
 
 func collectProfileDir(src, dst string, skipDirs map[string]bool, collect func(string, string)) {
@@ -765,10 +875,13 @@ func collectProfileDir(src, dst string, skipDirs map[string]bool, collect func(s
 		return
 	}
 	for _, entry := range entries {
+		if entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
 		name := entry.Name()
 		s := filepath.Join(src, name)
 		d := filepath.Join(dst, name)
-		if entry.IsDir() {
+		if isCloneableDirEntry(entry) {
 			if skipDirs[strings.ToLower(name)] {
 				continue
 			}
@@ -781,7 +894,19 @@ func collectProfileDir(src, dst string, skipDirs map[string]bool, collect func(s
 
 func collectDirFiles(src, dst string, collect func(string, string)) {
 	filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+		if err != nil {
+			return nil
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if isCloneLockFileName(filepath.Base(path)) || !isCloneableFile(info) {
 			return nil
 		}
 		rel, _ := filepath.Rel(src, path)
@@ -808,7 +933,7 @@ func calcCloneSize(srcUserData string, skipDirs map[string]bool) int64 {
 	for _, entry := range entries {
 		name := entry.Name()
 		p := filepath.Join(srcUserData, name)
-		if entry.IsDir() {
+		if isCloneableDirEntry(entry) {
 			isProfile := false
 			if isFirefox {
 				isProfile = isFirefoxProfile(name)
@@ -821,8 +946,8 @@ func calcCloneSize(srcUserData string, skipDirs map[string]bool) int64 {
 			} else if !skipDirs[strings.ToLower(name)] {
 				total += calcDirSize(p)
 			}
-		} else {
-			if info, err := entry.Info(); err == nil {
+		} else if !isCloneLockFileName(name) {
+			if info, err := entry.Info(); err == nil && isCloneableFile(info) {
 				total += info.Size()
 			}
 		}
@@ -839,12 +964,12 @@ func calcProfileSize(dir string, skipDirs map[string]bool) int64 {
 	for _, entry := range entries {
 		name := entry.Name()
 		p := filepath.Join(dir, name)
-		if entry.IsDir() {
+		if isCloneableDirEntry(entry) {
 			if !skipDirs[strings.ToLower(name)] {
 				total += calcDirSize(p)
 			}
-		} else {
-			if info, err := entry.Info(); err == nil {
+		} else if !isCloneLockFileName(name) {
+			if info, err := entry.Info(); err == nil && isCloneableFile(info) {
 				total += info.Size()
 			}
 		}
@@ -854,11 +979,17 @@ func calcProfileSize(dir string, skipDirs map[string]bool) int64 {
 
 func calcDirSize(dir string) int64 {
 	var total int64
-	filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
+	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
-		if !info.IsDir() {
+		if info.Mode()&os.ModeSymlink != 0 {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !info.IsDir() && !isCloneLockFileName(filepath.Base(path)) && isCloneableFile(info) {
 			total += info.Size()
 		}
 		return nil

@@ -944,15 +944,23 @@ export function handleWebcamDevices(clientId: string, payload: any) {
   }
 }
 
-export function handlebackstageCloneProgress(clientId: string, payload: any) {
+export function handlebackstageCloneProgress(clientId: string, payload: unknown) {
+  const data = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  const browser = String(data.browser || "");
+  const status = String(data.status || "");
+  if (status.startsWith("copying|") || status.startsWith("retrying|")) {
+    logger.debug(`[backstage] clone client=${clientId} browser=${browser} status=${status}`);
+  } else if (status.startsWith("failed|") || status.startsWith("skipped|") || status.startsWith("done_with_errors|")) {
+    logger.warn(`[backstage] clone client=${clientId} browser=${browser} status=${status}`);
+  }
   for (const session of sessionManager.getbackstageSessionsForClient(clientId)) {
     safeSendViewer(session.viewer, {
       type: "backstage_clone_progress",
-      browser: String(payload.browser || ""),
-      percent: Number(payload.percent) || 0,
-      copiedBytes: Number(payload.copiedBytes) || 0,
-      totalBytes: Number(payload.totalBytes) || 0,
-      status: String(payload.status || ""),
+      browser,
+      percent: Number(data.percent) || 0,
+      copiedBytes: Number(data.copiedBytes) || 0,
+      totalBytes: Number(data.totalBytes) || 0,
+      status,
     });
   }
 }

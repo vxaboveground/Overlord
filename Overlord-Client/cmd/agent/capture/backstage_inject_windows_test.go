@@ -3,7 +3,10 @@
 package capture
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"syscall"
 	"testing"
 )
@@ -52,6 +55,64 @@ func TestAppendEnvironmentOverridesPreservesUnicodeAndReplacesRDI(t *testing.T) 
 			t.Fatalf("missing environment entry %q in %#v", want, entries)
 		}
 	}
+}
+
+func TestCloneBrowserProfileProgressPanicDoesNotAbortCopy(t *testing.T) {
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "Local State"), []byte("state"), 0600); err != nil {
+		t.Fatalf("write Local State: %v", err)
+	}
+	profileDir := filepath.Join(src, "Default")
+	if err := os.MkdirAll(profileDir, 0700); err != nil {
+		t.Fatalf("mkdir profile: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(profileDir, "Cookies"), []byte("cookies"), 0600); err != nil {
+		t.Fatalf("write Cookies: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(profileDir, "LOCK"), []byte("lock"), 0600); err != nil {
+		t.Fatalf("write LOCK: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(profileDir, "lockfile"), []byte("lockfile"), 0600); err != nil {
+		t.Fatalf("write lockfile: %v", err)
+	}
+	var statuses []string
+
+	cloneDir, err := cloneBrowserProfile("Chrome", src, false, func(percent int, copiedBytes, totalBytes int64, status string) {
+		statuses = append(statuses, status)
+		if status == "cloning" || percent == 100 {
+			panic("progress callback failed")
+		}
+	})
+	if err != nil {
+		t.Fatalf("cloneBrowserProfile: %v", err)
+	}
+	if !slices.ContainsFunc(statuses, func(status string) bool {
+		return strings.HasPrefix(status, "copying|")
+	}) {
+		t.Fatalf("clone progress did not report current copy file: %#v", statuses)
+	}
+
+	if got, err := os.ReadFile(filepath.Join(cloneDir, "Local State")); err != nil || string(got) != "state" {
+		t.Fatalf("cloned Local State = %q, %v", got, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(cloneDir, "Default", "Cookies")); err != nil || string(got) != "cookies" {
+		t.Fatalf("cloned Cookies = %q, %v", got, err)
+	}
+	for _, skipped := range []string{"LOCK", "lockfile"} {
+		if _, err := os.Stat(filepath.Join(cloneDir, "Default", skipped)); !os.IsNotExist(err) {
+			t.Fatalf("lock file %s should not be cloned; stat err=%v", skipped, err)
+		}
+	}
+}
+
+func TestGetProcessesLockingFileShortPathDoesNotPanic(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("getProcessesLockingFile panicked for short path: %v", r)
+		}
+	}()
+
+	_ = getProcessesLockingFile("a")
 }
 
 func testEnvironmentBlock(t *testing.T, entries ...string) []uint16 {

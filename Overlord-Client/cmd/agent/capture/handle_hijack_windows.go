@@ -3,6 +3,7 @@
 package capture
 
 import (
+	"errors"
 	"io"
 	"log"
 	"os"
@@ -59,6 +60,8 @@ const (
 	fileTypeDisk                    = 0x0001
 )
 
+var errHijackHandleNotFound = errors.New("matching locked file handle not found")
+
 type systemHandleTableEntryInfoEx struct {
 	Object           uintptr
 	UniqueProcessId  uintptr
@@ -80,7 +83,24 @@ func forceReadFile(filePath string) ([]byte, error) {
 	}
 
 	log.Printf("[handle-hijack] file locked, attempting hijack: %s", filePath)
+	dupHandle, hijackErr := duplicateLockedFileHandle(filePath, err)
+	if hijackErr != nil {
+		return nil, hijackErr
+	}
+	defer procCloseHandle.Call(dupHandle)
 
+	data = readFileFromHandle(dupHandle)
+	if data == nil {
+		return nil, err
+	}
+	log.Printf("[handle-hijack] read %d bytes via hijacking", len(data))
+	return data, nil
+}
+
+func duplicateLockedFileHandle(filePath string, fallbackErr error) (uintptr, error) {
+	if fallbackErr == nil {
+		fallbackErr = errHijackHandleNotFound
+	}
 	lockingPids := getProcessesLockingFile(filePath)
 
 	currentProcess, _, _ := procGetCurrentProcess.Call()
@@ -101,7 +121,7 @@ func forceReadFile(filePath string) ([]byte, error) {
 			continue
 		}
 		if status != 0 {
-			return nil, err
+			return 0, fallbackErr
 		}
 		break
 	}
@@ -171,18 +191,21 @@ func forceReadFile(filePath string) ([]byte, error) {
 		}
 
 		log.Printf("[handle-hijack] found matching handle from PID %d", pid)
-		data := readFileFromHandle(dupHandle)
-		procCloseHandle.Call(dupHandle)
-		if data != nil {
-			log.Printf("[handle-hijack] read %d bytes via hijacking", len(data))
-			return data, nil
-		}
+		return dupHandle, nil
 	}
 
-	return nil, err
+	return 0, fallbackErr
 }
 
 func forceCopyFile(src, dst string) (int64, error) {
+	if shouldTryHijackBeforeCopy(src) {
+		n, err := copyFileViaHijack(src, dst, nil)
+		if err == nil {
+			return n, nil
+		}
+		log.Printf("[handle-hijack] pre-copy hijack failed for %s: %v; falling back to normal copy", src, err)
+	}
+
 	n, err := copyFileCount(src, dst)
 	if err == nil {
 		return n, nil
@@ -191,18 +214,50 @@ func forceCopyFile(src, dst string) (int64, error) {
 		return 0, err
 	}
 
-	data, hijackErr := forceReadFile(src)
-	if hijackErr != nil || data == nil {
+	n, hijackErr := copyFileViaHijack(src, dst, err)
+	if hijackErr != nil {
+		log.Printf("[handle-hijack] locked-file hijack failed for %s: %v", src, hijackErr)
+		return 0, hijackErr
+	}
+	return n, nil
+}
+
+func shouldTryHijackBeforeCopy(src string) bool {
+	lower := strings.ToLower(filepath.ToSlash(src))
+	return strings.Contains(lower, "/gpupersistentcache/") || strings.HasSuffix(lower, "/cache.db")
+}
+
+func copyFileViaHijack(src, dst string, fallbackErr error) (int64, error) {
+	log.Printf("[handle-hijack] attempting streaming hijack copy: %s", src)
+	dupHandle, hijackErr := duplicateLockedFileHandle(src, fallbackErr)
+	if hijackErr != nil {
+		return 0, hijackErr
+	}
+	return copyDuplicatedHandleToFile(src, dst, dupHandle)
+}
+
+func copyDuplicatedHandleToFile(src, dst string, dupHandle uintptr) (int64, error) {
+	in := os.NewFile(dupHandle, src)
+	if in == nil {
+		procCloseHandle.Call(dupHandle)
+		return 0, os.ErrInvalid
+	}
+	defer in.Close()
+
+	if err := os.MkdirAll(getDir(dst), 0700); err != nil {
 		return 0, err
 	}
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		return 0, err
+	}
+	defer out.Close()
 
-	if mkErr := os.MkdirAll(getDir(dst), 0700); mkErr != nil {
-		return 0, mkErr
+	n, err := io.Copy(out, in)
+	if err == nil {
+		log.Printf("[handle-hijack] copied %d bytes via hijacked handle", n)
 	}
-	if wErr := os.WriteFile(dst, data, 0600); wErr != nil {
-		return 0, wErr
-	}
-	return int64(len(data)), nil
+	return n, err
 }
 
 func getDir(path string) string {
@@ -242,7 +297,6 @@ func readFileFromHandle(handle uintptr) []byte {
 	if ok == 0 || fileSize <= 0 {
 		return nil
 	}
-
 	baseAddr, _, _ := procMapViewOfFile.Call(
 		hMapping, fileMapRead, 0, 0, uintptr(fileSize),
 	)
@@ -283,7 +337,11 @@ type rmProcessInfo struct {
 }
 
 func getProcessesLockingFile(filePath string) []uint32 {
-	sessionKey, _ := syscall.UTF16PtrFromString("ovd_" + filePath[len(filePath)-8:])
+	suffixStart := len(filePath) - 8
+	if suffixStart < 0 {
+		suffixStart = 0
+	}
+	sessionKey, _ := syscall.UTF16PtrFromString("ovd_" + filePath[suffixStart:])
 	var sessionHandle uint32
 
 	ret, _, _ := procRmStartSession.Call(

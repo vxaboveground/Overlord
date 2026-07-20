@@ -422,7 +422,109 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   const cloneProgressBar = document.getElementById("cloneProgressBar");
   const cloneProgressPct = document.getElementById("cloneProgressPct");
   const cloneProgressLabel = document.getElementById("cloneProgressLabel");
+  const cloneSkippedList = document.getElementById("cloneSkippedList");
   let cloneHideTimer = null;
+  let cloneSkippedExpanded = false;
+  let cloneSkippedFiles = [];
+
+  function renderCloneSkippedList() {
+    if (!cloneSkippedList || !cloneProgressLabel) return;
+    cloneProgressLabel.setAttribute("aria-expanded", cloneSkippedExpanded ? "true" : "false");
+    if (!cloneSkippedExpanded || cloneSkippedFiles.length === 0) {
+      cloneSkippedList.classList.add("hidden");
+      cloneSkippedList.replaceChildren();
+      return;
+    }
+
+    cloneSkippedList.replaceChildren();
+    for (const item of cloneSkippedFiles) {
+      const row = document.createElement("div");
+      row.className = "border-b border-slate-800 py-1 last:border-b-0";
+
+      const file = document.createElement("div");
+      file.className = "font-mono text-violet-200 break-all";
+      file.textContent = item.file || "unknown file";
+      row.appendChild(file);
+
+      if (item.error) {
+        const err = document.createElement("div");
+        err.className = "mt-1 text-rose-300 break-all";
+        err.textContent = item.error;
+        row.appendChild(err);
+      }
+
+      cloneSkippedList.appendChild(row);
+    }
+    cloneSkippedList.classList.remove("hidden");
+  }
+
+  function setCloneSkippedExpanded(expanded) {
+    cloneSkippedExpanded = Boolean(expanded && cloneSkippedFiles.length > 0);
+    renderCloneSkippedList();
+  }
+
+  function addCloneSkipped(status) {
+    const parts = String(status || "").split("|");
+    if (parts[0] !== "skipped") return;
+    const file = parts[1] || "";
+    const error = parts.slice(2).join("|");
+    const key = `${file}\n${error}`;
+    if (!cloneSkippedFiles.some((item) => `${item.file}\n${item.error}` === key)) {
+      cloneSkippedFiles.push({ file, error });
+    }
+    renderCloneSkippedList();
+  }
+
+  cloneProgressLabel?.addEventListener("click", () => {
+    setCloneSkippedExpanded(!cloneSkippedExpanded);
+  });
+  cloneProgressLabel?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      setCloneSkippedExpanded(!cloneSkippedExpanded);
+    }
+  });
+
+  function cloneProgressText(status, browser, copiedMB, totalMB) {
+    const parts = String(status || "").split("|");
+    const kind = parts[0] || "";
+    if (kind === "copying") {
+      const file = parts.slice(1).join("|");
+      return {
+        text: `Copying ${browser} — ${file || "current file"}`,
+        title: file,
+      };
+    }
+    if (kind === "retrying") {
+      const attempt = parts[1] || "?";
+      const max = parts[2] || "?";
+      const file = parts[3] || "";
+      const err = parts.slice(4).join("|");
+      return {
+        text: `Retrying ${browser} copy (${attempt}/${max}) — ${file || "current file"}`,
+        title: err ? `${file}\n${err}` : file,
+      };
+    }
+    if (kind === "skipped") {
+      const file = parts[1] || "";
+      const err = parts.slice(2).join("|");
+      return {
+        text: `Skipped ${browser} copy — ${file || "file"}`,
+        title: err ? `${file}\n${err}` : file,
+      };
+    }
+    if (kind === "failed") {
+      const detail = parts.slice(1).join("|");
+      return {
+        text: `${browser} clone failed — ${detail || "copy error"}`,
+        title: detail,
+      };
+    }
+    return {
+      text: `Cloning ${browser} — ${copiedMB} / ${totalMB} MB`,
+      title: "",
+    };
+  }
 
   function handleCloneProgress(msg) {
     if (!cloneProgressEl) return;
@@ -437,30 +539,44 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       cloneHideTimer = null;
     }
 
-    if (status === "done") {
-      cloneProgressBar.style.width = "100%";
-      cloneProgressPct.textContent = "100%";
-      cloneProgressLabel.textContent = `${browser} clone complete`;
-      cloneHideTimer = setTimeout(() => {
-        cloneProgressEl.classList.add("hidden");
-        cloneProgressEl.classList.remove("flex");
-      }, 3000);
-      return;
-    }
-
     cloneProgressEl.classList.remove("hidden");
     cloneProgressEl.classList.add("flex");
 
     if (status === "scanning") {
+      cloneSkippedFiles = [];
+      setCloneSkippedExpanded(false);
       cloneProgressBar.style.width = "0%";
       cloneProgressPct.textContent = "…";
       cloneProgressLabel.textContent = `Scanning ${browser} profile`;
+      cloneProgressLabel.title = "";
       return;
     }
 
+    if (String(status).startsWith("skipped|")) {
+      addCloneSkipped(status);
+    }
+
+    if (status === "done" || String(status).startsWith("done_with_errors|")) {
+      cloneProgressBar.style.width = "100%";
+      cloneProgressPct.textContent = "100%";
+      const failedCount = String(status).startsWith("done_with_errors|") ? String(status).split("|")[1] || "0" : "";
+      cloneProgressLabel.textContent = failedCount ? `${browser} clone complete — ${failedCount} skipped (click to expand)` : `${browser} clone complete`;
+      cloneProgressLabel.title = failedCount ? `${failedCount} file(s) failed to copy. Click to expand.` : "";
+      if (!failedCount) {
+        cloneHideTimer = setTimeout(() => {
+          cloneProgressEl.classList.add("hidden");
+          cloneProgressEl.classList.remove("flex");
+          setCloneSkippedExpanded(false);
+        }, 3000);
+      }
+      return;
+    }
+
+    const detail = cloneProgressText(status, browser, copiedMB, totalMB);
     cloneProgressBar.style.width = `${pct}%`;
     cloneProgressPct.textContent = `${pct}%`;
-    cloneProgressLabel.textContent = `Cloning ${browser} — ${copiedMB} / ${totalMB} MB`;
+    cloneProgressLabel.textContent = detail.text;
+    cloneProgressLabel.title = detail.title;
   }
 
   const dxgiStatusEl = document.getElementById("dxgiStatus");
