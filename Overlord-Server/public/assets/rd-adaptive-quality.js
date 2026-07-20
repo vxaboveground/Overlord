@@ -94,7 +94,6 @@ export class AdaptiveDesktopQuality {
     const loss = finite(media.lossPercent) ?? 0;
     const rtt = finite(stats?.rttMs);
     const jitter = finite(media.jitterMs);
-    const jitterBuffer = finite(media.jitterBufferMs);
     const dropped = finite(media.framesDroppedDelta) ?? 0;
     const viewerFps = finite(media.framesPerSecond);
     const agentFps = finite(agentStats?.fps);
@@ -102,15 +101,12 @@ export class AdaptiveDesktopQuality {
     const fpsRatio = viewerFps != null && agentFps != null && agentFps > 0 ? viewerFps / agentFps : null;
     const capacityTight = available != null && available > 0 && this.targetBitrateMbps > available * 0.9;
 
-    const bad = loss >= 5 || (rtt != null && rtt >= 250) ||
-      (jitterBuffer != null && jitterBuffer >= 80) || dropped >= 3 ||
+    const bad = loss >= 5 || (rtt != null && rtt >= 250) || dropped >= 3 ||
       (fpsRatio != null && fpsRatio < 0.75) || (capacityTight && available < this.targetBitrateMbps * 0.7);
     const strained = !bad && (loss >= 2 || (rtt != null && rtt >= 160) ||
-      (jitter != null && jitter >= 35) || (jitterBuffer != null && jitterBuffer >= 40) ||
-      dropped > 0 || (fpsRatio != null && fpsRatio < 0.9) || capacityTight);
+      (jitter != null && jitter >= 35) || dropped > 0 || (fpsRatio != null && fpsRatio < 0.9) || capacityTight);
     const stable = !bad && !strained && loss < 1 && dropped === 0 &&
-      (rtt == null || rtt < 120) && (jitterBuffer == null || jitterBuffer < 25) &&
-      (fpsRatio == null || fpsRatio >= 0.95);
+      (rtt == null || rtt < 120) && (fpsRatio == null || fpsRatio >= 0.95);
 
     this.badSamples = bad ? this.badSamples + 1 : 0;
     this.strainedSamples = strained ? this.strainedSamples + 1 : 0;

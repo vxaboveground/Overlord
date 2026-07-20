@@ -2333,6 +2333,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     clearOfflineTimer();
     if (
       desiredStreaming &&
+      getWebrtcMode() === "off" &&
       frameGapMs >= VIEWER_FRAME_GAP_KEYFRAME_MS &&
       (!lastViewerFrameGapKeyframeAt || now - lastViewerFrameGapKeyframeAt >= VIEWER_FRAME_GAP_KEYFRAME_THROTTLE_MS)
     ) {

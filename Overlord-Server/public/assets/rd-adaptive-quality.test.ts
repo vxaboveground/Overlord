@@ -49,4 +49,29 @@ describe("adaptive remote desktop quality", () => {
     const recovered = controller.sample(stable, { fps: 60 }, 7);
     expect(recovered?.height).toBe(1440);
   });
+
+  test("does not reduce quality for browser jitter buffer alone", () => {
+    const targets = [];
+    const controller = new AdaptiveDesktopQuality((target) => targets.push(target), {
+      cooldownMs: 1,
+      badSamplesRequired: 1,
+      strainedSamplesRequired: 1,
+    });
+    controller.setProfiles(profiles);
+    controller.start(0);
+    const healthyBuffered = {
+      rttMs: 1,
+      video: {
+        lossPercent: 0,
+        jitterMs: 2,
+        jitterBufferMs: 120,
+        framesDroppedDelta: 0,
+        framesPerSecond: 60,
+      },
+    };
+
+    expect(controller.sample(healthyBuffered, { fps: 60 }, 2)).toBeNull();
+    expect(controller.current()?.profile.height).toBe(1440);
+    expect(targets).toHaveLength(1);
+  });
 });

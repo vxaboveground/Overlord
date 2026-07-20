@@ -76,6 +76,7 @@ export class WebRTCStatsSampler {
         let processingDelayMs = null;
         let framesDroppedDelta = null;
         let intervalLossPercent = null;
+        let intervalJitterBufferMs = null;
         if (previous && timestamp > previous.timestamp && Number(item.bytesReceived) >= previous.bytesReceived) {
           bitrateMbps = ((Number(item.bytesReceived) - previous.bytesReceived) * 8) /
             ((timestamp - previous.timestamp) * 1000);
@@ -92,6 +93,11 @@ export class WebRTCStatsSampler {
           const lostDelta = (Number(item.packetsLost) || 0) - previous.packetsLost;
           const packetDelta = Math.max(0, receivedDelta) + Math.max(0, lostDelta);
           if (packetDelta > 0) intervalLossPercent = (Math.max(0, lostDelta) * 100) / packetDelta;
+          const jitterBufferDelayDelta = (Number(item.jitterBufferDelay) || 0) - previous.jitterBufferDelay;
+          const jitterBufferEmittedDelta = (Number(item.jitterBufferEmittedCount) || 0) - previous.jitterBufferEmittedCount;
+          if (jitterBufferDelayDelta >= 0 && jitterBufferEmittedDelta > 0) {
+            intervalJitterBufferMs = (jitterBufferDelayDelta * 1000) / jitterBufferEmittedDelta;
+          }
         }
         this.previous.set(item.id, {
           timestamp,
@@ -102,6 +108,8 @@ export class WebRTCStatsSampler {
           framesDropped: Number(item.framesDropped) || 0,
           packetsReceived: Number(item.packetsReceived) || 0,
           packetsLost: Number(item.packetsLost) || 0,
+          jitterBufferDelay: Number(item.jitterBufferDelay) || 0,
+          jitterBufferEmittedCount: Number(item.jitterBufferEmittedCount) || 0,
         });
         const packetsReceived = Number(item.packetsReceived) || 0;
         const packetsLost = Math.max(0, Number(item.packetsLost) || 0);
@@ -111,7 +119,7 @@ export class WebRTCStatsSampler {
           packetsLost,
           lossPercent: intervalLossPercent ?? (packetTotal > 0 ? (packetsLost * 100) / packetTotal : 0),
           jitterMs: Number.isFinite(item.jitter) ? item.jitter * 1000 : null,
-          jitterBufferMs: averageJitterBufferMs(item),
+          jitterBufferMs: intervalJitterBufferMs ?? averageJitterBufferMs(item),
           decodeMs,
           processingDelayMs,
           framesDropped: Number.isFinite(item.framesDropped) ? item.framesDropped : null,
