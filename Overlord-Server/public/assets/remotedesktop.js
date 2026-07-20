@@ -124,6 +124,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   let lastRemoteCursor = null;
   let remoteCursorShape = null;
   let remoteCursorImageUrl = "";
+  const CANVAS_TRANSPORT_PREF_VERSION = 1;
   function getWebrtcMode() {
     return webrtcMode ? String(webrtcMode.value || "off") : "off";
   }
@@ -483,7 +484,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
         : savedStreamProfile);
     setSelectValue(streamProfileSelect, savedStreamProfile);
     setSelectValue(bitrateSelect, settings.bitrateMbps);
-    setSelectValue(webrtcMode, settings.webrtcMode);
+    setSelectValue(webrtcMode, settings.transportPreferenceVersion === CANVAS_TRANSPORT_PREF_VERSION ? settings.webrtcMode : "off");
     setSelectValue(audioTransport, settings.audioTransport);
     setSelectValue(recordMode, settings.recordMode);
     setSelectValue(recordFps, settings.recordFps);
@@ -519,6 +520,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       bitrateMbps: Number(bitrateSelect?.value || 0),
       preferH264: !!prefersH264,
       webrtcMode: getWebrtcMode(),
+      transportPreferenceVersion: CANVAS_TRANSPORT_PREF_VERSION,
       mouse: !!mouseCtrl?.checked,
       keyboard: !!kbdCtrl?.checked,
       cursor: !!cursorCtrl?.checked,

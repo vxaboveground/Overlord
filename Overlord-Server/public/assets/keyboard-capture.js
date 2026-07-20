@@ -11,6 +11,12 @@ function isEditableTarget(container) {
   return false;
 }
 
+function hasCaptureFocus(container) {
+  if (!container) return true;
+  const el = document.activeElement;
+  return !!el && (el === container || container.contains(el));
+}
+
 const SYSTEM_KEY_CODES = [
   "Escape",
   "Tab",
@@ -43,9 +49,39 @@ export function createKeyboardCapture({ container, sendKeyDown, sendKeyUp, onTex
   let enabled = false;
   const pressed = new Map();
 
+  function setCaptureFlag(active) {
+    if (active) window[CAPTURE_FLAG] = true;
+    else delete window[CAPTURE_FLAG];
+  }
+
+  function refreshCaptureState() {
+    if (!enabled) {
+      setCaptureFlag(false);
+      return;
+    }
+    if (hasCaptureFocus(container)) {
+      setCaptureFlag(true);
+      tryLock();
+    } else {
+      setCaptureFlag(false);
+      tryUnlock();
+      releaseAll();
+    }
+  }
+
+  function shouldCapture() {
+    if (!enabled) return false;
+    if (!hasCaptureFocus(container)) {
+      refreshCaptureState();
+      return false;
+    }
+    if (isEditableTarget(container)) return false;
+    setCaptureFlag(true);
+    return true;
+  }
+
   function handleDown(e) {
-    if (!enabled) return;
-    if (isEditableTarget(container)) return;
+    if (!shouldCapture()) return;
     pressed.set(e.code || e.key, { key: e.key, code: e.code });
     if (onTextInput && !e.ctrlKey && !e.metaKey && !e.altKey && typeof e.key === "string" && e.key.length === 1) {
       onTextInput(e);
@@ -57,8 +93,7 @@ export function createKeyboardCapture({ container, sendKeyDown, sendKeyUp, onTex
   }
 
   function handleUp(e) {
-    if (!enabled) return;
-    if (isEditableTarget(container)) return;
+    if (!shouldCapture()) return;
     pressed.delete(e.code || e.key);
     if (onTextInput && !e.ctrlKey && !e.metaKey && !e.altKey && typeof e.key === "string" && e.key.length === 1) {
       e.preventDefault();
@@ -77,34 +112,35 @@ export function createKeyboardCapture({ container, sendKeyDown, sendKeyUp, onTex
 
   function handleBlur() { releaseAll(); }
   function handleVisibility() { if (document.visibilityState === "hidden") releaseAll(); }
-  function handleContextMenu(e) { if (enabled && !isEditableTarget(container)) e.preventDefault(); }
-  function handleFullscreenChange() {
-    if (enabled) tryLock();
-  }
+  function handleContextMenu(e) { if (shouldCapture()) e.preventDefault(); }
+  function handleFocusChange() { setTimeout(refreshCaptureState, 0); }
+  function handleFullscreenChange() { refreshCaptureState(); }
 
   return {
     isEnabled() { return enabled; },
     enable() {
       if (enabled) return;
       enabled = true;
-      window[CAPTURE_FLAG] = true;
+      refreshCaptureState();
       window.addEventListener("keydown", handleDown, { capture: true });
       window.addEventListener("keyup", handleUp, { capture: true });
       window.addEventListener("blur", handleBlur);
       window.addEventListener("contextmenu", handleContextMenu, { capture: true });
+      document.addEventListener("focusin", handleFocusChange);
+      document.addEventListener("focusout", handleFocusChange);
       document.addEventListener("visibilitychange", handleVisibility);
       document.addEventListener("fullscreenchange", handleFullscreenChange);
-      tryLock();
-      if (container) try { container.focus({ preventScroll: true }); } catch {}
     },
     disable() {
       if (!enabled) return;
       enabled = false;
-      delete window[CAPTURE_FLAG];
+      setCaptureFlag(false);
       window.removeEventListener("keydown", handleDown, { capture: true });
       window.removeEventListener("keyup", handleUp, { capture: true });
       window.removeEventListener("blur", handleBlur);
       window.removeEventListener("contextmenu", handleContextMenu, { capture: true });
+      document.removeEventListener("focusin", handleFocusChange);
+      document.removeEventListener("focusout", handleFocusChange);
       document.removeEventListener("visibilitychange", handleVisibility);
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       tryUnlock();

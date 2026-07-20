@@ -122,6 +122,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   let whepClient = null;
   let p2pClient = null;
   let webrtcActive = false;
+  const CANVAS_TRANSPORT_PREF_VERSION = 1;
 
   function getWebrtcMode() {
     return webrtcMode ? String(webrtcMode.value || "off") : "off";
@@ -178,7 +179,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     savedDisplay = Number.isFinite(Number(settings.display)) ? Number(settings.display) : savedDisplay;
     setSelectValue(backstageResolutionSelect, settings.resolution);
     setSelectValue(targetFpsSelect, settings.targetFps);
-    setSelectValue(webrtcMode, settings.webrtcMode);
+    setSelectValue(webrtcMode, settings.transportPreferenceVersion === CANVAS_TRANSPORT_PREF_VERSION ? settings.webrtcMode : "off");
     if (qualitySlider && settings.quality !== undefined) qualitySlider.value = String(settings.quality);
     if (mouseCtrl && typeof settings.mouse === "boolean") mouseCtrl.checked = settings.mouse;
     if (kbdCtrl && typeof settings.keyboard === "boolean") kbdCtrl.checked = settings.keyboard;
@@ -206,6 +207,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       quality: Number(qualitySlider?.value || 90),
       preferH264: !!prefersH264,
       webrtcMode: getWebrtcMode(),
+      transportPreferenceVersion: CANVAS_TRANSPORT_PREF_VERSION,
       mouse: !!mouseCtrl?.checked,
       keyboard: !!kbdCtrl?.checked,
       clipboardSync: !!clipboardSyncCtrl?.checked,
