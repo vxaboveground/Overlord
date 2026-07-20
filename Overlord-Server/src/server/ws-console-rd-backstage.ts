@@ -179,7 +179,6 @@ const rdSendStats = { lastLog: 0, frames: 0, sendMs: 0, bytes: 0 };
 const rdDebugFrameLogAt = new Map<string, number>();
 const rdCanvasFrameAckPending = new Map<string, string>();
 const AUTOMATIC_DESKTOP_KEYFRAME_REASONS: Record<string, true> = {
-  viewer_frame_gap: true,
   h264_decoder_keyframe_required: true,
   hevc_decoder_keyframe_required: true,
 };
@@ -508,6 +507,7 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
     }
     case "desktop_request_keyframe": {
       if (state.isStreaming) {
+        if (String(payload.reason || "") === "viewer_frame_gap") break;
         const requestedReason = String(payload.reason || "");
         sendDesktopCommand(target, "desktop_request_keyframe", {
           reason: AUTOMATIC_DESKTOP_KEYFRAME_REASONS[requestedReason] ? requestedReason : "manual_viewer",

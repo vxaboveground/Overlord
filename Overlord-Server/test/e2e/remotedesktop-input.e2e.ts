@@ -219,9 +219,7 @@ test("WebRTC input stays inactive until start and then forwards mouse and keyboa
     const { decodeMsgpack } = await import("/assets/msgpack-helpers.js");
     return sent.map((message) => decodeMsgpack(message))
       .filter((message) => message.type === "desktop_request_keyframe");
-  })).toEqual([
-    expect.objectContaining({ type: "desktop_request_keyframe", reason: "viewer_frame_gap" }),
-  ]);
+  })).toEqual([]);
   await page.locator("#rdSettingsBtn").click();
   await page.locator("#requestKeyframeBtn").click();
   await expect.poll(async () => page.evaluate(async () => {

@@ -119,7 +119,7 @@ describe("remote desktop viewer control", () => {
     expect(rdStreamingState.get(clientId)?.isStreaming).toBe(false);
   });
 
-  test("forwards keyframe requests only while the desktop stream is active", () => {
+  test("forwards manual keyframe requests only while the desktop stream is active", () => {
     const clientId = `rd-keyframe-${Date.now().toString(36)}`;
     const { agentWs } = createClient(clientId);
     const viewer = createMockWs({ clientId });
@@ -148,10 +148,9 @@ describe("remote desktop viewer control", () => {
       type: "desktop_request_keyframe",
       reason: "viewer_frame_gap",
     }));
-    const automaticCommand = agentCommands(agentWs)
-      .filter((msg) => msg.commandType === "desktop_request_keyframe")
-      .at(-1);
-    expect(automaticCommand?.payload).toEqual({ reason: "viewer_frame_gap" });
+    expect(agentCommands(agentWs)
+      .filter((msg) => msg.commandType === "desktop_request_keyframe"))
+      .toHaveLength(1);
   });
 
   test("requests HEVC recovery after a screenshot only while streaming", () => {

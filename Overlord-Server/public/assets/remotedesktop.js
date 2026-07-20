@@ -174,9 +174,6 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   const H264_MAX_RECOVERY_ATTEMPTS = 1;
   const H264_DECODE_WARN_THROTTLE_MS = 2000;
   const inputBackpressureBytes = 256 * 1024;
-  const VIEWER_FRAME_GAP_KEYFRAME_MS = 500;
-  const VIEWER_FRAME_GAP_KEYFRAME_THROTTLE_MS = 1000;
-  let lastViewerFrameGapKeyframeAt = 0;
   const diagnostics = {
     agent: null,
     network: null,
@@ -1975,7 +1972,6 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     pushBitrate();
     desiredStreaming = true;
     lastFrameAt = 0;
-    lastViewerFrameGapKeyframeAt = 0;
     firstFrameLogged = false;
     resetH264SessionState();
     setStreamState("starting", "Starting stream");
@@ -2331,15 +2327,6 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     const frameGapMs = lastFrameAt ? now - lastFrameAt : 0;
     lastFrameAt = now;
     clearOfflineTimer();
-    if (
-      desiredStreaming &&
-      getWebrtcMode() === "off" &&
-      frameGapMs >= VIEWER_FRAME_GAP_KEYFRAME_MS &&
-      (!lastViewerFrameGapKeyframeAt || now - lastViewerFrameGapKeyframeAt >= VIEWER_FRAME_GAP_KEYFRAME_THROTTLE_MS)
-    ) {
-      lastViewerFrameGapKeyframeAt = now;
-      sendCmd("desktop_request_keyframe", { reason: "viewer_frame_gap" });
-    }
     if (!firstFrameLogged) {
       firstFrameLogged = true;
       rdDebug("first frame received", {
