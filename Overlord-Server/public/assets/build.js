@@ -3,6 +3,7 @@ import {
   createBuildHistoryManager,
   formatFileSize,
 } from "./build-history-manager.js";
+import { setActionButton, setStatusPanel } from "./ui-state.js";
 
 const form = document.getElementById("build-form");
 const buildBtn = document.getElementById("build-btn");
@@ -1755,9 +1756,7 @@ async function init() {
     }
 
     if (data.role !== "admin" && data.role !== "operator" && !data.canBuild) {
-      buildBtn.disabled = true;
-      buildBtn.innerHTML =
-        '<i class="fa-solid fa-lock"></i> <span>Build requires permission</span>';
+      setActionButton(buildBtn, { disabled: true, icon: "fa-solid fa-lock", label: "Build requires permission" });
       if (profileSaveBtn) profileSaveBtn.disabled = true;
       if (profileLoadBtn) profileLoadBtn.disabled = true;
       if (profileDeleteBtn) profileDeleteBtn.disabled = true;
@@ -1998,27 +1997,15 @@ form?.addEventListener("submit", async (e) => {
 
 async function startBuild(config) {
   isBuilding = true;
-  buildBtn.disabled = true;
-  buildBtn.innerHTML =
-    '<i class="fa-solid fa-spinner fa-spin"></i> <span>Building...</span>';
-  if (buildUpdateAllBtn) {
-    buildUpdateAllBtn.disabled = true;
-    buildUpdateAllBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> <span>Building...</span>';
-  }
-  if (buildUploadBtn) {
-    buildUploadBtn.disabled = true;
-    buildUploadBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> <span>Building...</span>';
-  }
+  setActionButton(buildBtn, { disabled: true, busy: true, label: "Building..." });
+  setActionButton(buildUpdateAllBtn, { disabled: true, busy: true, label: "Building..." });
+  setActionButton(buildUploadBtn, { disabled: true, busy: true, label: "Building..." });
   if (buildSgnTxtBtn) {
     buildSgnTxtBtn.disabled = true;
     setSgnTxtButtonState("Building TXT...", "fa-solid fa-spinner fa-spin");
   }
 
-  buildStatus.classList.remove("hidden");
-  buildStatusText.textContent = "Starting build...";
-  buildStatus.querySelector("div").className =
-    "flex items-center gap-2 p-3 rounded-lg bg-blue-900/40 border border-blue-700/60";
-  buildStatus.querySelector("i").className = "fa-solid fa-spinner fa-spin";
+  setStatusPanel(buildStatus, { state: "running", text: "Starting build..." });
   buildResults.classList.add("hidden");
   buildFilesDiv.innerHTML = "";
 
@@ -2027,7 +2014,7 @@ async function startBuild(config) {
 
   try {
     if (needsMacosSdkUpload()) {
-      buildStatusText.textContent = "Uploading macOS SDK...";
+      setStatusPanel(buildStatus, { state: "running", text: "Uploading macOS SDK..." });
       addBuildOutput("Uploading user-provided macOS SDK...\n", "info");
       config.macosSdkUploadId = await uploadMacosSdk();
     }
@@ -2063,24 +2050,13 @@ async function startBuild(config) {
         "warn",
       );
     }
-    buildStatusText.textContent = "Build failed";
-    buildStatus.querySelector("div").className =
-      "flex items-center gap-2 p-3 rounded-lg bg-red-900/40 border border-red-700/60";
-    buildStatus.querySelector("i").className = "fa-solid fa-circle-xmark";
+    setStatusPanel(buildStatus, { state: "error", text: "Build failed" });
     pendingUpdateAll = false;
   } finally {
     isBuilding = false;
-    buildBtn.disabled = false;
-    buildBtn.innerHTML =
-      '<i class="fa-solid fa-hammer"></i> <span>Start Build</span>';
-    if (buildUpdateAllBtn) {
-      buildUpdateAllBtn.disabled = false;
-      buildUpdateAllBtn.innerHTML = '<i class="fa-solid fa-arrow-up-from-bracket"></i> <span>Build & Update All</span>';
-    }
-    if (buildUploadBtn) {
-      buildUploadBtn.disabled = false;
-      buildUploadBtn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> <span>Build & Upload</span>';
-    }
+    setActionButton(buildBtn, { icon: "fa-solid fa-hammer", label: "Start Build" });
+    setActionButton(buildUpdateAllBtn, { icon: "fa-solid fa-arrow-up-from-bracket", label: "Build & Update All" });
+    setActionButton(buildUploadBtn, { icon: "fa-solid fa-cloud-arrow-up", label: "Build & Upload" });
     if (buildSgnTxtBtn) {
       buildSgnTxtBtn.disabled = false;
       updateSgnTxtLockState();
@@ -2110,15 +2086,12 @@ async function streamBuildOutput(buildId, config = {}) {
   while (!completed && attempts <= MAX_RECONNECT_ATTEMPTS) {
     if (attempts > 0) {
       addBuildOutput(`\nReconnecting to build stream (attempt ${attempts}/${MAX_RECONNECT_ATTEMPTS})...\n`, "warn");
-      buildStatusText.textContent = "Reconnecting to build stream...";
+      setStatusPanel(buildStatus, { state: "running", text: "Reconnecting to build stream..." });
       await new Promise((r) => setTimeout(r, RECONNECT_DELAY_MS));
 
       const info = await checkBuildInfo(buildId);
       if (info && (info.status === "completed" || info.status === "success")) {
-        buildStatusText.textContent = "Build completed successfully!";
-        buildStatus.querySelector("div").className =
-          "flex items-center gap-2 p-3 rounded-lg bg-green-900/40 border border-green-700/60";
-        buildStatus.querySelector("i").className = "fa-solid fa-circle-check";
+        setStatusPanel(buildStatus, { state: "success", text: "Build completed successfully!" });
         addBuildOutput("\nBuild completed while reconnecting.\n", "success");
 
         if (info.files && info.files.length > 0) {
@@ -2140,10 +2113,7 @@ async function streamBuildOutput(buildId, config = {}) {
         }
         return;
       } else if (info && info.status === "failed") {
-        buildStatusText.textContent = "Build failed";
-        buildStatus.querySelector("div").className =
-          "flex items-center gap-2 p-3 rounded-lg bg-red-900/40 border border-red-700/60";
-        buildStatus.querySelector("i").className = "fa-solid fa-circle-xmark";
+        setStatusPanel(buildStatus, { state: "error", text: "Build failed" });
         addBuildOutput("\nBuild failed while reconnecting.\n", "error");
         return;
       }
@@ -2162,10 +2132,7 @@ async function streamBuildOutput(buildId, config = {}) {
       if (attempts > 0) {
         const info = await checkBuildInfo(buildId);
         if (info && (info.status === "completed" || info.status === "success")) {
-          buildStatusText.textContent = "Build completed successfully!";
-          buildStatus.querySelector("div").className =
-            "flex items-center gap-2 p-3 rounded-lg bg-green-900/40 border border-green-700/60";
-          buildStatus.querySelector("i").className = "fa-solid fa-circle-check";
+          setStatusPanel(buildStatus, { state: "success", text: "Build completed successfully!" });
           if (info.files && info.files.length > 0) {
             const buildData = {
               id: info.id || buildId,
@@ -2208,7 +2175,7 @@ async function streamBuildOutput(buildId, config = {}) {
             if (data.type === "output") {
               addBuildOutput(data.text, data.level || "info");
             } else if (data.type === "status") {
-              buildStatusText.textContent = data.text;
+              setStatusPanel(buildStatus, { state: "running", text: data.text });
             } else if (data.type === "file_share_uploaded") {
               uploadedShareFiles.push({
                 id: data.id,
@@ -2217,15 +2184,10 @@ async function streamBuildOutput(buildId, config = {}) {
                 size: data.size,
               });
             } else if (data.type === "complete") {
-              buildStatusText.textContent = data.success
-                ? "Build completed successfully!"
-                : "Build failed";
-              buildStatus.querySelector("div").className = data.success
-                ? "flex items-center gap-2 p-3 rounded-lg bg-green-900/40 border border-green-700/60"
-                : "flex items-center gap-2 p-3 rounded-lg bg-red-900/40 border border-red-700/60";
-              buildStatus.querySelector("i").className = data.success
-                ? "fa-solid fa-circle-check"
-                : "fa-solid fa-circle-xmark";
+              setStatusPanel(buildStatus, {
+                state: data.success ? "success" : "error",
+                text: data.success ? "Build completed successfully!" : "Build failed",
+              });
 
               if (!data.success && !config.disableCgo) {
                 addBuildOutput(
@@ -2284,10 +2246,7 @@ async function streamBuildOutput(buildId, config = {}) {
   if (!completed && attempts > MAX_RECONNECT_ATTEMPTS) {
     const info = await checkBuildInfo(buildId);
     if (info && (info.status === "completed" || info.status === "success")) {
-      buildStatusText.textContent = "Build completed successfully!";
-      buildStatus.querySelector("div").className =
-        "flex items-center gap-2 p-3 rounded-lg bg-green-900/40 border border-green-700/60";
-      buildStatus.querySelector("i").className = "fa-solid fa-circle-check";
+      setStatusPanel(buildStatus, { state: "success", text: "Build completed successfully!" });
       addBuildOutput("\nBuild completed (recovered after stream loss).\n", "success");
       if (info.files && info.files.length > 0) {
         const buildData = {

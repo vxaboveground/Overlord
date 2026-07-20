@@ -12,7 +12,7 @@ var h264TargetBitrate atomic.Int64
 var h264NetworkAdaptive atomic.Bool
 var lastH264NetworkAdjustment atomic.Int64
 
-const h264NetworkAdjustmentInterval = 3 * time.Second
+const h264NetworkAdjustmentInterval = 8 * time.Second
 
 func SetH264NetworkAdaptive(enabled bool) {
 	h264NetworkAdaptive.Store(enabled)
@@ -35,6 +35,9 @@ func ApplyWebRTCBandwidthEstimate(bps int) int {
 	target = ((target + 500_000) / 1_000_000) * 1_000_000
 	current := configuredH264Bitrate()
 	if current > 0 {
+		if target >= current {
+			return 0
+		}
 		delta := current - target
 		if delta < 0 {
 			delta = -delta

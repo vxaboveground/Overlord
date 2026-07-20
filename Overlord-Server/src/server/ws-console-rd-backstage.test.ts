@@ -262,6 +262,20 @@ describe("remote desktop viewer control", () => {
     expect(rdStreamingState.get(clientId)?.bitrateAdaptive).toBe(true);
   });
 
+  test("forwards relayed WebRTC stop for canvas fallback", () => {
+    const clientId = `rd-webrtc-stop-${Date.now().toString(36)}`;
+    const { agentWs } = createClient(clientId);
+    const viewer = createMockWs({ clientId });
+
+    handleRemoteDesktopViewerOpen(viewer as unknown as Parameters<typeof handleRemoteDesktopViewerOpen>[0]);
+    handleRemoteDesktopViewerMessage(viewer as unknown as Parameters<typeof handleRemoteDesktopViewerMessage>[0], JSON.stringify({
+      type: "webrtc_stop",
+    }));
+
+    const command = agentCommands(agentWs).find((msg) => msg.commandType === "webrtc_stop");
+    expect(command?.payload).toEqual({ kind: "desktop" });
+  });
+
   test("forwards agent pipeline telemetry to every remote desktop viewer", () => {
     const clientId = `rd-stats-${Date.now().toString(36)}`;
     createClient(clientId);

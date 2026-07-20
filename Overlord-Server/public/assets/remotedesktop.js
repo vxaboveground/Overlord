@@ -1531,8 +1531,16 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       startWebrtcFrameTicker();
     } catch (err) {
       console.warn("webrtc: WHEP start failed, falling back to canvas", err);
-      setWebrtcViewActive(false);
+      const failed = whepClient;
       whepClient = null;
+      if (failed) { try { await failed.stop(); } catch {} }
+      setWebrtcViewActive(false);
+      sendCmd("webrtc_stop", { kind: "desktop", source: "whep_fallback" });
+      if (webrtcMode) webrtcMode.value = "off";
+      negotiatedCodec = browserDecoderCodecs.includes("h264") ? "h264" : "jpeg";
+      setCodecModeLabel(negotiatedCodec, "WHEP failed; WebSocket fallback");
+      requestEncoderCapabilities();
+      if (qualitySlider) pushQuality(qualitySlider.value);
     }
   }
 

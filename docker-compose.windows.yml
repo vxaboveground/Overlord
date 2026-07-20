@@ -83,7 +83,30 @@ services:
 
   turn-secret-init:
     image: alpine:3.22
-    command: ["/bin/sh", "-ec", "umask 077; if [ ! -s /run/overlord-turn/secret ]; then head -c 32 /dev/urandom | base64 > /run/overlord-turn/secret; fi; IFS= read -r turn_secret < /run/overlord-turn/secret; printf 'webrtcICEServers2:\n  - url: \"stun:%s:%s\"\n  - url: \"turn:%s:%s?transport=udp\"\n    username: AUTH_SECRET\n    password: \"%s\"\n    clientOnly: true\n  - url: \"turn:%s:%s?transport=tcp\"\n    username: AUTH_SECRET\n    password: \"%s\"\n    clientOnly: true\n' \"$${OVERLORD_TURN_HOST}\" \"$${OVERLORD_TURN_PORT}\" \"$${OVERLORD_TURN_HOST}\" \"$${OVERLORD_TURN_PORT}\" \"$$turn_secret\" \"$${OVERLORD_TURN_HOST}\" \"$${OVERLORD_TURN_PORT}\" \"$$turn_secret\" > /run/overlord-turn/mediamtx.yml; chmod 0444 /run/overlord-turn/secret /run/overlord-turn/mediamtx.yml"]
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        umask 077
+        if [ ! -s /run/overlord-turn/secret ]; then
+          head -c 32 /dev/urandom | base64 > /run/overlord-turn/secret
+        fi
+        IFS= read -r turn_secret < /run/overlord-turn/secret
+        cat > /run/overlord-turn/mediamtx.yml <<EOF
+        webrtcICEServers2:
+          - url: "stun:$${OVERLORD_TURN_HOST}:$${OVERLORD_TURN_PORT}"
+          - url: "turn:$${OVERLORD_TURN_HOST}:$${OVERLORD_TURN_PORT}?transport=udp"
+            username: AUTH_SECRET
+            password: "$$turn_secret"
+            clientOnly: true
+          - url: "turn:$${OVERLORD_TURN_HOST}:$${OVERLORD_TURN_PORT}?transport=tcp"
+            username: AUTH_SECRET
+            password: "$$turn_secret"
+            clientOnly: true
+        paths:
+          all:
+        EOF
+        chmod 0444 /run/overlord-turn/secret /run/overlord-turn/mediamtx.yml
     environment:
       OVERLORD_TURN_HOST: ${OVERLORD_TURN_HOST:-127.0.0.1}
       OVERLORD_TURN_PORT: ${OVERLORD_TURN_PORT:-3478}

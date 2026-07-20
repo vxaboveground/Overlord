@@ -579,27 +579,17 @@
       <!-- ========== ADMIN ========== -->
 
       <!-- Access Overview -->
-      <section id="section-permissions-overview" data-permission="users:manage" class="hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 settings-section">
-        <div class="flex items-center gap-3">
-          <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-violet-500/10 border border-violet-500/30">
-            <i class="fa-solid fa-user-shield text-violet-400"></i>
-          </div>
-          <div>
-            <h2 class="text-lg font-semibold">Access Overview</h2>
-            <p class="text-sm text-slate-400">Review your effective permissions and jump to user access management.</p>
-          </div>
+      <turbo-frame
+        id="section-permissions-overview"
+        src="/ui/settings/permissions-overview"
+        data-permission="users:manage"
+        class="block bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 settings-section"
+      >
+        <div class="flex items-center gap-2 text-sm text-slate-400">
+          <i class="fa-solid fa-spinner fa-spin"></i>
+          Loading access overview...
         </div>
-        <div id="settings-permissions-summary" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3"></div>
-        <div class="flex flex-wrap items-center gap-3">
-          <a href="/users" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-700 hover:bg-violet-600 text-white text-sm font-medium">
-            <i class="fa-solid fa-users-gear"></i> Manage Users
-          </a>
-          <span class="inline-flex items-center gap-2 max-w-full px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 text-slate-300 text-sm">
-            <i class="fa-solid fa-desktop text-sky-400"></i>
-            <span class="min-w-0 leading-snug">Client access rules are edited from a selected user in Manage Users.</span>
-          </span>
-        </div>
-      </section>
+      </turbo-frame>
 
       <section id="section-security" data-permission="system:security" class="hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 settings-section">
         <div class="flex items-center gap-3">

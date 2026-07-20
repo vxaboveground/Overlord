@@ -57,4 +57,8 @@ func TestWebRTCBandwidthEstimateOnlyAppliesInAdaptiveMode(t *testing.T) {
 	if got := ApplyWebRTCBandwidthEstimate(2_000_000); got != 0 {
 		t.Fatalf("unthrottled second estimate applied %d, want 0", got)
 	}
+	lastH264NetworkAdjustment.Store(0)
+	if got := ApplyWebRTCBandwidthEstimate(20_000_000); got != 0 {
+		t.Fatalf("adaptive estimate increased bitrate to %d, want 0", got)
+	}
 }

@@ -9,7 +9,9 @@ import {
   revokeSessionById,
 } from "../../db";
 import { htmlResponse } from "../ui/html";
+import { requirePermission } from "../../rbac";
 import { renderSessionsFrame } from "../ui/sessions-view";
+import { renderPermissionsOverviewFrame } from "../ui/permissions-overview-view";
 import { makeAuthCookieClear } from "./auth-cookie";
 
 type UiRouteServer = {
@@ -40,6 +42,16 @@ export async function handleUiRoutes(
       listUserSessions(user.userId),
       currentTokenHash(req),
     ));
+  }
+
+  if (req.method === "GET" && url.pathname === "/ui/settings/permissions-overview") {
+    try {
+      requirePermission(user, "users:manage");
+    } catch (error) {
+      if (error instanceof Response) return error;
+      throw error;
+    }
+    return htmlResponse(renderPermissionsOverviewFrame(user));
   }
 
   if (req.method === "POST" && url.pathname === "/ui/settings/sessions/inactive") {

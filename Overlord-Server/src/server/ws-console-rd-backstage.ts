@@ -766,6 +766,10 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
       });
       break;
     }
+    case "webrtc_stop": {
+      sendDesktopCommand(target, "webrtc_stop", { kind: "desktop" });
+      break;
+    }
     case "webrtc_p2p_stop": {
       const cleared = clearP2PSessionForViewer(ws);
       if (cleared) {
