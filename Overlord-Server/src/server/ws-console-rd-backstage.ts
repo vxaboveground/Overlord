@@ -293,6 +293,24 @@ export function sendDesktopCommand(target: ClientInfo | undefined, commandType: 
   return sendDesktopCommandWithId(target, commandType, payload, uuidv4());
 }
 
+function startDesktopWebrtcPublish(target: ClientInfo | undefined, clientId: string) {
+  const streamPath = webrtcStreamPathFor(clientId, "desktop");
+  const token = issueWebrtcPublishToken(clientId);
+  sendDesktopCommand(target, "webrtc_publish", {
+    streamPath,
+    whipPath: `/api/webrtc/${streamPath}/whip`,
+    token,
+    kind: "desktop",
+    hasVideo: true,
+    hasAudio: false,
+    iceServers: issueTurnIceServers(`${clientId}:desktop:whip`),
+  });
+  return {
+    streamPath,
+    whepPath: `/api/webrtc/${streamPath}/whep`,
+  };
+}
+
 function startConsoleForViewer(target: ClientInfo | undefined, sessionId: string, cols = 120, rows = 36) {
   return sendConsoleCommand(target, "console_start", { sessionId, cols, rows });
 }
@@ -430,22 +448,9 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
           }
         }
         if ((payload as any).webrtc === true) {
-          const streamPath = webrtcStreamPathFor(clientId, "desktop");
-          const token = issueWebrtcPublishToken(clientId);
-          const whipPath = `/api/webrtc/${streamPath}/whip`;
-          sendDesktopCommand(target, "webrtc_publish", {
-            streamPath,
-            whipPath,
-            token,
-            kind: "desktop",
-            hasVideo: true,
-            hasAudio: false,
-            iceServers: issueTurnIceServers(`${clientId}:desktop:whip`),
-          });
           safeSendViewer(ws, {
             type: "webrtc_ready",
-            streamPath,
-            whepPath: `/api/webrtc/${streamPath}/whep`,
+            ...startDesktopWebrtcPublish(target, clientId),
           });
         }
         safeSendViewer(ws, { type: "status", status: "starting" });
@@ -461,6 +466,12 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
         const startAgeMs = state.startedAt ? Date.now() - state.startedAt : Number.POSITIVE_INFINITY;
         if (lastFrameAgeMs > 3000 && startAgeMs > 3000) {
           logger.info(`[rd-debug] desktop_start reasserting stale stream client=${clientId} lastFrameAgeMs=${Number.isFinite(lastFrameAgeMs) ? lastFrameAgeMs : -1} state=${JSON.stringify(state)} viewers=${sessionManager.getRdSessionsForClient(clientId).length}`);
+          if ((payload as any).webrtc === true) {
+            safeSendViewer(ws, {
+              type: "webrtc_ready",
+              ...startDesktopWebrtcPublish(target, clientId),
+            });
+          }
           sendDesktopCommand(target, "desktop_set_fps", { fps: clampDesktopFps(state.maxFps) });
           sendDesktopCommand(target, "desktop_set_bitrate", { bitrateMbps: state.bitrateMbps || 0, adaptive: state.bitrateAdaptive });
           sendDesktopCommand(target, "desktop_start", {});
@@ -470,11 +481,6 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
           rdStreamingState.set(clientId, state);
         } else {
           logger.debug(`[rd-debug] desktop_start already active client=${clientId} lastFrameAgeMs=${lastFrameAgeMs} startAgeMs=${startAgeMs} state=${JSON.stringify(state)} viewers=${sessionManager.getRdSessionsForClient(clientId).length}`);
-          if (String(state.codec || "").toLowerCase() === "h264") {
-            sendDesktopCommand(target, "desktop_request_keyframe", {
-              reason: "viewer_start_existing_stream",
-            });
-          }
         }
       }
       break;
@@ -872,15 +878,6 @@ function broadcastRemoteDesktopFrame(clientId: string, bytes: Uint8Array, header
     );
     if (controller?.viewer.data.sessionId) {
       rdCanvasFrameAckPending.set(clientId, controller.viewer.data.sessionId);
-    }
-  }
-  if (result.dropped) {
-    const target = clientManager.getClient(clientId);
-    if (target) {
-      sendDesktopCommand(target, "desktop_request_keyframe", {
-        reason: "viewer_backpressure",
-        format: String(header?.format || ""),
-      });
     }
   }
   return (result.sent && !rdCanvasFrameAckPending.has(clientId)) || result.viewers === 0;

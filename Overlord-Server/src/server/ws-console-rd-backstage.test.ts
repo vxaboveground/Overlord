@@ -151,6 +151,11 @@ describe("remote desktop viewer control", () => {
     expect(agentCommands(agentWs)
       .filter((msg) => msg.commandType === "desktop_request_keyframe"))
       .toHaveLength(1);
+
+    handleRemoteDesktopViewerMessage(viewerSocket, JSON.stringify({ type: "desktop_start" }));
+    expect(agentCommands(agentWs)
+      .filter((msg) => msg.commandType === "desktop_request_keyframe"))
+      .toHaveLength(1);
   });
 
   test("requests HEVC recovery after a screenshot only while streaming", () => {
@@ -226,6 +231,35 @@ describe("remote desktop viewer control", () => {
     expect(commands.filter((msg) => msg.commandType === "desktop_start")).toHaveLength(1);
     expect(commands.filter((msg) => msg.commandType === "desktop_request_keyframe")).toHaveLength(0);
     expect(rdStreamingState.get(clientId)?.isStreaming).toBe(true);
+  });
+
+  test("restarts relayed WebRTC publishing when server stream state is stale", () => {
+    const clientId = `rd-stale-webrtc-${Date.now().toString(36)}`;
+    const { agentWs } = createClient(clientId);
+    const viewer = createMockWs({ clientId });
+    rdStreamingState.set(clientId, {
+      isStreaming: true,
+      display: 0,
+      quality: 90,
+      codec: "h264",
+      softwareH264: false,
+      duplication: true,
+      maxHeight: 1080,
+      maxFps: 120,
+      bitrateMbps: 0,
+      bitrateAdaptive: false,
+      lastFps: 1,
+      lastFrameAt: Date.now() - 5000,
+      startedAt: Date.now() - 5000,
+    });
+
+    handleRemoteDesktopViewerOpen(viewer as any);
+    handleRemoteDesktopViewerMessage(viewer as any, JSON.stringify({ type: "desktop_start", webrtc: true }));
+
+    const commands = agentCommands(agentWs);
+    expect(commands.filter((msg) => msg.commandType === "webrtc_publish")).toHaveLength(1);
+    expect(commands.filter((msg) => msg.commandType === "desktop_start")).toHaveLength(1);
+    expect(commands.filter((msg) => msg.commandType === "desktop_request_keyframe")).toHaveLength(0);
   });
 
   test("forwards and clamps the desktop bitrate setting", () => {

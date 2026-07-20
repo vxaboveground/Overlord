@@ -121,6 +121,8 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   let whepClient = null;
   let p2pClient = null;
   let webrtcActive = false;
+  let pendingWhepPath = "";
+  let pendingWhepTimer = null;
   let lastRemoteCursor = null;
   let remoteCursorShape = null;
   let remoteCursorImageUrl = "";
@@ -1213,6 +1215,11 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     if (agentFps && diagnostics.currentAgentFps != null) {
       agentFps.textContent = String(Math.round(diagnostics.currentAgentFps));
     }
+    if (getWebrtcMode() === "relayed" && pendingWhepPath && String(stats.transport || "").toLowerCase() === "webrtc") {
+      const whepPath = pendingWhepPath;
+      clearPendingWhepStart();
+      startWhep(whepPath);
+    }
     renderDiagnostics();
   }
 
@@ -1513,6 +1520,33 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     webrtcRvfcHandle = 0;
   }
 
+  function clearPendingWhepStart() {
+    if (pendingWhepTimer) {
+      clearTimeout(pendingWhepTimer);
+      pendingWhepTimer = null;
+    }
+    pendingWhepPath = "";
+  }
+
+  function fallBackFromPendingWhep(reason) {
+    if (!pendingWhepPath) return;
+    console.warn("webrtc: WHEP publisher did not become ready, falling back to canvas", reason);
+    clearPendingWhepStart();
+    setWebrtcViewActive(false);
+    sendCmd("webrtc_stop", { kind: "desktop", source: "whep_not_ready" });
+    if (webrtcMode) webrtcMode.value = "off";
+    negotiatedCodec = browserDecoderCodecs.includes("h264") ? "h264" : "jpeg";
+    setCodecModeLabel(negotiatedCodec, "WHEP not ready; WebSocket fallback");
+    requestEncoderCapabilities();
+    if (qualitySlider) pushQuality(qualitySlider.value);
+  }
+
+  function queueWhepStart(whepPath) {
+    clearPendingWhepStart();
+    pendingWhepPath = whepPath;
+    pendingWhepTimer = setTimeout(() => fallBackFromPendingWhep("desktop_stream_stats timeout"), 7000);
+  }
+
   async function startWhep(whepPath) {
     await stopAllWebrtc();
     if (!webrtcVideo) return;
@@ -1568,6 +1602,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   }
 
   async function stopAllWebrtc() {
+    clearPendingWhepStart();
     stopWebrtcFrameTicker();
     setWebrtcViewActive(false);
     const w = whepClient;
@@ -2901,7 +2936,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
         return;
       }
       if (msg && msg.type === "webrtc_ready" && typeof msg.whepPath === "string") {
-        startWhep(msg.whepPath);
+        queueWhepStart(msg.whepPath);
         return;
       }
       if (msg && msg.type === "webrtc_p2p_answer" && typeof msg.sdp === "string") {
