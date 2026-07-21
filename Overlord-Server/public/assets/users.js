@@ -16,6 +16,7 @@ const errorMessage = document.getElementById("error-message");
 const errorText = document.getElementById("error-text");
 const generatePasswordBtn = document.getElementById("generate-password-btn");
 const generatedPasswordHint = document.getElementById("generated-password-hint");
+const mustChangePasswordInput = document.getElementById("must-change-password");
 const logoutBtn = document.getElementById("logout-btn");
 const currentUserEl = document.getElementById("username-display");
 const currentRoleEl = document.getElementById("role-badge");
@@ -441,12 +442,13 @@ userForm.addEventListener("submit", async (e) => {
   const username = formData.get("username");
   const password = formData.get("password");
   const role = formData.get("role");
+  const mustChangePassword = mustChangePasswordInput?.checked !== false;
 
   try {
     const res = await fetch("/api/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password, role }),
+      body: JSON.stringify({ username, password, role, mustChangePassword }),
     });
 
     const data = await res.json();

@@ -51,7 +51,7 @@ async function seedBrowserUsers(): Promise<void> {
   for (const account of [ONBOARDING_USER, OPERATOR, VIEWER]) {
     const response = await authenticatedRequest("/api/users", adminCookie, {
       method: "POST",
-      body: JSON.stringify(account),
+      body: JSON.stringify({ ...account, mustChangePassword: false }),
     });
     if (!response.ok) {
       throw new Error(`Could not seed ${account.username}: ${response.status}`);

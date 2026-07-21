@@ -83,6 +83,7 @@ test("admin can generate passwords and inspect combined permission sources", asy
   await page.goto("/users");
 
   await page.locator("#add-user-btn").click();
+  await expect(page.locator("#must-change-password")).toBeChecked();
   await page.locator("#generate-password-btn").click();
   const generatedPassword = await page.locator("#password").inputValue();
   expect(generatedPassword.length).toBeGreaterThanOrEqual(20);

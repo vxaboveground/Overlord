@@ -57,6 +57,36 @@ describe("admin-created users must change password", () => {
     expect(created?.must_change_password).toBe(1);
   });
 
+  test("POST /api/users allows an explicit first-login prompt exemption", async () => {
+    const admin = await createAuthedAdmin();
+    const username = `mcp_exempt_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`;
+    const url = new URL("https://localhost/api/users");
+
+    const res = await handleUsersRoutes(
+      new Request(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${admin.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          username,
+          password: PASSWORD,
+          role: "viewer",
+          mustChangePassword: false,
+        }),
+      }),
+      url,
+      mockServer,
+    );
+
+    expect(res).not.toBeNull();
+    expect(res!.status).toBe(200);
+    const body = await res!.json();
+    createdUserIds.push(body.userId);
+    expect(getUserById(body.userId)?.must_change_password).toBe(0);
+  });
+
   test("self password update may reuse the initial password and clears the prompt", async () => {
     const admin = await createAuthedAdmin();
     const username = `mcp_same_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`;

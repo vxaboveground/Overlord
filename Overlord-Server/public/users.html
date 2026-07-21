@@ -208,6 +208,20 @@
             </select>
           </div>
 
+          <label class="flex items-start gap-3 rounded-lg border border-slate-700 bg-slate-800/50 p-3 cursor-pointer">
+            <input
+              id="must-change-password"
+              name="mustChangePassword"
+              type="checkbox"
+              checked
+              class="mt-0.5 h-4 w-4 accent-violet-500"
+            />
+            <span>
+              <span class="block text-sm font-medium text-slate-200">Prompt for password confirmation on first login</span>
+              <span class="block text-xs text-slate-500 mt-0.5">The user may keep this password, but must enter it again before accessing the dashboard.</span>
+            </span>
+          </label>
+
           <div
             id="error-message"
             class="hidden p-3 bg-red-900/20 border border-red-800 rounded-lg text-red-400 text-sm"

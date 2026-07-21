@@ -84,7 +84,7 @@ export async function handleUsersRoutes(
     if (req.method === "POST" && url.pathname === "/api/users") {
       const authedUser = requirePermission(user, "users:manage");
       const body = await req.json();
-      const { username, password, role } = body;
+      const { username, password, role, mustChangePassword } = body;
 
       if (!username || !password || !role) {
         return Response.json({ error: "Missing required fields" }, { status: 400 });
@@ -94,7 +94,13 @@ export async function handleUsersRoutes(
         return Response.json({ error: "Invalid role" }, { status: 400 });
       }
 
-      const result = await createUser(username, password, role, authedUser.username, true);
+      const result = await createUser(
+        username,
+        password,
+        role,
+        authedUser.username,
+        mustChangePassword !== false,
+      );
 
       if (result.success) {
         const ip = server.requestIP(req)?.address || "unknown";
