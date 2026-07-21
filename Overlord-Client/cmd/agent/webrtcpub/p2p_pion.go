@@ -147,7 +147,7 @@ func StartP2POffer(ctx context.Context, kind Kind, sessionID string, offerSDP st
 			return "", fmt.Errorf("add video transceiver: %w", err)
 		}
 		if sender := tx.Sender(); sender != nil {
-			go drainRTCP(sender)
+			go drainRTCP(sender, kind)
 		}
 	}
 	if hasAudio {
@@ -172,7 +172,7 @@ func StartP2POffer(ctx context.Context, kind Kind, sessionID string, offerSDP st
 			return "", fmt.Errorf("add audio transceiver: %w", err)
 		}
 		if sender := tx.Sender(); sender != nil {
-			go drainRTCP(sender)
+			go drainRTCP(sender, "")
 		}
 	}
 

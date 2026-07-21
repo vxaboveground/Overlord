@@ -213,7 +213,7 @@ var (
 )
 
 func VirtualTryDirectH264Frame() (wire.Frame, time.Duration, time.Duration, bool, error) {
-	if blockCodec() != "h264" {
+	if backstageCodec() != "h264" {
 		return wire.Frame{}, 0, 0, false, nil
 	}
 	return virtualDupState.captureDirectH264()
@@ -280,12 +280,12 @@ func (s *virtualDuplicationState) captureDirectH264() (wire.Frame, time.Duration
 }
 
 func (s *virtualDuplicationState) encodeCachedDirectH264(capStart time.Time, width, height int) (wire.Frame, time.Duration, time.Duration, bool, error) {
-	fps := activeH264FPS()
+	fps := activeH264FPSForStream("backstage")
 	encStart := time.Now()
-	out, _, err := encodeH264D3D11Texture(h264D3D11TextureRequest{
+	out, _, err := encodeH264D3D11Texture("backstage", h264D3D11TextureRequest{
 		Device: unsafe.Pointer(s.device), Texture: unsafe.Pointer(s.h264LastTex),
 		InputWidth: width, InputHeight: height, EncodeWidth: width, EncodeHeight: height,
-		FPS: fps, DXGIFormat: s.h264LastDesc.Format, ForceIDR: webrtcpub.ConsumeKeyframeRequest(),
+		FPS: fps, DXGIFormat: s.h264LastDesc.Format, ForceIDR: webrtcpub.ConsumeKeyframeRequest(webrtcpub.Kindbackstage),
 	})
 	encodeDur := time.Since(encStart)
 	if err != nil {

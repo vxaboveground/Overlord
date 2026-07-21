@@ -25,7 +25,7 @@ import (
 	"github.com/pion/webrtc/v4/pkg/media"
 )
 
-func drainRTCP(sender *webrtc.RTPSender) {
+func drainRTCP(sender *webrtc.RTPSender, kind Kind) {
 	buf := make([]byte, 1500)
 	for {
 		n, _, err := sender.Read(buf)
@@ -39,7 +39,9 @@ func drainRTCP(sender *webrtc.RTPSender) {
 		for _, p := range packets {
 			switch p.(type) {
 			case *rtcp.PictureLossIndication, *rtcp.FullIntraRequest:
-				handleRTCPKeyframeFeedback()
+				if kind != "" {
+					handleRTCPKeyframeFeedback(kind)
+				}
 			}
 		}
 	}
@@ -48,11 +50,15 @@ func drainRTCP(sender *webrtc.RTPSender) {
 const h264SDPFmtpLine = "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640034"
 
 var rtcpKeyframeLogOnce sync.Once
-var lastRTCPKeyframeRequest atomic.Int64
+var (
+	lastDesktopRTCPKeyframeRequest   atomic.Int64
+	lastBackstageRTCPKeyframeRequest atomic.Int64
+	lastWebcamRTCPKeyframeRequest    atomic.Int64
+)
 
 const rtcpKeyframeMinInterval = 750 * time.Millisecond
 
-func handleRTCPKeyframeFeedback() {
+func handleRTCPKeyframeFeedback(kind Kind) {
 	if !honorRTCPKeyframes() {
 		rtcpKeyframeLogOnce.Do(func() {
 			log.Printf("webrtcpub: RTCP video keyframe recovery disabled by OVERLORD_WEBRTC_RTCP_KEYFRAMES")
@@ -61,15 +67,26 @@ func handleRTCPKeyframeFeedback() {
 	}
 	now := time.Now().UnixNano()
 	for {
-		last := lastRTCPKeyframeRequest.Load()
+		last := rtcpKeyframeTimestamp(kind).Load()
 		if last > 0 && time.Duration(now-last) < rtcpKeyframeMinInterval {
 			return
 		}
-		if lastRTCPKeyframeRequest.CompareAndSwap(last, now) {
+		if rtcpKeyframeTimestamp(kind).CompareAndSwap(last, now) {
 			break
 		}
 	}
-	RequestKeyframe()
+	RequestKeyframe(kind)
+}
+
+func rtcpKeyframeTimestamp(kind Kind) *atomic.Int64 {
+	switch kind {
+	case Kindbackstage:
+		return &lastBackstageRTCPKeyframeRequest
+	case KindWebcam:
+		return &lastWebcamRTCPKeyframeRequest
+	default:
+		return &lastDesktopRTCPKeyframeRequest
+	}
 }
 
 func honorRTCPKeyframes() bool {
@@ -188,7 +205,7 @@ func Start(ctx context.Context, kind Kind, opts Options) (*Publisher, error) {
 			return nil, fmt.Errorf("add video transceiver: %w", err)
 		}
 		if sender := tx.Sender(); sender != nil {
-			go drainRTCP(sender)
+			go drainRTCP(sender, kind)
 		}
 	}
 	if opts.HasAudio {
@@ -213,7 +230,7 @@ func Start(ctx context.Context, kind Kind, opts Options) (*Publisher, error) {
 			return nil, fmt.Errorf("add audio transceiver: %w", err)
 		}
 		if sender := tx.Sender(); sender != nil {
-			go drainRTCP(sender)
+			go drainRTCP(sender, "")
 		}
 	}
 

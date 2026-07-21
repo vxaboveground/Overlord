@@ -832,7 +832,7 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			log.Printf("desktop: set quality=%d codec=%s software_h264=%v", quality, codec, softwareH264)
 		}
 		capture.SetDesktopSoftwareH264(softwareH264)
-		capture.SetQualityAndCodec(quality, codec)
+		capture.SetDesktopQualityAndCodec(quality, codec)
 		sendCommandResultSafe(env, cmdID, true, "")
 		return nil
 	case "desktop_request_keyframe":
@@ -1335,7 +1335,7 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			}
 		}
 		log.Printf("backstage: set quality=%d codec=%s", quality, codec)
-		capture.SetQualityAndCodec(quality, codec)
+		capture.SetBackstageQualityAndCodec(quality, codec)
 		sendCommandResultSafe(env, cmdID, true, "")
 		return nil
 	case "backstage_request_keyframe":
@@ -2209,7 +2209,7 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			}
 		}
 		log.Printf("hidden: set quality=%d codec=%s", quality, codec)
-		capture.SetQualityAndCodec(quality, codec)
+		capture.SetBackstageQualityAndCodec(quality, codec)
 		sendCommandResultSafe(env, cmdID, true, "")
 		return nil
 	case "virtual_request_keyframe":
@@ -2447,6 +2447,7 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			fps = clampedFPS
 		}
 		env.WebcamFPS = fps
+		capture.SetWebcamH264TargetFPS(fps)
 		env.WebcamUseMaxFPS = useMax
 		sendCommandResultSafe(env, cmdID, true, "")
 		return nil

@@ -3,5 +3,5 @@
 package capture
 
 func resetH264TextureEncoderForBitrate() {
-	resetH264D3D11TextureEncoder()
+	resetAllH264D3D11TextureEncoders()
 }

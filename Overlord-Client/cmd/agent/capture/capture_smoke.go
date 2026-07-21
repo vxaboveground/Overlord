@@ -39,7 +39,7 @@ func RunCaptureSmoke(opts CaptureSmokeOptions) []CaptureSmokeResult {
 		opts.Display = 0
 	}
 	if opts.FPS > 0 {
-		SetH264TargetFPS(opts.FPS)
+		SetDesktopH264TargetFPS(opts.FPS)
 	}
 	if opts.MaxHeight != 0 {
 		SetMaxResolution(opts.MaxHeight)

@@ -1,6 +1,8 @@
 package capture
 
 import (
+	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"os"
@@ -12,14 +14,17 @@ import (
 func resetCodecSelectionForTest() {
 	blockCodecOnce = sync.Once{}
 	cachedBlockCodec = ""
-	overrideCodec.Store("")
+	desktopOverrideCodec.Store("")
+	backstageOverrideCodec.Store("")
+	desktopOverrideQuality.Store(0)
+	backstageOverrideQuality.Store(0)
 }
 
 func TestSetQualityAndCodec_H264FallbackDependsOnAvailability(t *testing.T) {
 	t.Cleanup(resetCodecSelectionForTest)
 
-	SetQualityAndCodec(80, "h264")
-	got := blockCodec()
+	SetDesktopQualityAndCodec(80, "h264")
+	got := desktopCodec()
 
 	if h264Available() {
 		if got != "h264" {
@@ -36,10 +41,53 @@ func TestSetQualityAndCodec_H264FallbackDependsOnAvailability(t *testing.T) {
 func TestSetQualityAndCodec_InvalidCodecForcesJpeg(t *testing.T) {
 	t.Cleanup(resetCodecSelectionForTest)
 
-	SetQualityAndCodec(75, "invalid-codec")
-	got := blockCodec()
+	SetDesktopQualityAndCodec(75, "invalid-codec")
+	got := desktopCodec()
 	if got != "jpeg" {
 		t.Fatalf("expected invalid codec to force jpeg, got %q", got)
+	}
+}
+
+func TestDesktopAndBackstageCodecSelectionsAreIndependent(t *testing.T) {
+	t.Cleanup(resetCodecSelectionForTest)
+
+	SetDesktopQualityAndCodec(80, "h264")
+	SetBackstageQualityAndCodec(65, "jpeg")
+
+	wantDesktop := "jpeg"
+	if h264Available() {
+		wantDesktop = "h264"
+	}
+	if got := desktopCodec(); got != wantDesktop {
+		t.Fatalf("desktop codec = %q, want %q after backstage update", got, wantDesktop)
+	}
+	if got := backstageCodec(); got != "jpeg" {
+		t.Fatalf("backstage codec = %q, want jpeg", got)
+	}
+	if got := desktopJPEGQuality(); got != 80 {
+		t.Fatalf("desktop quality = %d, want 80", got)
+	}
+	if got := backstageJPEGQuality(); got != 65 {
+		t.Fatalf("backstage quality = %d, want 65", got)
+	}
+}
+
+func TestDesktopHardwareFailureDoesNotChangeBackstageCodec(t *testing.T) {
+	t.Cleanup(func() {
+		desktopHardwareFallbackUntil.Store(0)
+		resetCodecSelectionForTest()
+	})
+	SetDesktopQualityAndCodec(80, "h264")
+	SetBackstageQualityAndCodec(65, "h264")
+	before := backstageCodec()
+
+	suppressDesktopHardwareH264(errors.New("NVENC session failure"))
+
+	if !useDesktopSoftwareH264() {
+		t.Fatal("desktop did not enter temporary software H.264 fallback")
+	}
+	if got := backstageCodec(); got != before {
+		t.Fatalf("backstage codec changed from %q to %q after desktop encoder failure", before, got)
 	}
 }
 
@@ -93,6 +141,59 @@ func TestEncodeH264Frame_WhenAvailableProducesBytes(t *testing.T) {
 	}
 }
 
+func TestDesktopAndBackstageH264EncodeConcurrently(t *testing.T) {
+	if !h264Available() {
+		t.Skip("h264 is unavailable in this build")
+	}
+	SetDesktopH264TargetFPS(60)
+	SetBackstageH264TargetFPS(30)
+	t.Cleanup(func() {
+		resetH264Encoder()
+		resetH264Encoderbackstage()
+	})
+
+	const width, height = 640, 360
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	run := func(name string, encode func(*image.RGBA) ([]byte, error), seed uint8) {
+		<-start
+		img := image.NewRGBA(image.Rect(0, 0, width, height))
+		produced := false
+		for frame := range 12 {
+			for y := range height {
+				for x := range width {
+					img.SetRGBA(x, y, color.RGBA{
+						R: uint8(x*3+frame*7) + seed,
+						G: uint8(y*3+frame*5) + seed,
+						B: uint8(frame*11) + seed,
+						A: 255,
+					})
+				}
+			}
+			out, err := encode(img)
+			if err != nil {
+				results <- fmt.Errorf("%s encode frame %d: %w", name, frame, err)
+				return
+			}
+			produced = produced || len(out) > 0
+		}
+		if !produced {
+			results <- fmt.Errorf("%s produced no H.264 output", name)
+			return
+		}
+		results <- nil
+	}
+
+	go run("desktop", encodeH264Frame, 17)
+	go run("backstage", encodeH264Framebackstage, 83)
+	close(start)
+	for range 2 {
+		if err := <-results; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestBlockCodec_UsesEnvWhenNoOverride(t *testing.T) {
 	prev := os.Getenv(blockCodecEnv)
 	if err := os.Setenv(blockCodecEnv, "raw"); err != nil {
@@ -104,7 +205,7 @@ func TestBlockCodec_UsesEnvWhenNoOverride(t *testing.T) {
 	})
 
 	resetCodecSelectionForTest()
-	got := blockCodec()
+	got := desktopCodec()
 	if got != "raw" {
 		t.Fatalf("expected env codec raw, got %q", got)
 	}

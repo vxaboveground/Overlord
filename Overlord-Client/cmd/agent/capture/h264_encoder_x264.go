@@ -13,15 +13,17 @@ import (
 )
 
 var (
-	h264Mu        sync.Mutex
-	h264Enc       *x264.Encoder
-	h264Buf       bytes.Buffer
-	h264Width     int
-	h264Height    int
-	h264FPS       int
-	h264LastErr   error
-	h264Scratch   []byte
-	h264TargetFPS atomic.Int64 // set by the stream handler; default 60
+	h264Mu                 sync.Mutex
+	h264Enc                *x264.Encoder
+	h264Buf                bytes.Buffer
+	h264Width              int
+	h264Height             int
+	h264FPS                int
+	h264LastErr            error
+	h264Scratch            []byte
+	desktopH264TargetFPS   atomic.Int64
+	backstageH264TargetFPS atomic.Int64
+	webcamH264TargetFPS    atomic.Int64
 )
 
 func encodeH264Frame(img *image.RGBA) ([]byte, error) {
@@ -70,22 +72,34 @@ func h264AvailabilityDetail() string {
 	return "cgo build with x264-go"
 }
 
-// SetH264TargetFPS sets the frame rate hint for the x264 encoder so its
-// rate-control matches the actual capture cadence. Call this before (or
-// when) streaming starts. The encoder is automatically re-created on the
-// next frame if the value differs from the current one.
-func SetH264TargetFPS(fps int) {
+func SetDesktopH264TargetFPS(fps int) {
+	setH264TargetFPS(&desktopH264TargetFPS, fps)
+}
+
+func SetBackstageH264TargetFPS(fps int) {
+	setH264TargetFPS(&backstageH264TargetFPS, fps)
+}
+
+func SetWebcamH264TargetFPS(fps int) {
+	setH264TargetFPS(&webcamH264TargetFPS, fps)
+}
+
+func setH264TargetFPS(target *atomic.Int64, fps int) {
 	if fps < 1 {
 		fps = 1
 	}
-	h264TargetFPS.Store(int64(fps))
+	target.Store(int64(fps))
 }
 
 func activeH264FPS() int {
-	if v := int(h264TargetFPS.Load()); v > 0 {
+	return activeH264FPSValue(&desktopH264TargetFPS, 60)
+}
+
+func activeH264FPSValue(target *atomic.Int64, fallback int) int {
+	if v := int(target.Load()); v > 0 {
 		return v
 	}
-	return 60 // sensible default for desktop streaming
+	return fallback
 }
 
 func ensureH264EncoderLocked(width, height int) error {
@@ -187,8 +201,12 @@ func resetH264Encoderbackstage() {
 	closebackstageH264EncoderLocked()
 }
 
+func RequestBackstageH264Keyframe() {
+	resetH264Encoderbackstage()
+}
+
 func ensurebackstageH264EncoderLocked(width, height int) error {
-	fps := activeH264FPS()
+	fps := activeH264FPSValue(&backstageH264TargetFPS, 60)
 	if backstageH264Enc != nil && backstageH264Width == width && backstageH264Height == height && backstageH264FPS == fps {
 		return nil
 	}
@@ -267,7 +285,7 @@ func encodeH264FrameWebcam(img *image.RGBA) ([]byte, error) {
 }
 
 func ensureWebcamH264EncoderLocked(width, height int) error {
-	fps := activeH264FPS()
+	fps := activeH264FPSValue(&webcamH264TargetFPS, 30)
 	if webcamH264Enc != nil && webcamH264Width == width && webcamH264Height == height && webcamH264FPS == fps {
 		return nil
 	}

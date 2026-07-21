@@ -688,7 +688,7 @@ func (s *duplicationState) closeLocked() {
 		s.h264LastTex = nil
 		s.h264LastDesc = d3d11Texture2DDesc{}
 	}
-	resetH264D3D11TextureEncoder()
+	resetH264D3D11TextureEncoder("desktop")
 	resetNativeHEVCD3D11TextureEncoder()
 	if s.context != nil {
 		s.context.Release()
@@ -1027,7 +1027,7 @@ func encodeDesktopD3D11Texture(codec string, req h264D3D11TextureRequest) ([]byt
 			req.EncodeWidth, req.EncodeHeight, req.FPS, req.DXGIFormat, req.ForceIDR)
 		return out, "NVIDIA NVENC", err
 	}
-	return encodeH264D3D11Texture(req)
+	return encodeH264D3D11Texture("desktop", req)
 }
 
 func (s *duplicationState) cacheH264TextureLocked(src *d3d11Texture2D, srcDesc d3d11Texture2DDesc) error {

@@ -519,7 +519,9 @@ type mfH264Candidate struct {
 }
 
 var (
-	h264TargetFPS atomic.Int64
+	desktopH264TargetFPS   atomic.Int64
+	backstageH264TargetFPS atomic.Int64
+	webcamH264TargetFPS    atomic.Int64
 
 	h264Mu      sync.Mutex
 	h264Enc     h264FrameEncoder
@@ -565,7 +567,7 @@ func encodeH264FrameWithEncoder(slot *h264FrameEncoder, stream string, img *imag
 		return nil, fmt.Errorf("h264 frame size must be even, got %dx%d", width, height)
 	}
 
-	fps := activeH264FPS()
+	fps := activeH264FPSForStream(stream)
 	if *slot == nil || !(*slot).Matches(width, height, fps) {
 		if *slot != nil {
 			(*slot).Close()
@@ -577,7 +579,39 @@ func encodeH264FrameWithEncoder(slot *h264FrameEncoder, stream string, img *imag
 		}
 		*slot = enc
 	}
-	return (*slot).Encode(img)
+	return encodeH264FrameWithRuntimeFallback(slot, stream, img, fps, newSoftwareH264Fallback)
+}
+
+type h264SoftwareFallbackFactory func(width, height, fps int) (h264FrameEncoder, error)
+
+func newSoftwareH264Fallback(width, height, fps int) (h264FrameEncoder, error) {
+	return newMFSoftwareH264Encoder(width, height, fps)
+}
+
+func encodeH264FrameWithRuntimeFallback(
+	slot *h264FrameEncoder,
+	stream string,
+	img *image.RGBA,
+	fps int,
+	createSoftware h264SoftwareFallbackFactory,
+) ([]byte, error) {
+	out, err := (*slot).Encode(img)
+	if err == nil {
+		return out, nil
+	}
+	hardwareErr := err
+	closeH264Encoder(slot)
+	fallback, fallbackErr := createSoftware(img.Bounds().Dx(), img.Bounds().Dy(), fps)
+	if fallbackErr != nil {
+		return nil, fmt.Errorf("%s h264 encoder failed (%v) and software fallback could not start: %w", stream, hardwareErr, fallbackErr)
+	}
+	*slot = fallback
+	log.Printf("capture: %s h264 encoder failed at runtime: %v; switched this stream to Media Foundation software H.264", stream, hardwareErr)
+	out, err = fallback.Encode(img)
+	if err != nil {
+		return nil, fmt.Errorf("%s software h264 fallback encode failed after hardware error %v: %w", stream, hardwareErr, err)
+	}
+	return out, nil
 }
 
 func h264Available() bool {
@@ -601,18 +635,45 @@ func h264AvailabilityDetail() string {
 	return "Windows Media Foundation H.264 MFT (Microsoft H.264 encoder fallback; hardware unavailable: " + detail + ")"
 }
 
-func SetH264TargetFPS(fps int) {
+func SetDesktopH264TargetFPS(fps int) {
+	setH264TargetFPS(&desktopH264TargetFPS, fps)
+}
+
+func SetBackstageH264TargetFPS(fps int) {
+	setH264TargetFPS(&backstageH264TargetFPS, fps)
+}
+
+func SetWebcamH264TargetFPS(fps int) {
+	setH264TargetFPS(&webcamH264TargetFPS, fps)
+}
+
+func setH264TargetFPS(target *atomic.Int64, fps int) {
 	if fps < 1 {
 		fps = 1
 	}
-	h264TargetFPS.Store(int64(fps))
+	target.Store(int64(fps))
 }
 
 func activeH264FPS() int {
-	if v := int(h264TargetFPS.Load()); v > 0 {
+	return activeH264FPSValue(&desktopH264TargetFPS, 60)
+}
+
+func activeH264FPSForStream(stream string) int {
+	switch stream {
+	case "backstage":
+		return activeH264FPSValue(&backstageH264TargetFPS, 60)
+	case "webcam":
+		return activeH264FPSValue(&webcamH264TargetFPS, 30)
+	default:
+		return activeH264FPS()
+	}
+}
+
+func activeH264FPSValue(target *atomic.Int64, fallback int) int {
+	if v := int(target.Load()); v > 0 {
 		return v
 	}
-	return 60
+	return fallback
 }
 
 func resetH264Encoder() {
@@ -622,7 +683,7 @@ func resetH264Encoder() {
 }
 
 func RequestDesktopH264Keyframe() {
-	requestH264D3D11TextureKeyframe()
+	requestH264D3D11TextureKeyframe("desktop")
 	resetH264Encoder()
 }
 
@@ -630,6 +691,11 @@ func resetH264Encoderbackstage() {
 	backstageH264Mu.Lock()
 	defer backstageH264Mu.Unlock()
 	closeH264Encoder(&backstageH264Enc)
+}
+
+func RequestBackstageH264Keyframe() {
+	requestH264D3D11TextureKeyframe("backstage")
+	resetH264Encoderbackstage()
 }
 
 func closeH264Encoder(slot *h264FrameEncoder) {

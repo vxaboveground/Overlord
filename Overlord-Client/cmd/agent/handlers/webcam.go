@@ -21,6 +21,7 @@ func WebcamStart(ctx context.Context, env *rt.Env) error {
 	if fps > 120 {
 		fps = 120
 	}
+	capture.SetWebcamH264TargetFPS(fps)
 	interval := time.Second / time.Duration(fps)
 	log.Printf("webcam: starting stream (max fps %d)", fps)
 	defer capture.CleanupWebcam()

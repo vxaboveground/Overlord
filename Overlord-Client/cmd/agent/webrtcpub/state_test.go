@@ -67,3 +67,21 @@ func TestWriteH264DoesNotBlockAndKeepsLatestPendingFrame(t *testing.T) {
 	}
 	t.Fatal("latest pending frame was not delivered")
 }
+
+func TestKeyframeRequestsAreIsolatedByStreamKind(t *testing.T) {
+	for _, kind := range []Kind{KindDesktop, Kindbackstage, KindWebcam} {
+		_ = ConsumeKeyframeRequest(kind)
+	}
+
+	RequestKeyframe(Kindbackstage)
+
+	if ConsumeKeyframeRequest(KindDesktop) {
+		t.Fatal("backstage keyframe request leaked into desktop stream")
+	}
+	if ConsumeKeyframeRequest(KindWebcam) {
+		t.Fatal("backstage keyframe request leaked into webcam stream")
+	}
+	if !ConsumeKeyframeRequest(Kindbackstage) {
+		t.Fatal("backstage keyframe request was not retained for backstage stream")
+	}
+}

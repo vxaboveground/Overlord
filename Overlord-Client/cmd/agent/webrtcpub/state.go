@@ -110,7 +110,7 @@ func registerVideoWriter(kind Kind, id string, w VideoWriter) {
 	entry.video = newLatestVideoWriter(w)
 	bucket[id] = entry
 	writersMu.Unlock()
-	RequestKeyframe()
+	RequestKeyframe(kind)
 }
 
 func registerAudioWriter(kind Kind, id string, w AudioWriter) {
@@ -155,14 +155,29 @@ func IsActive(kind Kind) bool {
 	return len(writers[string(kind)]) > 0
 }
 
-var keyframeWanted atomic.Bool
+var (
+	desktopKeyframeWanted   atomic.Bool
+	backstageKeyframeWanted atomic.Bool
+	webcamKeyframeWanted    atomic.Bool
+)
 
-func RequestKeyframe() {
-	keyframeWanted.Store(true)
+func keyframeRequestFlag(kind Kind) *atomic.Bool {
+	switch kind {
+	case Kindbackstage:
+		return &backstageKeyframeWanted
+	case KindWebcam:
+		return &webcamKeyframeWanted
+	default:
+		return &desktopKeyframeWanted
+	}
 }
 
-func ConsumeKeyframeRequest() bool {
-	return keyframeWanted.Swap(false)
+func RequestKeyframe(kind Kind) {
+	keyframeRequestFlag(kind).Store(true)
+}
+
+func ConsumeKeyframeRequest(kind Kind) bool {
+	return keyframeRequestFlag(kind).Swap(false)
 }
 
 func WriteH264(kind Kind, nalu []byte, dur time.Duration) error {

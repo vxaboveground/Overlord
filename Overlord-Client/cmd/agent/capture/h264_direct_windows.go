@@ -17,13 +17,13 @@ func directVideoKeyframeDue(requested bool, nowNs, lastKeyframeNs int64) bool {
 }
 
 func tryBuildDirectH264Frame(display int) (wire.Frame, time.Duration, time.Duration, bool, error) {
-	codec := blockCodec()
+	codec := desktopCodec()
 	if (codec != "h264" && codec != "hevc") || (codec == "h264" && useDesktopSoftwareH264()) || !useDesktopDuplication() {
 		return wire.Frame{}, 0, 0, false, nil
 	}
 	now := time.Now()
 	forceKeyframe := directVideoKeyframeDue(
-		webrtcpub.ConsumeKeyframeRequest(),
+		webrtcpub.ConsumeKeyframeRequest(webrtcpub.KindDesktop),
 		now.UnixNano(),
 		lastKeyframe.Load(),
 	)

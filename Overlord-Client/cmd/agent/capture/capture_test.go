@@ -144,7 +144,7 @@ func TestActualScreenCapture(t *testing.T) {
 		t.Log("WARNING: Captured image appears to be solid color (may indicate capture issue)")
 	}
 
-	quality := jpegQuality()
+	quality := desktopJPEGQuality()
 	frame, encodeDur, err := buildFrame(img, 0, quality)
 	if err != nil {
 		t.Errorf("Failed to build frame from captured image: %v", err)
@@ -270,7 +270,7 @@ func TestFrameFPS(t *testing.T) {
 }
 
 func TestJPEGQuality(t *testing.T) {
-	quality := jpegQuality()
+	quality := desktopJPEGQuality()
 	if quality < 1 || quality > 100 {
 		t.Errorf("JPEG quality out of range: %d (expected 1-100)", quality)
 	}
@@ -479,11 +479,11 @@ func TestSetFrameFlowTargetFPSEnvOverride(t *testing.T) {
 }
 
 func TestRequestDesktopFullFrameRequestsWebRTCKeyframe(t *testing.T) {
-	_ = webrtcpub.ConsumeKeyframeRequest()
+	_ = webrtcpub.ConsumeKeyframeRequest(webrtcpub.KindDesktop)
 
 	RequestDesktopFullFrame()
 
-	if !webrtcpub.ConsumeKeyframeRequest() {
+	if !webrtcpub.ConsumeKeyframeRequest(webrtcpub.KindDesktop) {
 		t.Fatal("expected desktop full-frame request to force the next WebRTC video frame to be a keyframe")
 	}
 }

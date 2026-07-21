@@ -1921,48 +1921,62 @@ func envBool(name string) bool {
 	}
 }
 
+type nativeTextureH264StreamState struct {
+	sync.Mutex
+	encoder  *nativeD3D11TextureH264Encoder
+	forceIDR atomic.Bool
+}
+
 var (
-	nativeTextureH264Mu       sync.Mutex
-	nativeTextureH264Enc      *nativeD3D11TextureH264Encoder
-	nativeTextureH264ForceIDR atomic.Bool
+	nativeTextureH264Streams  sync.Map
 	nativeTextureHEVCMu       sync.Mutex
 	nativeTextureHEVCEnc      *nativeD3D11TextureH264Encoder
 	nativeTextureHEVCForceIDR atomic.Bool
 )
 
-func encodeNativeH264D3D11Texture(device, texture unsafe.Pointer, inputWidth, inputHeight, encodeWidth, encodeHeight, fps int, dxgiFormat uint32, forceIDR bool) ([]byte, error) {
+func nativeTextureH264State(stream string) *nativeTextureH264StreamState {
+	if stream == "" {
+		stream = "desktop"
+	}
+	state, _ := nativeTextureH264Streams.LoadOrStore(stream, &nativeTextureH264StreamState{})
+	return state.(*nativeTextureH264StreamState)
+}
+
+func encodeNativeH264D3D11Texture(stream string, device, texture unsafe.Pointer, inputWidth, inputHeight, encodeWidth, encodeHeight, fps int, dxgiFormat uint32, forceIDR bool) ([]byte, error) {
 	if device == nil || texture == nil {
 		return nil, fmt.Errorf("nil D3D11 device or texture")
 	}
-	nativeTextureH264Mu.Lock()
-	defer nativeTextureH264Mu.Unlock()
+	state := nativeTextureH264State(stream)
+	state.Lock()
+	defer state.Unlock()
 
-	if nativeTextureH264Enc == nil || !nativeTextureH264Enc.Matches(device, inputWidth, inputHeight, encodeWidth, encodeHeight, fps, dxgiFormat) {
-		if nativeTextureH264Enc != nil {
-			nativeTextureH264Enc.Close()
-			nativeTextureH264Enc = nil
+	if state.encoder == nil || !state.encoder.Matches(device, inputWidth, inputHeight, encodeWidth, encodeHeight, fps, dxgiFormat) {
+		if state.encoder != nil {
+			state.encoder.Close()
+			state.encoder = nil
 		}
 		enc, err := newNativeD3D11TextureH264Encoder(device, inputWidth, inputHeight, encodeWidth, encodeHeight, fps, dxgiFormat)
 		if err != nil {
 			return nil, err
 		}
-		nativeTextureH264Enc = enc
+		state.encoder = enc
 	}
-	return nativeTextureH264Enc.EncodeTexture(texture, forceIDR || nativeTextureH264ForceIDR.Swap(false))
+	return state.encoder.EncodeTexture(texture, forceIDR || state.forceIDR.Swap(false))
 }
 
-func requestNativeH264D3D11TextureKeyframe() {
-	nativeTextureH264ForceIDR.Store(true)
+func requestNativeH264D3D11TextureKeyframe(stream string) {
+	nativeTextureH264State(stream).forceIDR.Store(true)
 }
 
-func resetNativeH264D3D11TextureEncoder() {
-	nativeTextureH264Mu.Lock()
-	defer nativeTextureH264Mu.Unlock()
-	if nativeTextureH264Enc != nil {
-		nativeTextureH264Enc.Close()
-		nativeTextureH264Enc = nil
+func resetNativeH264D3D11TextureEncoder(stream string) {
+	state := nativeTextureH264State(stream)
+	state.Lock()
+	defer state.Unlock()
+	if state.encoder != nil {
+		state.encoder.Close()
+		state.encoder = nil
 	}
-	nativeTextureH264ForceIDR.Store(false)
+	state.forceIDR.Store(false)
 }
 
 func encodeNativeHEVCD3D11Texture(device, texture unsafe.Pointer, inputWidth, inputHeight, encodeWidth, encodeHeight, fps int, dxgiFormat uint32, forceIDR bool) ([]byte, error) {

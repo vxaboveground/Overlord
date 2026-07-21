@@ -32,7 +32,7 @@ func backstageStart(ctx context.Context, env *rt.Env, autoStartExplorer bool) er
 	//garble:controlflow block_splits=10 junk_jumps=10 flatten_passes=2
 	fps := activebackstageTargetFPS()
 	interval := time.Second / time.Duration(fps)
-	capture.SetH264TargetFPS(fps)
+	capture.SetBackstageH264TargetFPS(fps)
 	capture.SetFrameFlowTargetFPS(fps)
 	log.Printf("backstage: starting stream (target fps %d)", fps)
 
@@ -62,7 +62,7 @@ func backstageStart(ctx context.Context, env *rt.Env, autoStartExplorer bool) er
 			fps := activebackstageTargetFPS()
 			if fps != currentFPS {
 				currentFPS = fps
-				capture.SetH264TargetFPS(fps)
+				capture.SetBackstageH264TargetFPS(fps)
 				capture.SetFrameFlowTargetFPS(fps)
 				ticker.Reset(time.Second / time.Duration(fps))
 				log.Printf("backstage: target fps changed to %d", fps)
@@ -90,7 +90,7 @@ func activebackstageTargetFPS() int {
 func SetbackstageTargetFPS(fps int) int {
 	fps = clampDesktopTargetFPS(fps)
 	backstageTargetFPS.Store(int64(fps))
-	capture.SetH264TargetFPS(fps)
+	capture.SetBackstageH264TargetFPS(fps)
 	capture.SetFrameFlowTargetFPS(fps)
 	return fps
 }
