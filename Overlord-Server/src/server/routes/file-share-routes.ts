@@ -12,7 +12,8 @@ import {
   updateSharedFile,
   incrementSharedFileDownloadCount,
 } from "../../db";
-import { getUserById, canUploadFiles } from "../../users";
+import { getUserById } from "../../users";
+import { checkPermission, requirePermission } from "../../rbac";
 import { resolveContainedPath, sanitizeUploadFilename } from "../upload-security";
 
 type FileShareRouteDeps = {
@@ -155,7 +156,7 @@ export async function handleFileShareRoutes(
 
   if (req.method === "GET" && url.pathname === "/api/file-share") {
     const files = listSharedFiles();
-    const userCanUpload = canUploadFiles(user.userId, user.role);
+    const userCanUpload = checkPermission(user, "files:upload");
     return Response.json({
       files: files.map((f) => ({
         id: f.id,
@@ -176,8 +177,11 @@ export async function handleFileShareRoutes(
   }
 
   if (req.method === "POST" && url.pathname === "/api/file-share/upload") {
-    if (!canUploadFiles(user.userId, user.role)) {
-      return Response.json({ error: "You do not have upload permission" }, { status: 403 });
+    try {
+      requirePermission(user, "files:upload");
+    } catch (error) {
+      if (error instanceof Response) return Response.json({ error: "You do not have upload permission" }, { status: 403 });
+      return Response.json({ error: "Forbidden" }, { status: 403 });
     }
 
     let form: FormData;

@@ -63,6 +63,8 @@ async function checkAuth() {
     }
 
     const data = await res.json();
+    const permissions = Array.isArray(data.permissions) ? data.permissions : [];
+    const hasPermission = (permission) => permissions.includes(permission);
     document.getElementById("username-display").textContent = data.username;
 
     const roleBadge = document.getElementById("role-badge");
@@ -84,12 +86,12 @@ async function checkAuth() {
         "border",
         "border-purple-800",
       );
-      document.getElementById("metrics-link")?.classList.remove("hidden");
-      document.getElementById("scripts-link")?.classList.remove("hidden");
-      document.getElementById("build-link")?.classList.remove("hidden");
-      document.getElementById("users-link")?.classList.remove("hidden");
-      document.getElementById("plugins-link")?.classList.remove("hidden");
-      document.getElementById("deploy-link")?.classList.remove("hidden");
+      if (hasPermission("audit:view")) document.getElementById("metrics-link")?.classList.remove("hidden");
+      if (hasPermission("scripts:manage")) document.getElementById("scripts-link")?.classList.remove("hidden");
+      if (hasPermission("clients:build") || data.canBuild) document.getElementById("build-link")?.classList.remove("hidden");
+      if (hasPermission("users:manage")) document.getElementById("users-link")?.classList.remove("hidden");
+      if (hasPermission("plugins:manage")) document.getElementById("plugins-link")?.classList.remove("hidden");
+      if (hasPermission("deploys:manage")) document.getElementById("deploy-link")?.classList.remove("hidden");
     } else if (data.role === "operator") {
       roleBadge.classList.add(
         "bg-blue-900/50",
@@ -106,8 +108,8 @@ async function checkAuth() {
       );
     }
 
-    if (data.role !== "admin") {
-      alert("Access denied. Admin role required.");
+    if (!hasPermission("deploys:manage")) {
+      alert("Access denied. Missing deploys:manage permission.");
       window.location.href = "/";
     }
   } catch (err) {

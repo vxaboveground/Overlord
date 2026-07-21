@@ -9,11 +9,12 @@ import {
   getUserGrantedPermissions,
   getUserGroupIds,
   listPermissionGroups,
+  setUserCanUploadFiles,
   setUserExtraPermissions,
   setUserGroups,
   updatePermissionGroup,
 } from "./users";
-import { hasPermission, getUserPermissions } from "./rbac";
+import { hasPermission, getUserEffectivePermissionDetails, getUserPermissions } from "./rbac";
 
 const createdUserIds: number[] = [];
 const createdGroupIds: number[] = [];
@@ -138,6 +139,54 @@ describe("user permission groups + extras", () => {
     // Viewer has no role-level perms
     expect(perms.has("clients:control")).toBe(false);
     expect(perms.has("users:manage")).toBe(false);
+  });
+
+  test("effective permission details include role, group, and extra grant sources", async () => {
+    const viewer = await tempUser("viewer");
+    const g = tempGroup("eff_a", ["clients:metadata"]);
+    setUserGroups(viewer.id, [g.id]);
+    setUserExtraPermissions(viewer.id, ["clients:uninstall"]);
+
+    const details = getUserEffectivePermissionDetails(viewer.id, viewer.role);
+    const metadata = details.find((p) => p.id === "clients:metadata");
+    const uninstall = details.find((p) => p.id === "clients:uninstall");
+    const control = details.find((p) => p.id === "clients:control");
+
+    expect(metadata?.allowed).toBe(true);
+    expect(metadata?.sources).toContainEqual({
+      type: "group",
+      label: g.name,
+      groupId: g.id,
+    });
+    expect(uninstall?.allowed).toBe(true);
+    expect(uninstall?.sources).toContainEqual({
+      type: "extra",
+      label: "Direct extra permission",
+    });
+    expect(control?.allowed).toBe(false);
+    expect(control?.sources).toEqual([]);
+  });
+
+  test("effective permission details reflect build and upload toggles", async () => {
+    const op = await tempUser("operator");
+    setUserCanUploadFiles(op.id, true);
+
+    const details = getUserEffectivePermissionDetails(op.id, op.role);
+    const build = details.find((p) => p.id === "clients:build");
+    const upload = details.find((p) => p.id === "files:upload");
+
+    expect(build?.allowed).toBe(true);
+    expect(build?.sources).toContainEqual({
+      type: "role",
+      label: "Build permission toggle",
+      role: "operator",
+    });
+    expect(upload?.allowed).toBe(true);
+    expect(upload?.sources).toContainEqual({
+      type: "role",
+      label: "File upload permission toggle",
+      role: "operator",
+    });
   });
 
   test("getUserGroupIds returns assigned ids", async () => {

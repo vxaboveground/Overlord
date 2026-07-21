@@ -16,12 +16,12 @@ import {
 } from "../../db";
 import { encodeMessage } from "../../protocol";
 import { metrics } from "../../metrics";
-import { requirePermission } from "../../rbac";
+import { checkPermission, requirePermission } from "../../rbac";
 import { logger } from "../../logger";
 import { normalizeClientOs } from "../deploy-utils";
 import { canUserBuild, recordBuildStart, recordBuildEnd } from "../../build-rate-limit";
 import { getConfig } from "../../config";
-import { canUploadFiles, canUserAccessPlugin } from "../../users";
+import { canUserAccessPlugin } from "../../users";
 import { addBuildToBanlist, removeBuildFromBanlist } from "../build-signing";
 import path from "path";
 import fs from "fs";
@@ -501,7 +501,7 @@ export async function handleBuildRoutes(
       }
 
       const safeUploadToFileShare = !!uploadToFileShare;
-      if (safeUploadToFileShare && !canUploadFiles(user.userId, user.role)) {
+      if (safeUploadToFileShare && !checkPermission(user, "files:upload")) {
         return Response.json(
           { error: "You do not have permission to upload files" },
           { status: 403 },

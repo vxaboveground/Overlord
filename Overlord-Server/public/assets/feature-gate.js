@@ -23,7 +23,9 @@ export async function checkFeatureAccess(feature, clientId) {
     const data = await res.json();
     if (data.allowed) return true;
 
-    const reasons = Array.isArray(data.denied) ? data.denied : [];
+    const reasons = Array.isArray(data.denialDetails) && data.denialDetails.length
+      ? data.denialDetails
+      : (Array.isArray(data.denied) ? data.denied : []);
     showAccessDenied(reasons);
     return false;
   } catch {
@@ -32,7 +34,13 @@ export async function checkFeatureAccess(feature, clientId) {
 }
 
 function showAccessDenied(reasons) {
-  const messages = reasons.map((r) => DENY_LABELS[r] || "Access denied.").join(" ");
+  const messages = reasons
+    .map((reason) => {
+      if (typeof reason === "string") return DENY_LABELS[reason] || "Access denied.";
+      if (reason && typeof reason.message === "string") return reason.message;
+      return "Access denied.";
+    })
+    .join(" ");
 
   document.body.style.visibility = "hidden";
 

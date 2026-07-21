@@ -469,14 +469,14 @@ export function openModal(src) {
 
   setTimeout(() => {
     modalImg.src = src;
-    modal.classList.remove("Virtual");
+    modal.classList.remove("hidden");
     modal.classList.add("flex");
   }, 10);
 }
 
 export function closeModal() {
   modal.classList.remove("flex");
-  modal.classList.add("Virtual");
+  modal.classList.add("hidden");
 }
 
 export function wireModalClose() {

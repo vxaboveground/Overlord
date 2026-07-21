@@ -150,7 +150,8 @@ async function loadCurrentUser() {
     return;
   }
   state.me = await res.json();
-  if (state.me.role !== "admin") {
+  const permissions = Array.isArray(state.me.permissions) ? state.me.permissions : [];
+  if (!permissions.includes("users:manage")) {
     window.location.href = "/";
   }
 }

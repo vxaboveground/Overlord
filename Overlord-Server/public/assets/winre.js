@@ -56,6 +56,7 @@ async function checkAuth() {
 
     const data = await res.json();
     document.getElementById("username-display").textContent = data.username;
+    const permissions = Array.isArray(data.permissions) ? data.permissions : [];
 
     const roleBadge = document.getElementById("role-badge");
     const roleBadges = {
@@ -77,8 +78,8 @@ async function checkAuth() {
       roleBadge.classList.add("bg-slate-700", "text-slate-300", "border", "border-slate-600");
     }
 
-    if (data.role !== "admin") {
-      alert("Access denied. Admin role required.");
+    if (!permissions.includes("clients:winre")) {
+      alert("Access denied. Missing clients:winre permission.");
       window.location.href = "/";
     }
   } catch (err) {

@@ -64,6 +64,30 @@ test.describe("authenticated browser smoke tests", () => {
     }
   });
 
+  test("dashboard thumbnail preview modal opens when requested", async ({ page }) => {
+    await login(page);
+    await page.waitForFunction(() => document.getElementById("role-badge")?.textContent?.includes("Admin"));
+    await page.waitForFunction(() => getComputedStyle(document.getElementById("pagination")!).visibility !== "hidden");
+    await page.evaluate(() => {
+      const grid = document.getElementById("grid");
+      if (!grid) throw new Error("Dashboard grid not found");
+      grid.innerHTML = `
+        <article class="cv-row" data-client-row="rows" data-id="thumb-test" data-online="false">
+          <div class="cv-thumb cv-thumb-host" data-thumb-host data-thumb-client="thumb-test" style="width: 80px; height: 50px;">
+            <img class="thumb-img cv-thumb-img cv-thumb-overlay" data-thumb-img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="" />
+          </div>
+        </article>
+      `;
+      const host = grid.querySelector("[data-thumb-host]");
+      if (!host) throw new Error("Thumbnail host not found");
+      host.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    const modal = page.locator(".modal").last();
+    await expect(modal).toHaveClass(/flex/);
+    await expect(modal).not.toHaveClass(/hidden/);
+    await expect(page.locator("#modal-img")).toHaveAttribute("src", /data:image\/gif/);
+  });
+
   test("password inputs expose browser-safe form semantics", async ({ page }) => {
     const issues = collectBrowserIssues(page);
     await login(page);

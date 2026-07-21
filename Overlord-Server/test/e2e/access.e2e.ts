@@ -56,7 +56,7 @@ test.describe("authentication and authorization", () => {
 
     const denied = await page.goto("/users");
     expect(denied?.status()).toBe(403);
-    await expect(page.locator("body")).toContainText("Admin access required");
+    await expect(page.locator("body")).toContainText("missing permission users:manage");
 
     const allowed = await page.goto("/metrics");
     expect(allowed?.status()).toBe(200);
@@ -76,6 +76,29 @@ test.describe("authentication and authorization", () => {
     const users = await page.goto("/users");
     expect(users?.status()).toBe(403);
   });
+});
+
+test("admin can generate passwords and inspect combined permission sources", async ({ page }) => {
+  await login(page);
+  await page.goto("/users");
+
+  await page.locator("#add-user-btn").click();
+  await page.locator("#generate-password-btn").click();
+  const generatedPassword = await page.locator("#password").inputValue();
+  expect(generatedPassword.length).toBeGreaterThanOrEqual(20);
+  await expect(page.locator("#generated-password-hint")).toBeVisible();
+  await page.locator("#cancel-btn").click();
+
+  await expect(page.locator(`[data-action="feature-permissions"]`)).toHaveCount(0);
+  await page.locator(`[data-action="permissions"][data-username="${OPERATOR.username}"]`).click();
+  await expect(page.locator("#user-perms-modal")).toBeVisible();
+  await expect(page.locator("#user-features-list")).toContainText("Console");
+  await expect(page.locator("#user-features-list")).toContainText("console");
+  await expect(page.locator("#user-effective-perms-list")).toContainText("clients:control");
+  await expect(page.locator("#user-effective-perms-list")).toContainText("operator role");
+  await expect(page.locator("#user-effective-perms-list")).toContainText("clients:build");
+  await expect(page.locator("#user-effective-perms-list")).toContainText("Build permission toggle");
+  await expect(page.locator("#user-effective-perms-list")).toContainText("Client scope");
 });
 
 test("admin page sweep loads without browser errors", async ({ page }) => {

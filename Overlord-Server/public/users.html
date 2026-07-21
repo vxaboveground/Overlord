@@ -166,16 +166,26 @@
               class="block text-sm font-medium text-slate-300 mb-2"
               >Password</label
             >
-            <input
-              type="password"
-              id="password"
-              name="password"
-              autocomplete="new-password"
-              required
-              minlength="6"
-              class="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Enter password"
-            />
+            <div class="flex gap-2">
+              <input
+                type="password"
+                id="password"
+                name="password"
+                autocomplete="new-password"
+                required
+                minlength="6"
+                class="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Enter password"
+              />
+              <button
+                type="button"
+                id="generate-password-btn"
+                class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition-colors text-sm font-medium whitespace-nowrap"
+              >
+                <i class="fa-solid fa-wand-magic-sparkles mr-1"></i>Generate
+              </button>
+            </div>
+            <p id="generated-password-hint" class="hidden text-xs text-emerald-400 mt-1">Generated password filled. Copy it before saving.</p>
             <p class="text-xs text-slate-500 mt-1">Minimum 6 characters</p>
           </div>
 
@@ -256,8 +266,8 @@
     </div>
 
     <!-- User Permissions Modal -->
-    <div id="user-perms-modal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div class="bg-slate-900 border border-slate-700 rounded-xl max-w-2xl w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+    <div id="user-perms-modal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-50 overflow-y-auto p-3 sm:p-6">
+      <div class="bg-slate-900 border border-slate-700 rounded-xl max-w-5xl w-full p-4 sm:p-6 shadow-2xl mx-auto my-0 sm:my-4">
         <div class="flex items-center justify-between mb-4">
           <h3 id="user-perms-title" class="text-xl font-bold">Permissions</h3>
           <button id="close-user-perms-modal" class="text-slate-400 hover:text-slate-200"><i class="fa-solid fa-times text-xl"></i></button>
@@ -275,6 +285,23 @@
             <div id="user-extras-list" class="space-y-1 max-h-72 overflow-y-auto border border-slate-700 rounded-lg p-3 bg-slate-950/50">
               <p class="text-slate-500 text-sm">Loading...</p>
             </div>
+          </div>
+          <div>
+            <div class="flex items-center justify-between gap-2 mb-2">
+              <h4 class="text-sm font-semibold text-slate-300">Feature Access / Context Menu</h4>
+              <button type="button" id="reset-user-features-btn" class="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300">Reset to defaults</button>
+            </div>
+            <div id="user-features-list" class="space-y-1 max-h-72 overflow-y-auto border border-slate-700 rounded-lg p-3 bg-slate-950/50">
+              <p class="text-slate-500 text-sm">Loading...</p>
+            </div>
+            <p class="text-xs text-slate-500 mt-1">Controls feature-level gates behind client context menu actions.</p>
+          </div>
+          <div>
+            <h4 class="text-sm font-semibold text-slate-300 mb-2">Effective Permissions</h4>
+            <div id="user-effective-perms-list" class="space-y-1 max-h-72 overflow-y-auto border border-slate-700 rounded-lg p-3 bg-slate-950/50">
+              <p class="text-slate-500 text-sm">Loading...</p>
+            </div>
+            <p class="text-xs text-slate-500 mt-1">Shows the final permission state and where each grant comes from.</p>
           </div>
         </div>
         <div id="user-perms-error" class="hidden mt-3 p-3 bg-red-900/20 border border-red-800 rounded-lg text-red-400 text-sm"></div>

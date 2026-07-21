@@ -14,9 +14,15 @@ const closeModal = document.getElementById("close-modal");
 const cancelBtn = document.getElementById("cancel-btn");
 const errorMessage = document.getElementById("error-message");
 const errorText = document.getElementById("error-text");
+const generatePasswordBtn = document.getElementById("generate-password-btn");
+const generatedPasswordHint = document.getElementById("generated-password-hint");
 const logoutBtn = document.getElementById("logout-btn");
 const currentUserEl = document.getElementById("username-display");
 const currentRoleEl = document.getElementById("role-badge");
+
+function hasPermission(permission) {
+  return Array.isArray(currentUser?.permissions) && currentUser.permissions.includes(permission);
+}
 
 async function getCurrentUser() {
   try {
@@ -59,25 +65,27 @@ async function getCurrentUser() {
         );
       }
 
-      if (currentUser.role === "admin") {
+      if (hasPermission("audit:view")) {
         document.getElementById("metrics-link")?.classList.remove("hidden");
+      }
+      if (hasPermission("scripts:manage")) {
         document.getElementById("scripts-link")?.classList.remove("hidden");
+      }
+      if (hasPermission("clients:build") || currentUser.canBuild) {
         document.getElementById("build-link")?.classList.remove("hidden");
+      }
+      if (hasPermission("users:manage")) {
         document.getElementById("users-link")?.classList.remove("hidden");
+      }
+      if (hasPermission("plugins:manage")) {
         document.getElementById("plugins-link")?.classList.remove("hidden");
+      }
+      if (hasPermission("deploys:manage")) {
         document.getElementById("deploy-link")?.classList.remove("hidden");
-      } else if (currentUser.role === "operator") {
-        document.getElementById("metrics-link")?.classList.remove("hidden");
-        document.getElementById("scripts-link")?.classList.remove("hidden");
-        document.getElementById("build-link")?.classList.remove("hidden");
       }
 
-      if (currentUser.canBuild) {
-        document.getElementById("build-link")?.classList.remove("hidden");
-      }
-
-      if (currentUser.role !== "admin") {
-        alert("Access denied. Admin role required.");
+      if (!hasPermission("users:manage")) {
+        alert("Access denied. Missing users:manage permission.");
         window.location.href = "/";
       }
 
@@ -220,17 +228,6 @@ function renderUsers() {
             >
               <i class="fa-solid fa-user-shield"></i>
             </button>
-            ${user.role === "operator" ? `
-            <button
-              class="user-action-btn px-3 py-1.5 text-sm bg-amber-900/30 hover:bg-amber-900/50 text-amber-300 rounded border border-amber-800 transition-colors"
-              data-action="feature-permissions"
-              data-user-id="${user.id}"
-              data-username="${escapeHtml(user.username)}"
-              title="Feature Permissions"
-            >
-              <i class="fa-solid fa-sliders"></i>
-            </button>
-            ` : ''}
             ${user.role !== "admin" ? `
             <button
               class="user-action-btn px-3 py-1.5 text-sm bg-emerald-900/30 hover:bg-emerald-900/50 text-emerald-300 rounded border border-emerald-800 transition-colors"
@@ -248,7 +245,8 @@ function renderUsers() {
               data-action="permissions"
               data-user-id="${user.id}"
               data-username="${escapeHtml(user.username)}"
-              title="Permission Groups & Extras"
+              data-role="${escapeHtml(user.role)}"
+              title="Permissions & Feature Access"
             >
               <i class="fa-solid fa-layer-group"></i>
             </button>
@@ -351,9 +349,6 @@ function attachActionListeners() {
       case "client-access":
         configureClientAccess(userId, username, role);
         break;
-      case "feature-permissions":
-        configureFeaturePermissions(userId, username);
-        break;
       case "plugin-access":
         configurePluginAccess(userId, username);
         break;
@@ -380,6 +375,9 @@ function showModal(title) {
 function hideModal() {
   userModal.classList.add("hidden");
   userForm.reset();
+  generatedPasswordHint?.classList.add("hidden");
+  const passwordInput = document.getElementById("password");
+  if (passwordInput) passwordInput.type = "password";
 }
 
 function showError(message) {
@@ -387,10 +385,41 @@ function showError(message) {
   errorMessage.classList.remove("hidden");
 }
 
+function generatePassword(length = 20) {
+  const lower = "abcdefghjkmnpqrstuvwxyz";
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const digits = "23456789";
+  const symbols = "!@#$%^&*()-_=+[]{}";
+  const required = [lower, upper, digits, symbols];
+  const alphabet = required.join("");
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  const chars = required.map((set, index) => set[bytes[index] % set.length]);
+  for (let i = required.length; i < length; i++) {
+    chars.push(alphabet[bytes[i] % alphabet.length]);
+  }
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = bytes[i] % (i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join("");
+}
+
+generatePasswordBtn?.addEventListener("click", () => {
+  const passwordInput = document.getElementById("password");
+  if (!passwordInput) return;
+  passwordInput.value = generatePassword();
+  passwordInput.type = "text";
+  generatedPasswordHint?.classList.remove("hidden");
+  passwordInput.focus();
+  passwordInput.select();
+});
+
 addUserBtn.addEventListener("click", () => {
   showModal("Add User");
   document.getElementById("password-field").classList.remove("hidden");
   document.getElementById("password").required = true;
+  generatedPasswordHint?.classList.add("hidden");
 });
 
 closeModal.addEventListener("click", hideModal);
@@ -550,96 +579,6 @@ const FEATURE_LABELS = {
   client_metadata: { label: "Edit Client Metadata", icon: "fa-pen-to-square" },
 };
 
-window.configureFeaturePermissions = async function (userId, username) {
-  try {
-    const res = await fetch(`/api/users/${userId}/feature-permissions`);
-    if (!res.ok) throw new Error("Failed to load feature permissions");
-    const data = await res.json();
-    const perms = data.permissions;
-    const features = data.features;
-
-    let modal = document.getElementById("feature-perms-modal");
-    if (modal) modal.remove();
-
-    modal = document.createElement("div");
-    modal.id = "feature-perms-modal";
-    modal.className = "fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4";
-    modal.innerHTML = `
-      <div class="bg-slate-900 border border-slate-700 rounded-xl max-w-md w-full p-6 shadow-2xl">
-        <div class="flex items-center justify-between mb-6">
-          <h3 class="text-xl font-bold text-slate-100">Feature Permissions</h3>
-          <button id="close-feature-modal" class="text-slate-400 hover:text-slate-200 transition-colors">
-            <i class="fa-solid fa-times text-xl"></i>
-          </button>
-        </div>
-        <p class="text-sm text-slate-400 mb-4">
-          Manage feature access for <span class="text-slate-200 font-medium">${escapeHtml(username)}</span>. 
-          Disabled features will return 403 when accessed.
-        </p>
-        <div class="space-y-2 mb-6" id="feature-toggles">
-          ${features.map(f => {
-            const meta = FEATURE_LABELS[f] || { label: f, icon: "fa-puzzle-piece" };
-            const checked = perms[f] !== false;
-            return `
-              <label class="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg border border-slate-700 hover:border-slate-600 cursor-pointer transition-colors">
-                <div class="flex items-center gap-3">
-                  <i class="fa-solid ${meta.icon} text-slate-400 w-5 text-center"></i>
-                  <span class="text-slate-200 font-medium">${meta.label}</span>
-                </div>
-                <input type="checkbox" data-feature="${f}" ${checked ? "checked" : ""} 
-                  class="w-5 h-5 rounded bg-slate-700 border-slate-600 text-blue-500 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer" />
-              </label>`;
-          }).join("")}
-        </div>
-        <div class="flex gap-3">
-          <button id="reset-feature-perms" class="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition-colors font-medium">
-            Reset to Defaults
-          </button>
-          <button id="save-feature-perms" class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium">
-            <i class="fa-solid fa-check mr-2"></i>Save
-          </button>
-        </div>
-      </div>`;
-    document.body.appendChild(modal);
-
-    document.getElementById("close-feature-modal").addEventListener("click", () => modal.remove());
-    modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
-
-    document.getElementById("save-feature-perms").addEventListener("click", async () => {
-      const toggles = modal.querySelectorAll("[data-feature]");
-      const permissions = {};
-      toggles.forEach(t => { permissions[t.dataset.feature] = t.checked; });
-
-      try {
-        const saveRes = await fetch(`/api/users/${userId}/feature-permissions`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ permissions }),
-        });
-        if (!saveRes.ok) throw new Error("Failed to save");
-        modal.remove();
-        if (window.showToast) window.showToast("Feature permissions updated", "success");
-      } catch (err) {
-        alert("Failed to save feature permissions");
-      }
-    });
-
-    document.getElementById("reset-feature-perms").addEventListener("click", async () => {
-      if (!confirm("Reset all feature permissions to defaults (all enabled)?")) return;
-      try {
-        const delRes = await fetch(`/api/users/${userId}/feature-permissions`, { method: "DELETE" });
-        if (!delRes.ok) throw new Error("Failed to reset");
-        modal.remove();
-        if (window.showToast) window.showToast("Feature permissions reset", "success");
-      } catch (err) {
-        alert("Failed to reset feature permissions");
-      }
-    });
-  } catch (err) {
-    console.error("Feature permissions error:", err);
-    alert("Failed to load feature permissions");
-  }
-};
 
 window.configurePluginAccess = async function (userId, username) {
   try {
@@ -1099,18 +1038,74 @@ async function deleteGroup(groupId, groupName) {
   }
 }
 
+function renderEffectivePermissions(container, effective) {
+  const permissions = Array.isArray(effective?.permissions) ? effective.permissions : [];
+  const granted = permissions.filter((p) => p.allowed);
+  const denied = permissions.filter((p) => !p.allowed);
+  const ordered = [...granted, ...denied];
+  const clientScope = effective?.clientAccess?.scope || "unknown";
+  const pluginScope = effective?.pluginAccess?.scope || "unknown";
+  const features = effective?.featurePermissions || {};
+  const disabledFeatures = Object.entries(features)
+    .filter(([, allowed]) => allowed === false)
+    .map(([feature]) => feature);
+
+  container.innerHTML = `
+    <div class="mb-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+      <div class="rounded bg-slate-900 border border-slate-800 px-2 py-1.5">
+        <span class="text-slate-500">Client scope</span>
+        <span class="block text-slate-200 font-mono">${escapeHtml(clientScope)}</span>
+      </div>
+      <div class="rounded bg-slate-900 border border-slate-800 px-2 py-1.5">
+        <span class="text-slate-500">Plugin scope</span>
+        <span class="block text-slate-200 font-mono">${escapeHtml(pluginScope)}</span>
+      </div>
+      <div class="rounded bg-slate-900 border border-slate-800 px-2 py-1.5">
+        <span class="text-slate-500">Disabled features</span>
+        <span class="block text-slate-200 font-mono">${disabledFeatures.length ? disabledFeatures.map(escapeHtml).join(", ") : "none"}</span>
+      </div>
+    </div>
+    ${ordered
+      .map((permission) => {
+        const sources = Array.isArray(permission.sources) ? permission.sources : [];
+        const sourceHtml = sources.length
+          ? sources
+              .map((source) => `<span class="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-[11px] text-slate-300">${escapeHtml(source.label || source.type || "source")}</span>`)
+              .join(" ")
+          : '<span class="text-xs text-slate-600">No grant source</span>';
+        return `
+          <div class="rounded border ${permission.allowed ? "border-emerald-900/60 bg-emerald-950/20" : "border-slate-800 bg-slate-900/50"} px-2 py-1.5">
+            <div class="flex items-start justify-between gap-2">
+              <div class="min-w-0">
+                <div class="font-mono text-xs ${permission.allowed ? "text-emerald-200" : "text-slate-400"}">${escapeHtml(permission.id)}</div>
+                <div class="text-[11px] text-slate-500">${escapeHtml(permission.description || "")}</div>
+              </div>
+              <span class="text-[11px] ${permission.allowed ? "text-emerald-300" : "text-slate-600"}">${permission.allowed ? "granted" : "denied"}</span>
+            </div>
+            <div class="mt-1 flex flex-wrap gap-1">${sourceHtml}</div>
+          </div>`;
+      })
+      .join("")}
+  `;
+}
+
+
 async function openUserPermissionsModal(userId, username) {
   editingUserId = userId;
   const modal = document.getElementById("user-perms-modal");
   const title = document.getElementById("user-perms-title");
   const groupsBox = document.getElementById("user-groups-list");
+  const effectiveBox = document.getElementById("user-effective-perms-list");
   const extrasBox = document.getElementById("user-extras-list");
+  const featuresBox = document.getElementById("user-features-list");
   const errorBox = document.getElementById("user-perms-error");
 
   title.textContent = `Permissions: ${username}`;
   errorBox.classList.add("hidden");
   groupsBox.innerHTML = `<p class="text-slate-500 text-sm">Loading...</p>`;
   extrasBox.innerHTML = `<p class="text-slate-500 text-sm">Loading...</p>`;
+  featuresBox.innerHTML = `<p class="text-slate-500 text-sm">Loading...</p>`;
+  effectiveBox.innerHTML = `<p class="text-slate-500 text-sm">Loading...</p>`;
   modal.classList.remove("hidden");
 
   if (allPermissions.length === 0 || allGroups.length === 0) {
@@ -1118,12 +1113,18 @@ async function openUserPermissionsModal(userId, username) {
   }
 
   try {
-    const [groupsRes, extrasRes] = await Promise.all([
+    const [groupsRes, extrasRes, effectiveRes, featureRes] = await Promise.all([
       fetch(`/api/users/${userId}/permission-groups`),
       fetch(`/api/users/${userId}/extra-permissions`),
+      fetch(`/api/users/${userId}/effective-permissions`),
+      fetch(`/api/users/${userId}/feature-permissions`),
     ]);
     const groupsData = await groupsRes.json().catch(() => ({}));
     const extrasData = await extrasRes.json().catch(() => ({}));
+    const effectiveData = await effectiveRes.json().catch(() => ({}));
+    const featureData = await featureRes.json().catch(() => ({}));
+    const targetUser = users.find((candidate) => candidate.id === userId);
+    featuresBox.dataset.defaultAllowed = targetUser?.role === "viewer" ? "0" : "1";
     const assignedGroups = new Set(groupsData.groupIds || []);
     const assignedExtras = new Set(extrasData.permissions || []);
 
@@ -1154,6 +1155,32 @@ async function openUserPermissionsModal(userId, username) {
       </label>`,
       )
       .join("");
+
+    const featurePermissions = featureData.permissions || {};
+    const features = Array.isArray(featureData.features)
+      ? featureData.features
+      : Object.keys(featurePermissions);
+    featuresBox.innerHTML = features.length === 0
+      ? `<p class="text-slate-500 text-sm">No feature gates available.</p>`
+      : features
+          .map((feature) => {
+            const meta = FEATURE_LABELS[feature] || { label: feature, icon: "fa-puzzle-piece" };
+            const checked = featurePermissions[feature] !== false;
+            return `
+      <label class="flex items-center justify-between gap-3 py-2 cursor-pointer hover:bg-slate-800/40 rounded px-2">
+        <div class="flex items-center gap-3 min-w-0">
+          <i class="fa-solid ${meta.icon} text-slate-400 w-5 text-center"></i>
+          <div>
+            <div class="text-sm font-medium text-slate-200">${escapeHtml(meta.label)}</div>
+            <div class="text-xs font-mono text-slate-500">${escapeHtml(feature)}</div>
+          </div>
+        </div>
+        <input type="checkbox" class="h-4 w-4 accent-blue-500" data-feature="${escapeHtml(feature)}" ${checked ? "checked" : ""} />
+      </label>`;
+          })
+          .join("");
+
+    renderEffectivePermissions(effectiveBox, effectiveData);
   } catch (err) {
     console.error(err);
     errorBox.textContent = "Failed to load current assignments";
@@ -1167,6 +1194,13 @@ function closeUserPermsModal() {
 }
 document.getElementById("close-user-perms-modal")?.addEventListener("click", closeUserPermsModal);
 document.getElementById("user-perms-cancel-btn")?.addEventListener("click", closeUserPermsModal);
+document.getElementById("reset-user-features-btn")?.addEventListener("click", () => {
+  const featuresBox = document.getElementById("user-features-list");
+  const defaultAllowed = featuresBox?.dataset.defaultAllowed !== "0";
+  document.querySelectorAll("#user-features-list input[data-feature]").forEach((el) => {
+    el.checked = defaultAllowed;
+  });
+});
 
 document.getElementById("user-perms-save-btn")?.addEventListener("click", async () => {
   if (!editingUserId) return;
@@ -1176,11 +1210,15 @@ document.getElementById("user-perms-save-btn")?.addEventListener("click", async 
   const permissions = Array.from(
     document.querySelectorAll("#user-extras-list input[type=checkbox]:checked"),
   ).map((el) => el.dataset.perm);
+  const featurePermissions = {};
+  document.querySelectorAll("#user-features-list input[data-feature]").forEach((el) => {
+    featurePermissions[el.dataset.feature] = el.checked;
+  });
   const errorBox = document.getElementById("user-perms-error");
   errorBox.classList.add("hidden");
 
   try {
-    const [gRes, eRes] = await Promise.all([
+    const [gRes, eRes, fRes] = await Promise.all([
       fetch(`/api/users/${editingUserId}/permission-groups`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -1191,9 +1229,15 @@ document.getElementById("user-perms-save-btn")?.addEventListener("click", async 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ permissions }),
       }),
+      fetch(`/api/users/${editingUserId}/feature-permissions`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ permissions: featurePermissions }),
+      }),
     ]);
-    if (!gRes.ok || !eRes.ok) {
-      const data = await (gRes.ok ? eRes : gRes).json().catch(() => ({}));
+    if (!gRes.ok || !eRes.ok || !fRes.ok) {
+      const failed = !gRes.ok ? gRes : (!eRes.ok ? eRes : fRes);
+      const data = await failed.json().catch(() => ({}));
       errorBox.textContent = data.error || "Failed to save";
       errorBox.classList.remove("hidden");
       return;

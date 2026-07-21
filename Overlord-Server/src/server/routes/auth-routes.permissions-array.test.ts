@@ -8,6 +8,7 @@ import {
   getUserById,
   setUserExtraPermissions,
   setUserGroups,
+  setUserCanUploadFiles,
 } from "../../users";
 import { handleAuthRoutes } from "./auth-routes";
 
@@ -76,6 +77,7 @@ describe("/api/auth/me permissions array", () => {
     expect(set.has("clients:control")).toBe(true);
     expect(set.has("system:configure")).toBe(true);
     expect(set.has("clients:disconnect")).toBe(true);
+    expect(set.has("files:upload")).toBe(true);
   });
 
   test("operator gets the role-eligible subset and lacks admin-only perms", async () => {
@@ -83,11 +85,13 @@ describe("/api/auth/me permissions array", () => {
     const body = await fetchMe(op.token);
     const set = new Set(body.permissions);
     expect(set.has("clients:control")).toBe(true);
+    expect(body.canBuild).toBe(true);
     expect(set.has("clients:disconnect")).toBe(true);
     expect(set.has("clients:metadata")).toBe(true);
     expect(set.has("users:manage")).toBe(false);
     expect(set.has("system:configure")).toBe(false);
     expect(set.has("network:manage-bans")).toBe(false);
+    expect(set.has("files:upload")).toBe(false);
   });
 
   test("viewer has no permissions by default", async () => {
@@ -132,5 +136,23 @@ describe("/api/auth/me permissions array", () => {
     setUserCanBuild(op.user.id, false);
     const body = await fetchMe(op.token);
     expect(new Set(body.permissions).has("clients:build")).toBe(false);
+    expect(body.canBuild).toBe(false);
+  });
+
+  test("operator with upload enabled gets files:upload and canUploadFiles via /api/auth/me", async () => {
+    const op = await tempUser("operator");
+    setUserCanUploadFiles(op.user.id, true);
+    const body = await fetchMe(op.token);
+    expect(new Set(body.permissions).has("files:upload")).toBe(true);
+    expect(body.canUploadFiles).toBe(true);
+  });
+
+  test("viewer in a build group gets canBuild from effective permissions", async () => {
+    const viewer = await tempUser("viewer");
+    const group = tempGroup("me_build", ["clients:build"]);
+    setUserGroups(viewer.user.id, [group.id]);
+    const body = await fetchMe(viewer.token);
+    expect(new Set(body.permissions).has("clients:build")).toBe(true);
+    expect(body.canBuild).toBe(true);
   });
 });

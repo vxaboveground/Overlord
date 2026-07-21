@@ -2,10 +2,14 @@ import { type AuthenticatedUser } from "./auth";
 import {
   canBuildClients,
   canChatWrite,
+  canUploadFiles,
   canUserAccessClient,
   canUserAccessFeature,
   canUserAccessPlugin,
+  getUserExtraPermissions,
   getUserGrantedPermissions,
+  getUserGroupIds,
+  listPermissionGroups,
   type FeatureName,
   type UserRole,
 } from "./users";
@@ -14,6 +18,7 @@ type PermissionDef = {
   description: string;
   roles: readonly UserRole[];
   userOverride?: (userId: number, role: UserRole) => boolean;
+  overrideSourceLabel?: string;
 };
 
 const PERMISSIONS = {
@@ -29,6 +34,7 @@ const PERMISSIONS = {
     description: "Build client binaries",
     roles: ["admin", "operator"],
     userOverride: canBuildClients,
+    overrideSourceLabel: "Build permission toggle",
   },
   "clients:enroll": {
     description: "Manage client enrollment approvals",
@@ -62,6 +68,13 @@ const PERMISSIONS = {
     description: "Send messages in team chat",
     roles: ["admin", "operator"],
     userOverride: canChatWrite,
+    overrideSourceLabel: "Chat write permission toggle",
+  },
+  "files:upload": {
+    description: "Upload shared files and build artifacts",
+    roles: ["admin"],
+    userOverride: canUploadFiles,
+    overrideSourceLabel: "File upload permission toggle",
   },
   "scripts:manage": {
     description: "Manage auto-run scripts",
@@ -237,7 +250,7 @@ export function requirePermission(
   const authedUser = requireAuth(user);
 
   if (!checkPermission(authedUser, permission)) {
-    throw new Response("Forbidden: Insufficient permissions", { status: 403 });
+    throw new Response(`Forbidden: missing permission ${permission}`, { status: 403 });
   }
 
   return authedUser;
@@ -321,4 +334,87 @@ export function getUserPermissions(userId: number, role: UserRole): Permission[]
     if (hasPermission(role, perm, userId)) result.push(perm);
   }
   return result;
+}
+
+export type EffectivePermissionSource =
+  | { type: "role"; label: string; role: UserRole }
+  | { type: "group"; label: string; groupId: number }
+  | { type: "extra"; label: string }
+  | { type: "system-configure"; label: string };
+
+export type EffectivePermissionDetail = {
+  id: Permission;
+  description: string;
+  allowed: boolean;
+  sources: EffectivePermissionSource[];
+};
+
+export function getUserEffectivePermissionDetails(
+  userId: number,
+  role: UserRole,
+): EffectivePermissionDetail[] {
+  const assignedGroupIds = new Set(getUserGroupIds(userId));
+  const groups = listPermissionGroups().filter((group) => assignedGroupIds.has(group.id));
+  const extras = getUserExtraPermissions(userId);
+
+  return listAllPermissions().map((permission) => {
+    const def = lookupPermission(permission);
+    const sources: EffectivePermissionSource[] = [];
+
+    if (def) {
+      const roleGrants = def.userOverride
+        ? def.userOverride(userId, role)
+        : def.roles.includes(role);
+      if (roleGrants) {
+        sources.push({
+          type: "role",
+          label: def.overrideSourceLabel || `${role} role`,
+          role,
+        });
+      }
+    }
+
+    for (const group of groups) {
+      if (group.permissions.includes(permission)) {
+        sources.push({
+          type: "group",
+          label: group.name,
+          groupId: group.id,
+        });
+      }
+    }
+
+    if (extras.has(permission)) {
+      sources.push({
+        type: "extra",
+        label: "Direct extra permission",
+      });
+    }
+
+    if (
+      sources.length === 0 &&
+      permission.startsWith("system:") &&
+      permission !== "system:configure"
+    ) {
+      const configureGroup = groups.find((group) => group.permissions.includes("system:configure"));
+      if (configureGroup) {
+        sources.push({
+          type: "system-configure",
+          label: `Via ${configureGroup.name} → system:configure`,
+        });
+      } else if (extras.has("system:configure")) {
+        sources.push({
+          type: "system-configure",
+          label: "Via direct system:configure",
+        });
+      }
+    }
+
+    return {
+      id: permission,
+      description: getPermissionDescription(permission),
+      allowed: hasPermission(role, permission, userId),
+      sources,
+    };
+  });
 }

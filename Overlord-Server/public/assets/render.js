@@ -516,13 +516,17 @@ export function createRenderer({
         return;
       }
 
-      const thumbImg = e.target.closest(".thumb-img");
-      if (thumbImg) {
+      const thumbHost = e.target.closest("[data-thumb-host]");
+      if (thumbHost) {
+        e.preventDefault();
+        e.stopPropagation();
         if (card.dataset.online === "true") {
           if (pingClient) pingClient(clientId);
           requestThumbnail(clientId);
         }
-        if (thumbImg.src) openModal(thumbImg.src);
+        const thumbImg = thumbHost.querySelector("img[data-thumb-img]");
+        const src = thumbImg?.currentSrc || thumbImg?.src || "";
+        if (src) openModal(src);
         return;
       }
 
@@ -1190,6 +1194,8 @@ export function createRenderer({
     `;
     return article;
   }
+  setupGridDelegation();
+
 
   return { renderMerge, setLayout };
 }

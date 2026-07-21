@@ -68,6 +68,8 @@ async function checkAuth() {
     }
 
     const data = await res.json();
+    const permissions = Array.isArray(data.permissions) ? data.permissions : [];
+    const hasPermission = (permission) => permissions.includes(permission);
     document.getElementById("username-display").textContent = data.username;
 
     const roleBadge = document.getElementById("role-badge");
@@ -105,25 +107,27 @@ async function checkAuth() {
       );
     }
 
-    if (data.role === "admin") {
+    if (hasPermission("audit:view")) {
       document.getElementById("metrics-link")?.classList.remove("hidden");
+    }
+    if (hasPermission("scripts:manage")) {
       document.getElementById("scripts-link")?.classList.remove("hidden");
+    }
+    if (hasPermission("clients:build") || data.canBuild) {
       document.getElementById("build-link")?.classList.remove("hidden");
+    }
+    if (hasPermission("deploys:manage")) {
       document.getElementById("deploy-link")?.classList.remove("hidden");
+    }
+    if (hasPermission("users:manage")) {
       document.getElementById("users-link")?.classList.remove("hidden");
+    }
+    if (hasPermission("plugins:manage")) {
       document.getElementById("plugins-link")?.classList.remove("hidden");
-    } else if (data.role === "operator") {
-      document.getElementById("metrics-link")?.classList.remove("hidden");
-      document.getElementById("scripts-link")?.classList.remove("hidden");
-      document.getElementById("build-link")?.classList.remove("hidden");
     }
 
-    if (data.canBuild) {
-      document.getElementById("build-link")?.classList.remove("hidden");
-    }
-
-    if (data.role === "viewer") {
-      alert("Access denied. Operator or Admin role required.");
+    if (!hasPermission("scripts:manage")) {
+      alert("Access denied. Missing scripts:manage permission.");
       window.location.href = "/";
     }
   } catch (err) {

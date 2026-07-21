@@ -1702,6 +1702,8 @@ async function init() {
     }
 
     const data = await res.json();
+    const permissions = Array.isArray(data.permissions) ? data.permissions : [];
+    const hasPermission = (permission) => permissions.includes(permission);
     currentUserRole = data.role;
     currentUsername = data.username || null;
     usernameDisplay.textContent = data.username;
@@ -1740,21 +1742,25 @@ async function init() {
         "border-slate-600",
       );
     }
-    if (data.role === "admin") {
+    if (hasPermission("users:manage")) {
       usersLink.classList.remove("hidden");
+    }
+    if (hasPermission("plugins:manage")) {
       pluginsLink?.classList.remove("hidden");
+    }
+    if (hasPermission("deploys:manage")) {
       document.getElementById("deploy-link")?.classList.remove("hidden");
     }
 
-    if (data.role === "admin" || data.role === "operator" || data.canBuild) {
+    if (hasPermission("clients:build") || data.canBuild) {
       buildLink?.classList.remove("hidden");
     }
 
-    if (data.role !== "viewer") {
+    if (hasPermission("scripts:manage")) {
       scriptsLink?.classList.remove("hidden");
     }
 
-    if (data.role !== "admin" && data.role !== "operator" && !data.canBuild) {
+    if (!hasPermission("clients:build") && !data.canBuild) {
       buildBtn.disabled = true;
       buildBtn.innerHTML =
         '<i class="fa-solid fa-lock"></i> <span>Build requires permission</span>';

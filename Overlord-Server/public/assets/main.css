@@ -3183,8 +3183,8 @@ tbody tr:hover {
   background: #0d1018;
   border: 1px solid var(--cv-border);
 }
-.cv-thumb-img { object-fit: cover; cursor: pointer; }
-.cv-thumb { position: relative; }
+.cv-thumb-img { object-fit: cover; }
+.cv-thumb { position: relative; cursor: pointer; }
 .cv-thumb-host { position: relative; isolation: isolate; }
 .cv-thumb-overlay {
   position: absolute;

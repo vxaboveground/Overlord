@@ -1,7 +1,7 @@
 import { generateToken, authenticateRequest, getSessionTtlSeconds } from "../../auth";
 import { AuditAction, logAudit } from "../../auditLog";
 import { logger } from "../../logger";
-import { requirePermission } from "../../rbac";
+import { getUserEffectivePermissionDetails, requirePermission } from "../../rbac";
 import {
   listUserSessions,
   persistRevokedTokenHash,
@@ -56,6 +56,29 @@ export async function handleUsersRoutes(
       requirePermission(user, "users:manage");
       const users = listUsers();
       return Response.json({ users });
+    }
+
+    if (req.method === "GET" && url.pathname.match(/^\/api\/users\/\d+\/effective-permissions$/)) {
+      requirePermission(user, "users:manage");
+      const userId = parseInt(url.pathname.split("/")[3]);
+      const targetUser = getUserById(userId);
+      if (!targetUser) {
+        return Response.json({ error: "User not found" }, { status: 404 });
+      }
+
+      return Response.json({
+        success: true,
+        permissions: getUserEffectivePermissionDetails(targetUser.id, targetUser.role),
+        clientAccess: {
+          scope: getUserClientAccessScope(targetUser.id),
+          rules: listUserClientAccessRules(targetUser.id),
+        },
+        pluginAccess: {
+          scope: getUserPluginAccessScope(targetUser.id),
+          rules: listUserPluginAccessRules(targetUser.id),
+        },
+        featurePermissions: getUserFeaturePermissions(targetUser.id),
+      });
     }
 
     if (req.method === "POST" && url.pathname === "/api/users") {

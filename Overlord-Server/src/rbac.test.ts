@@ -237,6 +237,7 @@ describe("getPermissionDescription", () => {
     ["clients:silent-exec", "Silently execute arbitrary commands on clients"],
     ["audit:view", "View audit logs"],
     ["chat:write", "Send messages in team chat"],
+    ["files:upload", "Upload shared files and build artifacts"],
     ["scripts:manage", "Manage auto-run scripts"],
     ["deploys:manage", "Manage deploys and auto-deploys"],
     ["plugins:manage", "Upload, enable, and delete plugins"],
@@ -274,6 +275,7 @@ describe("getRolePermissions", () => {
     expect(perms).toContain("network:manage-bans");
     expect(perms).toContain("system:configure");
     expect(perms).toContain("clients:winre");
+    expect(perms).toContain("files:upload");
   });
 
   test("operator gets the role-eligible subset", () => {
@@ -292,6 +294,7 @@ describe("getRolePermissions", () => {
     expect(perms).not.toContain("clients:silent-exec");
     expect(perms).not.toContain("system:configure");
     expect(perms).not.toContain("clients:winre");
+    expect(perms).not.toContain("files:upload");
   });
 
   test("viewer gets nothing", () => {
@@ -312,6 +315,7 @@ describe("listAllPermissions", () => {
     expect(perms).toContain("clients:uninstall" as Permission);
     expect(perms).toContain("system:configure" as Permission);
     expect(perms).toContain("network:manage-bans" as Permission);
+    expect(perms).toContain("files:upload" as Permission);
   });
 
   test("returns the same length as the description coverage (every entry has a description)", () => {
