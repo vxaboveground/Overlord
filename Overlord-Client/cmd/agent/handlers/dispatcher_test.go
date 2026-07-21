@@ -148,6 +148,27 @@ func TestHandlePingFallsBackForInvalidTimestamp(t *testing.T) {
 	}
 }
 
+func TestCloneProgressLimiterProtectsFrameTraffic(t *testing.T) {
+	var limiter cloneProgressLimiter
+	now := time.Unix(100, 0)
+
+	if !limiter.allow(now, 0, "scanning") {
+		t.Fatal("initial scan progress was suppressed")
+	}
+	if !limiter.allow(now, 0, "cloning") {
+		t.Fatal("initial clone progress was suppressed")
+	}
+	if limiter.allow(now.Add(time.Millisecond), 1, "copying|Default\\Cookies") {
+		t.Fatal("high-frequency file progress was not suppressed")
+	}
+	if !limiter.allow(now.Add(cloneProgressMinInterval), 100, "cloning") {
+		t.Fatal("periodic clone progress was suppressed")
+	}
+	if !limiter.allow(now.Add(cloneProgressMinInterval+time.Millisecond), 100, "done") {
+		t.Fatal("terminal clone progress was suppressed")
+	}
+}
+
 func TestHandleCommand_Ping(t *testing.T) {
 	writer := &testWriter{}
 	env := &rt.Env{

