@@ -1,9 +1,12 @@
+import { createPasswordPolicyChecklist, loadPasswordPolicy } from "./password-policy.js";
+
 const form = document.getElementById("change-password-form");
 const currentPass = document.getElementById("current-pass");
 const newPass = document.getElementById("new-pass");
 const confirmPass = document.getElementById("confirm-pass");
 const errEl = document.getElementById("error");
 const successEl = document.getElementById("success");
+const policyEl = document.getElementById("password-policy");
 
 const tempToken = sessionStorage.getItem("temp_token");
 const tempUser = sessionStorage.getItem("temp_user");
@@ -13,6 +16,14 @@ if (!tempToken || !tempUser) {
 }
 
 const user = JSON.parse(tempUser);
+
+const passwordChecklist = createPasswordPolicyChecklist({
+  passwordInput: newPass,
+  confirmInput: confirmPass,
+  container: policyEl,
+});
+
+loadPasswordPolicy().then((policy) => passwordChecklist.setPolicy(policy));
 
 if (typeof anime !== "undefined") {
   const particles = document.querySelectorAll(".particle");
@@ -131,15 +142,12 @@ form?.addEventListener("submit", async (e) => {
     return;
   }
 
-  if (newPass.value.length < 6) {
-    errEl.textContent = "New password must be at least 6 characters";
+  const policyError = passwordChecklist.firstError();
+  if (policyError) {
+    errEl.textContent = policyError;
     return;
   }
 
-  if (currentPass.value === newPass.value) {
-    errEl.textContent = "New password must be different from current password";
-    return;
-  }
 
   try {
     const res = await fetch(`/api/users/${user.id}/password`, {

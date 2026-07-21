@@ -88,6 +88,23 @@ test.describe("authenticated browser smoke tests", () => {
     await expect(page.locator("#modal-img")).toHaveAttribute("src", /data:image\/gif/);
   });
 
+  test("change password page shows live password requirements", async ({ page }) => {
+    await page.goto("/login.html");
+    await page.evaluate(() => {
+      sessionStorage.setItem("temp_token", "e2e-temp-token");
+      sessionStorage.setItem("temp_user", JSON.stringify({ id: 1, username: "e2e-user" }));
+    });
+    await page.goto("/change-password.html");
+
+    await expect(page.locator("#password-policy")).toContainText("At least 6 characters");
+    await expect(page.locator('[data-password-rule="minLength"]')).toHaveClass(/is-unmet/);
+    await page.locator("#new-pass").fill("abcdef");
+    await expect(page.locator('[data-password-rule="minLength"]')).toHaveClass(/is-met/);
+    await expect(page.locator('[data-password-rule="match"]')).toHaveClass(/is-unmet/);
+    await page.locator("#confirm-pass").fill("abcdef");
+    await expect(page.locator('[data-password-rule="match"]')).toHaveClass(/is-met/);
+  });
+
   test("password inputs expose browser-safe form semantics", async ({ page }) => {
     const issues = collectBrowserIssues(page);
     await login(page);
@@ -100,6 +117,9 @@ test.describe("authenticated browser smoke tests", () => {
 
     await page.goto("/users");
     await expect(page.locator("#password")).toHaveAttribute("autocomplete", "new-password");
+
+    await page.goto("/register.html");
+    await expect(page.locator("#reg-user")).toHaveAttribute("pattern", "[a-zA-Z0-9_\\x2d]+");
     expect(issues).toEqual([]);
   });
 });

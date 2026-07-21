@@ -1,8 +1,22 @@
+import { createPasswordPolicyChecklist, loadPasswordPolicy } from "./password-policy.js";
+
 const form = document.getElementById("register-form");
 const errorEl = document.getElementById("error");
 const successEl = document.getElementById("success");
 const keyGroup = document.getElementById("key-group");
 const keyInput = document.getElementById("reg-key");
+const passwordInput = document.getElementById("reg-pass");
+const confirmPasswordInput = document.getElementById("reg-pass-confirm");
+const policyEl = document.getElementById("password-policy");
+
+const passwordChecklist = createPasswordPolicyChecklist({
+  passwordInput,
+  confirmInput: confirmPasswordInput,
+  container: policyEl,
+});
+
+loadPasswordPolicy().then((policy) => passwordChecklist.setPolicy(policy));
+
 
 async function checkStatus() {
   try {
@@ -87,16 +101,17 @@ form.addEventListener("submit", async (e) => {
   successEl.style.display = "none";
 
   const username = document.getElementById("reg-user").value.trim();
-  const password = document.getElementById("reg-pass").value;
-  const confirmPassword = document.getElementById("reg-pass-confirm").value;
+  const password = passwordInput.value;
+  const confirmPassword = confirmPasswordInput.value;
   const key = keyInput.value.trim();
 
   if (password !== confirmPassword) {
     errorEl.textContent = "Passwords do not match.";
     return;
   }
-  if (password.length < 6) {
-    errorEl.textContent = "Password must be at least 6 characters.";
+  const policyError = passwordChecklist.firstError();
+  if (policyError) {
+    errorEl.textContent = policyError;
     return;
   }
 

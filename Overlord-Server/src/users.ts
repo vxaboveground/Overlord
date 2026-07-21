@@ -667,6 +667,7 @@ export async function createUser(
   password: string,
   role: UserRole,
   createdBy: string,
+  mustChangePassword = false,
 ): Promise<{ success: boolean; error?: string; userId?: number }> {
   if (!username || username.length < 3 || username.length > 32) {
     return {
@@ -701,9 +702,9 @@ export async function createUser(
 
     const result = db
       .prepare(
-        "INSERT INTO users (username, password_hash, role, created_at, created_by, client_scope, plugin_scope, can_build, can_upload_files) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO users (username, password_hash, role, created_at, created_by, must_change_password, client_scope, plugin_scope, can_build, can_upload_files) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
-      .run(username, passwordHash, role, Date.now(), createdBy, role === "admin" ? "all" : "none", role === "admin" ? "all" : "none", role === "admin" || role === "operator" ? 1 : 0, role === "admin" ? 1 : 0);
+      .run(username, passwordHash, role, Date.now(), createdBy, mustChangePassword ? 1 : 0, role === "admin" ? "all" : "none", role === "admin" ? "all" : "none", role === "admin" || role === "operator" ? 1 : 0, role === "admin" ? 1 : 0);
 
     invalidateNotificationDeliveryCache();
 

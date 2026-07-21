@@ -94,7 +94,7 @@ export async function handleUsersRoutes(
         return Response.json({ error: "Invalid role" }, { status: 400 });
       }
 
-      const result = await createUser(username, password, role, authedUser.username);
+      const result = await createUser(username, password, role, authedUser.username, true);
 
       if (result.success) {
         const ip = server.requestIP(req)?.address || "unknown";

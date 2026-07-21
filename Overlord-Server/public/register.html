@@ -41,7 +41,7 @@
               required
               minlength="3"
               maxlength="32"
-              pattern="[a-zA-Z0-9_\-]+"
+              pattern="[a-zA-Z0-9_\x2d]+"
               placeholder="Choose a username"
             />
           </div>
@@ -75,6 +75,7 @@
             />
           </div>
         </div>
+        <div id="password-policy" class="password-policy-card" aria-live="polite"></div>
         <div class="form-group" id="key-group" style="display: none">
           <label class="label">Registration Key</label>
           <div class="input-row input-animated">
@@ -101,6 +102,6 @@
         >
       </div>
     </div>
-    <script src="/assets/register.js"></script>
+    <script type="module" src="/assets/register.js"></script>
   </body>
 </html>

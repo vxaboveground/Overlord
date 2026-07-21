@@ -61,6 +61,17 @@ setInterval(() => {
 }, 60_000);
 
 
+function getPublicPasswordPolicy() {
+  const security = getConfig().security;
+  return {
+    minLength: Math.min(128, Math.max(6, Number(security.passwordMinLength) || 6)),
+    requireUppercase: Boolean(security.passwordRequireUppercase),
+    requireLowercase: Boolean(security.passwordRequireLowercase),
+    requireNumber: Boolean(security.passwordRequireNumber),
+    requireSymbol: Boolean(security.passwordRequireSymbol),
+  };
+}
+
 type RegistrationRouteDeps = {
   requestIP?: (req: Request) => { address?: string } | null | undefined;
 };
@@ -80,6 +91,7 @@ export async function handleRegistrationRoutes(
     return Response.json({
       enabled: mode !== "off",
       mode: mode === "off" ? "off" : mode,
+      passwordPolicy: getPublicPasswordPolicy(),
     });
   }
 

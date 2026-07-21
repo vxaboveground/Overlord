@@ -1195,6 +1195,63 @@ article.card[data-bookmarked="true"] {
   color: #6b7a98;
 }
 
+.password-policy-card {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: var(--radius-md);
+  background: rgba(15, 23, 42, 0.48);
+}
+
+.password-policy-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: #cbd5e1;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.password-policy-title i {
+  color: #93c5fd;
+}
+
+.password-policy-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.password-policy-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.35;
+  transition: color 160ms ease;
+}
+
+.password-policy-item i {
+  width: 14px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.password-policy-item.is-met {
+  color: #86efac;
+}
+
+.password-policy-item.is-met i {
+  color: #22c55e;
+}
+
 .button.primary {
   background: linear-gradient(120deg, #4f6bff, #715dff);
   border-color: rgba(129, 140, 248, 0.55);
