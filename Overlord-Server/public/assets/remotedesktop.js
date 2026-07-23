@@ -578,10 +578,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   function setStreamState(state, text) {
     streamState = state;
     streamStatusLabel = text || defaultStreamLabel(state);
-    if (state !== "streaming" && state !== "stalled") {
+    if (state === "offline" || state === "disconnected" || state === "error") {
       lastRemoteCursor = null;
-      renderRemoteCursor();
     }
+    renderRemoteCursor();
     if (statusEl) {
       const icons = {
         connecting: '<i class="fa-solid fa-circle-notch fa-spin"></i>',
