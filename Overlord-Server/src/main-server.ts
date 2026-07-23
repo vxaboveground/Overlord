@@ -762,6 +762,8 @@ async function startServer() {
       handleWebSocketMessage,
       handleWebSocketClose,
     }),
+    // HTTP/3 mfs (bun barely supports it but we rocking it)
+    ...(tls ? { http3: true, http1: true } : {}),
   });
 
   
@@ -830,6 +832,9 @@ async function startServer() {
 
   if (tls) {
     logServerStartup(server, tls.certPathUsed, tls.source);
+    logger.info(
+      `[HTTP/3] Enabled (QUIC over UDP port ${server.port}; HTTP/1.1 TCP fallback enabled)`,
+    );
     logger.info(`[HTTP] maxRequestBodySize=${MAX_HTTP_BODY_BYTES} bytes`);
   } else {
     const hostname = server.hostname || "0.0.0.0";
@@ -842,6 +847,7 @@ async function startServer() {
     logger.info("");
     logger.info("External access should be HTTPS/WSS via your reverse proxy platform.");
     logger.info("Set this mode only when TLS is terminated by the platform (for example Render). ");
+    logger.info("[HTTP/3] Disabled (in-process TLS is offloaded to the reverse proxy)");
     logger.info(`[HTTP] maxRequestBodySize=${MAX_HTTP_BODY_BYTES} bytes`);
     logger.info("========================================");
   }

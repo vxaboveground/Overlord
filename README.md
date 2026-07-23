@@ -573,6 +573,32 @@ Overlord can serve HTTP only on loopback while nginx, Caddy, Traefik, IIS, or
 another trusted reverse proxy owns the public HTTPS certificate. Browsers and
 agents must still use the public `https://` / `wss://` address.
 
+HTTP/3 is enabled automatically when Overlord terminates TLS itself. QUIC uses
+UDP on the same port as HTTPS (5173 by default), so direct deployments must
+allow both TCP and UDP on that port. HTTP/1.1 remains enabled for initial
+`Alt-Svc` discovery, health checks, clients without HTTP/3, and WebSocket
+upgrades. When `OVERLORD_TLS_OFFLOAD=true`, the reverse proxy owns public
+HTTP/3 support because Bun's internal listener has no TLS.
+
+To verify both advertisement and an actual QUIC transfer with an HTTP/3-capable
+curl build:
+
+```powershell
+.\scripts\test-http3.ps1 https://YOUR_OVERLORD_HOST:5173/health
+```
+
+For a self-signed certificate, add `-AllowUntrustedCertificate`.
+
+To compare cold HTTP/1.1 and HTTP/3 request timings:
+
+```powershell
+.\scripts\benchmark-http3.ps1 https://YOUR_OVERLORD_HOST:5173/health -Requests 30
+```
+
+The benchmark selects an HTTP/3-capable curl automatically, validates the
+protocol used by every sample, prints average/p50/p95 timing, and saves the raw
+measurements as CSV.
+
 For a native install or Linux Docker with host networking, add this to `.env`:
 
 ```env

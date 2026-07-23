@@ -178,7 +178,8 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     GOMODCACHE=/go/pkg/mod \
     go mod download
 
-EXPOSE 5173
+EXPOSE 5173/tcp
+EXPOSE 5173/udp
 
 ENV PORT=5173
 ENV HOST=0.0.0.0
