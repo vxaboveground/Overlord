@@ -278,6 +278,7 @@ function parseMaxHttpBodyBytes(): number {
 }
 
 const MAX_HTTP_BODY_BYTES = parseMaxHttpBodyBytes();
+const IS_DEVELOPMENT = String(process.env.NODE_ENV || "").trim().toLowerCase() === "development";
 
 const pluginLoadedByClient = new Map<string, Set<string>>();
 const pendingPluginEvents = new Map<string, Array<{ event: string; payload: any }>>();
@@ -710,6 +711,13 @@ async function startServer() {
     port: PORT,
     hostname: HOST,
     ...(tls ? { tls: tls.tlsOptions } : {}),
+    development: IS_DEVELOPMENT
+      ? {
+          hmr: true,
+          console: true,
+          chromeDevToolsAutomaticWorkspaceFolders: true,
+        }
+      : false,
     idleTimeout: 255,
     maxRequestBodySize: MAX_HTTP_BODY_BYTES,
     fetch: createHttpFetchHandler({

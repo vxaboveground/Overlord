@@ -1,8 +1,10 @@
 import { authenticateRequest } from "../../auth";
 import { getConfig } from "../../config";
 import { consumeLoginPageRateLimit } from "../../rateLimit";
-import { requirePermission, type Permission } from "../../rbac";
+import { getPermissionDescription, requirePermission, type Permission } from "../../rbac";
 import { canUserAccessClient, canUserAccessFeature, getUserById, type FeatureName, type UserRole } from "../../users";
+import { renderAccessDeniedPage, type AccessDeniedKind } from "../ui/access-denied-view";
+import { htmlResponse } from "../ui/html";
 
 type PageRouteDeps = {
   PUBLIC_ROOT: string;
@@ -120,23 +122,60 @@ const PATH_CLIENT_PAGES: ClientPageDef[] = [
   { pattern: /^\/(.+)\/keylogger$/,  file: "keylogger.html",   clientIdGroup: 1, feature: "keylogger" },
 ];
 
-function checkAccess(role: UserRole, access: AccessLevel): Response | null {
+function accessDeniedResponse(
+  deps: PageRouteDeps,
+  options: {
+    kind: AccessDeniedKind;
+    title?: string;
+    message: string;
+    detail?: string;
+    detailLabel?: string;
+  },
+): Response {
+  return htmlResponse(renderAccessDeniedPage(options), {
+    status: 403,
+    headers: deps.secureHeaders("text/html; charset=utf-8"),
+  });
+}
+
+function permissionDeniedResponse(deps: PageRouteDeps, permission: Permission): Response {
+  return accessDeniedResponse(deps, {
+    kind: "permission",
+    message: `This page requires permission to ${getPermissionDescription(permission).toLowerCase()}.`,
+    detail: permission,
+    detailLabel: "Missing permission",
+  });
+}
+
+function checkAccess(deps: PageRouteDeps, role: UserRole, access: AccessLevel): Response | null {
   switch (access) {
     case "any":
       return null;
     case "no-viewer":
       if (role === "viewer") {
-        return new Response("Forbidden: Viewers cannot access interactive features", { status: 403 });
+        return accessDeniedResponse(deps, {
+          kind: "role",
+          message: "Viewer accounts can inspect data, but cannot open interactive control features.",
+          detail: "Operator or administrator role",
+        });
       }
       return null;
     case "admin":
       if (role !== "admin") {
-        return new Response("Forbidden: Admin access required", { status: 403 });
+        return accessDeniedResponse(deps, {
+          kind: "role",
+          message: "This area is reserved for administrators.",
+          detail: "Administrator role",
+        });
       }
       return null;
     case "admin-or-operator":
       if (role !== "admin" && role !== "operator") {
-        return new Response("Forbidden: Admin or operator access required", { status: 403 });
+        return accessDeniedResponse(deps, {
+          kind: "role",
+          message: "This interactive area is available to operators and administrators.",
+          detail: "Operator or administrator role",
+        });
       }
       return null;
   }
@@ -195,7 +234,12 @@ export async function handlePageRoutes(
     if (!user) return serveLoginOrUnauthorized(req, deps);
 
     if (page.path === "/screenshots" && !getConfig().thumbnails.wallEnabled) {
-      return new Response("Screenshot wall is disabled by the administrator", { status: 403 });
+      return accessDeniedResponse(deps, {
+        kind: "unavailable",
+        message: "The screenshot wall has been disabled in server settings.",
+        detail: "Screenshot wall disabled",
+        detailLabel: "Current status",
+      });
     }
 
     if (page.checkPasswordChange) {
@@ -203,14 +247,16 @@ export async function handlePageRoutes(
       if (maybeChange) return maybeChange;
     }
 
-    const accessDenied = checkAccess(user.role, page.access);
+    const accessDenied = checkAccess(deps, user.role, page.access);
     if (accessDenied) return accessDenied;
 
     if (page.permission) {
       try {
         requirePermission(user, page.permission);
       } catch (error) {
-        if (error instanceof Response) return error;
+        if (error instanceof Response && error.status === 403) {
+          return permissionDeniedResponse(deps, page.permission);
+        }
         return new Response("Forbidden", { status: 403 });
       }
     }
@@ -232,18 +278,34 @@ export async function handlePageRoutes(
       try {
         requirePermission(user, page.permission);
       } catch (error) {
-        if (error instanceof Response) return error;
+        if (error instanceof Response && error.status === 403) {
+          return permissionDeniedResponse(deps, page.permission);
+        }
         return new Response("Forbidden", { status: 403 });
       }
     }
 
     if (page.feature && !canUserAccessFeature(user.userId, user.role, page.feature)) {
-      return new Response(`Forbidden: feature access denied for ${page.feature}`, { status: 403 });
+      return accessDeniedResponse(deps, {
+        kind: "feature",
+        title: "This feature isn't enabled for you",
+        message: "Your account's feature access does not include this client tool.",
+        detail: page.feature,
+        detailLabel: "Restricted feature",
+      });
     }
 
     const clientId = (url.searchParams.get("clientId") || "").trim();
     if (!canAccessClientPage(user.userId, user.role, clientId)) {
-      return new Response("Forbidden: Client access denied", { status: 403 });
+      return accessDeniedResponse(deps, {
+        kind: "client",
+        title: "Client access restricted",
+        message: clientId
+          ? "This client is outside the scope assigned to your account."
+          : "Choose a client from the dashboard before opening this tool.",
+        detail: clientId || "No client selected",
+        detailLabel: "Client",
+      });
     }
 
     return serveFile(deps, page.file);
@@ -261,18 +323,32 @@ export async function handlePageRoutes(
       try {
         requirePermission(user, page.permission);
       } catch (error) {
-        if (error instanceof Response) return error;
+        if (error instanceof Response && error.status === 403) {
+          return permissionDeniedResponse(deps, page.permission);
+        }
         return new Response("Forbidden", { status: 403 });
       }
     }
 
     if (page.feature && !canUserAccessFeature(user.userId, user.role, page.feature)) {
-      return new Response(`Forbidden: feature access denied for ${page.feature}`, { status: 403 });
+      return accessDeniedResponse(deps, {
+        kind: "feature",
+        title: "This feature isn't enabled for you",
+        message: "Your account's feature access does not include this client tool.",
+        detail: page.feature,
+        detailLabel: "Restricted feature",
+      });
     }
 
     const clientId = match[page.clientIdGroup];
     if (!canAccessClientPage(user.userId, user.role, clientId)) {
-      return new Response("Forbidden: Client access denied", { status: 403 });
+      return accessDeniedResponse(deps, {
+        kind: "client",
+        title: "Client access restricted",
+        message: "This client is outside the scope assigned to your account.",
+        detail: clientId,
+        detailLabel: "Client",
+      });
     }
 
     return serveFile(deps, page.file);

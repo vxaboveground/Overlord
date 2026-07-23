@@ -56,7 +56,9 @@ test.describe("authentication and authorization", () => {
 
     const denied = await page.goto("/users");
     expect(denied?.status()).toBe(403);
-    await expect(page.locator("body")).toContainText("missing permission users:manage");
+    await expect(page.getByRole("heading", { name: "You don't have access" })).toBeVisible();
+    await expect(page.locator(".access-detail")).toContainText("users:manage");
+    await expect(page.getByRole("link", { name: "Return to dashboard" })).toBeVisible();
 
     const allowed = await page.goto("/metrics");
     expect(allowed?.status()).toBe(200);
