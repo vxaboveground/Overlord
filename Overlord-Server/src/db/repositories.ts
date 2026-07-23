@@ -187,6 +187,34 @@ export function deleteOfflineClientRows(): number {
   return (result as any)?.changes || 0;
 }
 
+export function deleteOfflineClientRowsForScope(
+  allowedClientIds?: string[],
+  deniedClientIds?: string[],
+): number {
+  if (allowedClientIds) {
+    if (allowedClientIds.length === 0) return 0;
+    const placeholders = allowedClientIds.map(() => "?").join(",");
+    const result = db.run(
+      `DELETE FROM clients WHERE online=0 AND id IN (${placeholders})`,
+      ...allowedClientIds,
+    );
+    invalidateClientMetricsSummaryCache();
+    return (result as any)?.changes || 0;
+  }
+
+  if (deniedClientIds && deniedClientIds.length > 0) {
+    const placeholders = deniedClientIds.map(() => "?").join(",");
+    const result = db.run(
+      `DELETE FROM clients WHERE online=0 AND id NOT IN (${placeholders})`,
+      ...deniedClientIds,
+    );
+    invalidateClientMetricsSummaryCache();
+    return (result as any)?.changes || 0;
+  }
+
+  return deleteOfflineClientRows();
+}
+
 export function getClientOnlineState(id: string): boolean | null {
   const row = db.query<{ online: number }>(`SELECT online FROM clients WHERE id=?`).get(id);
   if (!row) return null;
@@ -1271,15 +1299,31 @@ export function getClientPublicKeyById(id: string): string | null {
   return row?.public_key ?? null;
 }
 
-export function listDistinctCountries(): { code: string; count: number }[] {
+export function listDistinctCountries(
+  allowedClientIds?: string[],
+  deniedClientIds?: string[],
+): { code: string; count: number }[] {
+  if (allowedClientIds && allowedClientIds.length === 0) return [];
+
+  const clauses: string[] = [];
+  const params: string[] = [];
+  if (allowedClientIds) {
+    clauses.push(`id IN (${allowedClientIds.map(() => "?").join(",")})`);
+    params.push(...allowedClientIds);
+  } else if (deniedClientIds && deniedClientIds.length > 0) {
+    clauses.push(`id NOT IN (${deniedClientIds.map(() => "?").join(",")})`);
+    params.push(...deniedClientIds);
+  }
+  const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
   const rows = db
     .query<{ code: string; count: number }>(
       `SELECT UPPER(COALESCE(NULLIF(country, ''), 'ZZ')) as code, COUNT(*) as count
        FROM clients
+       ${where}
        GROUP BY UPPER(COALESCE(NULLIF(country, ''), 'ZZ'))
        ORDER BY count DESC`,
     )
-    .all();
+    .all(...params);
   return rows.map((r) => ({ code: r.code, count: Number(r.count) || 0 }));
 }
 

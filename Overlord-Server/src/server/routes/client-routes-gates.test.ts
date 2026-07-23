@@ -6,6 +6,9 @@ import {
   deleteUser,
   getUserById,
   setUserClientAccessScope,
+  setUserClientAccessRule,
+  getUserClientAccessScope,
+  listUserClientRuleIdsByAccess,
   setUserFeaturePermission,
 } from "../../users";
 import { upsertClientRow, deleteClientRow } from "../../db";
@@ -166,6 +169,75 @@ describe("remote desktop alternate command gates", () => {
     const clientId = registerTestClient();
     const res = await command(auth.token, clientId, "desktop_start");
     expect(res!.status).toBe(200);
+  });
+});
+
+describe("alternate command feature gates", () => {
+  test("operator with console feature OFF cannot execute a saved script through the HTTP command route", async () => {
+    const auth = await makeUserWithToken("operator");
+    const clientId = registerTestClient();
+    setUserFeaturePermission(auth.user.id, "console", false);
+    const res = await command(auth.token, clientId, "script_exec", { script: "echo blocked" });
+    expect(res!.status).toBe(403);
+  });
+
+  test("operator with voice feature OFF cannot probe voice capabilities through the HTTP command route", async () => {
+    const auth = await makeUserWithToken("operator");
+    const clientId = registerTestClient();
+    setUserFeaturePermission(auth.user.id, "voice", false);
+    const res = await command(auth.token, clientId, "voice_capabilities");
+    expect(res!.status).toBe(403);
+  });
+});
+
+describe("client scope aggregation and bulk mutation gates", () => {
+  test("country aggregation only includes clients in an operator's allowlist", async () => {
+    const auth = await makeUserWithToken("operator", false);
+    const allowedId = registerTestClient();
+    const deniedId = registerTestClient();
+    upsertClientRow({ id: allowedId, country: "Q1" });
+    upsertClientRow({ id: deniedId, country: "Q2" });
+    setUserClientAccessScope(auth.user.id, "allowlist");
+    setUserClientAccessRule(auth.user.id, allowedId, "allow");
+    expect(getUserClientAccessScope(auth.user.id)).toBe("allowlist");
+    expect(listUserClientRuleIdsByAccess(auth.user.id, "allow")).toEqual([allowedId]);
+
+    const url = new URL("https://localhost/api/clients/countries");
+    const res = await handleClientRoutes(
+      new Request(url, { headers: { Authorization: `Bearer ${auth.token}` } }),
+      url,
+      mockServer,
+      deps,
+    );
+    const body = await res!.json();
+    expect(body.countries).toEqual([{ code: "Q1", count: 1 }]);
+  });
+
+  test("bulk offline cleanup cannot delete a client outside an operator's allowlist", async () => {
+    const auth = await makeUserWithToken("operator", false);
+    const allowedId = registerTestClient();
+    const deniedId = registerTestClient();
+    clientManager.deleteClient(allowedId);
+    clientManager.deleteClient(deniedId);
+    upsertClientRow({ id: allowedId, online: 0 });
+    upsertClientRow({ id: deniedId, online: 0 });
+    setUserClientAccessScope(auth.user.id, "allowlist");
+    setUserClientAccessRule(auth.user.id, allowedId, "allow");
+    expect(getUserClientAccessScope(auth.user.id)).toBe("allowlist");
+    expect(listUserClientRuleIdsByAccess(auth.user.id, "allow")).toEqual([allowedId]);
+
+    const url = new URL("https://localhost/api/clients/offline");
+    const res = await handleClientRoutes(
+      new Request(url, { method: "DELETE", headers: { Authorization: `Bearer ${auth.token}` } }),
+      url,
+      mockServer,
+      deps,
+    );
+    expect(res!.status).toBe(200);
+    expect((await res!.json()).count).toBeGreaterThan(0);
+    const { clientExists } = await import("../../db");
+    expect(clientExists(allowedId)).toBe(false);
+    expect(clientExists(deniedId)).toBe(true);
   });
 });
 

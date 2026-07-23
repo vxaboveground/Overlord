@@ -55,6 +55,13 @@ export interface AuthenticatedUser {
   username: string;
   userId: number;
   role: UserRole;
+  mustChangePassword?: boolean;
+}
+
+function mayUseApiBeforePasswordChange(pathname: string, userId: number): boolean {
+  return pathname === "/api/auth/me"
+    || pathname === "/api/auth/logout"
+    || pathname === `/api/users/${userId}/password`;
 }
 
 export async function generateToken(
@@ -244,6 +251,15 @@ export async function authenticateRequest(
     return null;
   }
 
+  const pathname = new URL(req.url).pathname;
+  if (
+    Boolean(user.must_change_password)
+    && pathname.startsWith("/api/")
+    && !mayUseApiBeforePasswordChange(pathname, user.id)
+  ) {
+    return null;
+  }
+
   const now = Date.now();
   const lastUpdate = lastActivityUpdate.get(token) || 0;
   if (now - lastUpdate > SESSION_ACTIVITY_THROTTLE) {
@@ -257,6 +273,7 @@ export async function authenticateRequest(
     username: payload.sub,
     userId: payload.userId,
     role: user.role,
+    mustChangePassword: Boolean(user.must_change_password),
   };
 }
 

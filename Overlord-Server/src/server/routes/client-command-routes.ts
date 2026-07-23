@@ -190,6 +190,12 @@ export async function handleClientCommandRoute(
         return Response.json({ ok: false, error: error.message || "macOS permission request failed" }, { status: 504 });
       }
     } else if (action === "script_exec") {
+      try {
+        requireFeatureAccess(user, "console");
+      } catch (error) {
+        if (error instanceof Response) return error;
+        return new Response("Forbidden", { status: 403 });
+      }
       const scriptContent = body?.script || "";
       const scriptType = body?.scriptType || "powershell";
       const cmdId = uuidv4();
@@ -213,6 +219,12 @@ export async function handleClientCommandRoute(
         return Response.json({ ok: false, error: error.message }, { status: 500 });
       }
     } else if (action === "voice_capabilities") {
+      try {
+        requireFeatureAccess(user, "voice");
+      } catch (error) {
+        if (error instanceof Response) return error;
+        return new Response("Forbidden", { status: 403 });
+      }
       const cmdId = uuidv4();
       const replyPromise: Promise<{ ok: boolean; message?: string }> = new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {

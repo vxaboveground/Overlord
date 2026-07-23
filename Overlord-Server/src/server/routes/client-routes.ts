@@ -7,6 +7,7 @@ import {
   clientExists,
   deleteClientRow,
   deleteOfflineClientRows,
+  deleteOfflineClientRowsForScope,
   getClientOnlineState,
   getClientIp,
   isIpBanned,
@@ -150,7 +151,16 @@ export async function handleClientRoutes(
   if (url.pathname === "/api/clients/countries") {
     const user = await authenticateRequest(req);
     if (!user) return new Response("Unauthorized", { status: 401 });
-    return Response.json({ countries: listDistinctCountries() }, { headers: deps.CORS_HEADERS });
+    if (user.role === "admin") {
+      return Response.json({ countries: listDistinctCountries() }, { headers: deps.CORS_HEADERS });
+    }
+    const scope = getUserClientAccessScope(user.userId);
+    const allowedClientIds = scope === "allowlist" ? listUserClientRuleIdsByAccess(user.userId, "allow") : scope === "none" ? [] : undefined;
+    const deniedClientIds = scope === "denylist" ? listUserClientRuleIdsByAccess(user.userId, "deny") : undefined;
+    return Response.json(
+      { countries: listDistinctCountries(allowedClientIds, deniedClientIds) },
+      { headers: deps.CORS_HEADERS },
+    );
   }
 
   const logsMatch = url.pathname.match(/^\/api\/clients\/(.+)\/logs$/);
@@ -331,7 +341,15 @@ export async function handleClientRoutes(
       if (error instanceof Response) return error;
       return new Response("Forbidden", { status: 403 });
     }
-    const count = deleteOfflineClientRows();
+    let count: number;
+    if (user.role === "admin") {
+      count = deleteOfflineClientRows();
+    } else {
+      const scope = getUserClientAccessScope(user.userId);
+      const allowedClientIds = scope === "allowlist" ? listUserClientRuleIdsByAccess(user.userId, "allow") : scope === "none" ? [] : undefined;
+      const deniedClientIds = scope === "denylist" ? listUserClientRuleIdsByAccess(user.userId, "deny") : undefined;
+      count = deleteOfflineClientRowsForScope(allowedClientIds, deniedClientIds);
+    }
     notifyDashboardViewers();
     const ip = server.requestIP(req)?.address || "unknown";
     logAudit({ timestamp: Date.now(), username: user.username, ip, action: AuditAction.COMMAND, details: `wipe_offline_clients: removed ${count}`, success: true });

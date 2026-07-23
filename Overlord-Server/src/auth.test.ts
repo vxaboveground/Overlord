@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { extractTokenFromCookie, extractTokenFromHeader, generateToken } from "./auth";
+import { authenticateRequest, extractTokenFromCookie, extractTokenFromHeader, generateToken } from "./auth";
 import { getConfig, updateAppearanceConfig, type Config } from "./config";
 import { generateTotpCode } from "./mfa";
 import { getBrandingImage } from "./db";
@@ -43,6 +43,39 @@ describe("auth token extraction", () => {
 
   test("extractTokenFromCookie returns null when missing", () => {
     expect(extractTokenFromCookie("foo=bar")).toBeNull();
+  });
+});
+
+describe("forced password change authentication", () => {
+  test("a pending account can only use identity, logout, and its own password endpoint", async () => {
+    const username = `forced_password_${Date.now().toString(36)}`;
+    const created = await createUser(username, PASSWORD, "operator", "test", true);
+    expect(created.success).toBe(true);
+
+    try {
+      const user = getUserById(created.userId!);
+      const token = await generateToken(user!);
+      const headers = { Authorization: `Bearer ${token}` };
+
+      const blocked = await authenticateRequest(new Request("https://localhost/api/clients", { headers }));
+      expect(blocked).toBeNull();
+
+      const me = await authenticateRequest(new Request("https://localhost/api/auth/me", { headers }));
+      expect(me?.userId).toBe(created.userId!);
+      expect(me?.mustChangePassword).toBe(true);
+
+      const ownPassword = await authenticateRequest(
+        new Request(`https://localhost/api/users/${created.userId}/password`, { headers }),
+      );
+      expect(ownPassword?.userId).toBe(created.userId!);
+
+      const otherPassword = await authenticateRequest(
+        new Request("https://localhost/api/users/1/password", { headers }),
+      );
+      expect(otherPassword).toBeNull();
+    } finally {
+      deleteUser(created.userId!);
+    }
   });
 });
 
